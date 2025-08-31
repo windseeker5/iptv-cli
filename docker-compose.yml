@@ -1,0 +1,47 @@
+services:
+  nginx-rtmp:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: iptv-nginx-rtmp
+    ports:
+      - "${NGINX_RTMP_PORT:-1935}:1935"    # RTMP port
+      - "${NGINX_HTTP_PORT:-8080}:8080"    # HTTP port for HLS
+      - "${NGINX_ADMIN_PORT:-8081}:8081"   # Admin/stats port
+    volumes:
+      - ./nginx/hls:/nginx/hls
+      - ./nginx/recordings:/nginx/recordings
+      - ./nginx/logs:/nginx/log
+      - ./nginx/html:/nginx/html
+    environment:
+      - RTMP_PORT=1935
+      - HTTP_PORT=8080
+      - ADMIN_PORT=8081
+    networks:
+      - iptv-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/stat"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Future services can be added here
+  # jellyfin:
+  #   image: jellyfin/jellyfin:latest
+  #   container_name: iptv-jellyfin
+  #   ports:
+  #     - "8096:8096"
+  #   volumes:
+  #     - ./jellyfin/config:/config
+  #     - ./jellyfin/cache:/cache
+  #     - ./nginx/recordings:/media
+  #   networks:
+  #     - iptv-network
+  #   depends_on:
+  #     - nginx-rtmp
+  #   restart: unless-stopped
+
+networks:
+  iptv-network:
+    driver: bridge

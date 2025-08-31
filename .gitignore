@@ -8,6 +8,9 @@
 # JSON data files (may contain sensitive info)
 *.json
 
+# Restream process files
+.restream_*.pid
+
 # Python
 __pycache__/
 *.pyc

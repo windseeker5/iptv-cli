@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live TV CLI - Streaming</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Rubik+Glitch&display=swap" rel="stylesheet">
+    
+    <!-- HLS.js for video playback -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    
+    <!-- Cast SDK for Chromecast support -->
+    <script type="text/javascript" src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: #0a0a0a;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            color: white;
+        }
+        
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100vh;
+            padding: 20px;
+        }
+        
+        .title {
+            font-family: 'Rubik Glitch', cursive;
+            font-size: clamp(2rem, 8vw, 4rem);
+            font-weight: 400;
+            margin-bottom: 40px;
+            text-align: center;
+            background: #FF39E8;
+            background: linear-gradient(to left, #FF39E8 0%, #044377 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: 2px;
+            animation: glitch 3s ease-in-out infinite alternate;
+        }
+        
+        @keyframes glitch {
+            0% { text-shadow: 0 0 5px rgba(255, 57, 232, 0.3); }
+            50% { text-shadow: 2px 2px 10px rgba(4, 67, 119, 0.5); }
+            100% { text-shadow: 0 0 5px rgba(255, 57, 232, 0.3); }
+        }
+        
+        .video-container {
+            position: relative;
+            width: 90vw;
+            max-width: 1200px;
+            aspect-ratio: 16/9;
+            background: #111;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+        }
+        
+        #video {
+            width: 100%;
+            height: 100%;
+            display: block;
+            background: #111;
+            border: none;
+        }
+        
+        .controls {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            gap: 15px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .video-container:hover .controls {
+            opacity: 1;
+        }
+        
+        .control-btn {
+            background: rgba(0, 0, 0, 0.7);
+            border: none;
+            color: white;
+            padding: 12px;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+        
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: scale(1.1);
+        }
+        
+        .cast-btn {
+            background: rgba(255, 57, 232, 0.2);
+            border: 2px solid #FF39E8;
+        }
+        
+        .cast-btn:hover {
+            background: rgba(255, 57, 232, 0.4);
+        }
+        
+        .cast-btn.casting {
+            background: #FF39E8;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(255, 57, 232, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(255, 57, 232, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 57, 232, 0); }
+        }
+        
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #333;
+            border-top: 2px solid #FF39E8;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .error {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff4444;
+            text-align: center;
+            font-size: 16px;
+        }
+        
+        .stream-info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            color: #ccc;
+            backdrop-filter: blur(10px);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .video-container:hover .stream-info {
+            opacity: 1;
+        }
+        
+        .live-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            color: #ff4444;
+            font-weight: bold;
+        }
+        
+        .live-dot {
+            width: 8px;
+            height: 8px;
+            background: #ff4444;
+            border-radius: 50%;
+            animation: blink 1s infinite alternate;
+        }
+        
+        @keyframes blink {
+            0% { opacity: 1; }
+            100% { opacity: 0.3; }
+        }
+        
+        /* Mobile responsive */
+        @media (max-width: 768px) {
+            .video-container {
+                width: 95vw;
+            }
+            
+            .title {
+                margin-bottom: 20px;
+            }
+            
+            .controls {
+                bottom: 10px;
+                right: 10px;
+                gap: 10px;
+            }
+            
+            .control-btn {
+                padding: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="title">LIVE TV CLI</h1>
+        
+        <div class="video-container">
+            <video id="video" controls autoplay muted playsinline></video>
+            
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                Connecting to stream...
+            </div>
+            
+            <div class="error" id="error" style="display: none;">
+                <div>⚠️ Stream not available</div>
+                <div style="margin-top: 10px; font-size: 14px;">
+                    Check if a stream is active or try refreshing the page
+                </div>
+            </div>
+            
+            <div class="stream-info">
+                <div class="live-indicator">
+                    <div class="live-dot"></div>
+                    LIVE
+                </div>
+                <div id="stream-url">Loading...</div>
+            </div>
+            
+            <div class="controls">
+                <button class="control-btn" id="fullscreen-btn" title="Fullscreen">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+                    </svg>
+                </button>
+                
+                <button class="control-btn cast-btn" id="cast-btn" title="Cast to TV" style="display: none;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11zm20-7H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class LiveStreamPlayer {
+            constructor() {
+                this.video = document.getElementById('video');
+                this.loading = document.getElementById('loading');
+                this.error = document.getElementById('error');
+                this.streamUrl = document.getElementById('stream-url');
+                this.castBtn = document.getElementById('cast-btn');
+                this.fullscreenBtn = document.getElementById('fullscreen-btn');
+                
+                this.currentStream = null;
+                this.hls = null;
+                this.castSession = null;
+                
+                this.init();
+            }
+            
+            init() {
+                this.setupEventListeners();
+                this.initializeCast();
+                this.detectStream();
+            }
+            
+            setupEventListeners() {
+                // Fullscreen toggle
+                this.fullscreenBtn.addEventListener('click', () => {
+                    if (document.fullscreenElement) {
+                        document.exitFullscreen();
+                    } else {
+                        this.video.requestFullscreen();
+                    }
+                });
+                
+                // Video events
+                this.video.addEventListener('loadstart', () => this.showLoading());
+                this.video.addEventListener('loadeddata', () => this.hideLoading());
+                this.video.addEventListener('error', () => this.showError());
+                
+                // Auto-retry on error
+                this.video.addEventListener('error', () => {
+                    setTimeout(() => this.detectStream(), 5000);
+                });
+            }
+            
+            initializeCast() {
+                // Initialize Cast API
+                window['__onGCastApiAvailable'] = (isAvailable) => {
+                    if (isAvailable) {
+                        cast.framework.CastContext.getInstance().setOptions({
+                            receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
+                            autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+                        });
+                        
+                        this.castBtn.style.display = 'block';
+                        this.castBtn.addEventListener('click', () => this.toggleCast());
+                        
+                        // Listen for cast state changes
+                        cast.framework.CastContext.getInstance().addEventListener(
+                            cast.framework.CastContextEventType.CAST_STATE_CHANGED,
+                            (event) => this.onCastStateChanged(event)
+                        );
+                    }
+                };
+            }
+            
+            async detectStream() {
+                // Get current URL parameters
+                const urlParams = new URLSearchParams(window.location.search);
+                let streamKey = urlParams.get('stream');
+                
+                // If no stream specified, try to detect active streams
+                if (!streamKey) {
+                    try {
+                        const response = await fetch('/stat');
+                        const xmlText = await response.text();
+                        const parser = new DOMParser();
+                        const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+                        
+                        // Find first active stream
+                        const applications = xmlDoc.getElementsByTagName('application');
+                        for (let app of applications) {
+                            const live = app.getElementsByTagName('live');
+                            if (live.length > 0) {
+                                const streams = live[0].getElementsByTagName('stream');
+                                if (streams.length > 0) {
+                                    const name = streams[0].getElementsByTagName('name')[0];
+                                    if (name) {
+                                        streamKey = name.textContent;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.log('Could not detect active streams');
+                    }
+                }
+                
+                // Default to 'live' if no stream found
+                if (!streamKey) {
+                    streamKey = 'live';
+                }
+                
+                this.loadStream(streamKey);
+            }
+            
+            loadStream(streamKey) {
+                const streamUrl = `/hls/${streamKey}.m3u8`;
+                this.currentStream = streamKey;
+                
+                this.streamUrl.textContent = streamUrl;
+                
+                // Destroy existing HLS instance
+                if (this.hls) {
+                    this.hls.destroy();
+                }
+                
+                if (Hls.isSupported()) {
+                    this.hls = new Hls({
+                        enableWorker: false,
+                        lowLatencyMode: true,
+                        backBufferLength: 90
+                    });
+                    
+                    this.hls.loadSource(streamUrl);
+                    this.hls.attachMedia(this.video);
+                    
+                    this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                        this.video.play().catch(e => {
+                            console.log('Autoplay prevented:', e);
+                            // Show play button overlay if autoplay fails
+                        });
+                    });
+                    
+                    this.hls.on(Hls.Events.ERROR, (event, data) => {
+                        if (data.fatal) {
+                            this.showError();
+                            // Retry after 5 seconds
+                            setTimeout(() => this.loadStream(streamKey), 5000);
+                        }
+                    });
+                } else if (this.video.canPlayType('application/vnd.apple.mpegurl')) {
+                    // Safari native HLS support
+                    this.video.src = streamUrl;
+                } else {
+                    this.showError();
+                }
+            }
+            
+            toggleCast() {
+                const castContext = cast.framework.CastContext.getInstance();
+                if (castContext.getCastState() === cast.framework.CastState.CONNECTED) {
+                    castContext.endCurrentSession(true);
+                } else {
+                    castContext.requestSession().then(() => {
+                        this.startCasting();
+                    }).catch(e => {
+                        console.log('Cast request failed:', e);
+                    });
+                }
+            }
+            
+            startCasting() {
+                const castSession = cast.framework.CastContext.getInstance().getCurrentSession();
+                if (castSession && this.currentStream) {
+                    const mediaInfo = new chrome.cast.media.MediaInfo(`${window.location.origin}/hls/${this.currentStream}.m3u8`, 'application/x-mpegurl');
+                    mediaInfo.metadata = new chrome.cast.media.GenericMediaMetadata();
+                    mediaInfo.metadata.title = 'Live TV CLI';
+                    mediaInfo.metadata.subtitle = `Stream: ${this.currentStream}`;
+                    
+                    const request = new chrome.cast.media.LoadRequest(mediaInfo);
+                    castSession.loadMedia(request).catch(e => {
+                        console.log('Cast load failed:', e);
+                    });
+                }
+            }
+            
+            onCastStateChanged(event) {
+                const castState = event.castState;
+                const castBtn = this.castBtn;
+                
+                switch (castState) {
+                    case cast.framework.CastState.CONNECTED:
+                        castBtn.classList.add('casting');
+                        castBtn.title = 'Disconnect from TV';
+                        break;
+                    case cast.framework.CastState.NOT_CONNECTED:
+                        castBtn.classList.remove('casting');
+                        castBtn.title = 'Cast to TV';
+                        break;
+                }
+            }
+            
+            showLoading() {
+                this.loading.style.display = 'flex';
+                this.error.style.display = 'none';
+            }
+            
+            hideLoading() {
+                this.loading.style.display = 'none';
+                this.error.style.display = 'none';
+            }
+            
+            showError() {
+                this.loading.style.display = 'none';
+                this.error.style.display = 'block';
+            }
+        }
+        
+        // Initialize player when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new LiveStreamPlayer();
+        });
+        
+        // Handle URL changes for different streams
+        window.addEventListener('popstate', () => {
+            if (window.player) {
+                window.player.detectStream();
+            }
+        });
+    </script>
+</body>
+</html>
