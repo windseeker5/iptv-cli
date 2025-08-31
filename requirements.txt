@@ -4,6 +4,7 @@
 # Core CLI and formatting
 rich
 click
+pyfiglet
 
 # Menu navigation with arrow keys
 simple-term-menu
