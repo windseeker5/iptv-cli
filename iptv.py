@@ -13,7 +13,11 @@ import sqlite3
 import requests
 import json
 import subprocess
+import signal
+import glob
+import re
 from datetime import datetime
+from dotenv import load_dotenv
 from simple_term_menu import TerminalMenu
 from rich.console import Console
 from rich.panel import Panel
@@ -22,13 +26,30 @@ from rich.table import Table
 
 console = Console()
 
+# Load environment variables
+load_dotenv()
+
 class IPTVMenuManager:
     def __init__(self):
         self.db_path = "iptv.db"
-        self.server = "http://cf.its-cdn.me"
-        self.username = "1498fb9676b4"
-        self.password = "d808eed40f"
-        self.inject_server = None  # Set your inject server URL here
+        
+        # Load credentials from environment variables
+        self.server = os.getenv('IPTV_SERVER_URL')
+        self.username = os.getenv('IPTV_USERNAME')
+        self.password = os.getenv('IPTV_PASSWORD')
+        self.inject_server = os.getenv('INJECT_SERVER_URL')
+        
+        # Validate required environment variables
+        if not all([self.server, self.username, self.password]):
+            missing_vars = []
+            if not self.server: missing_vars.append('IPTV_SERVER_URL')
+            if not self.username: missing_vars.append('IPTV_USERNAME')
+            if not self.password: missing_vars.append('IPTV_PASSWORD')
+            
+            console.print(f"[red]Error: Missing required environment variables: {', '.join(missing_vars)}[/red]")
+            console.print("Please check your .env file and ensure all IPTV credentials are set.")
+            console.print("Copy .env.example to .env and add your credentials.")
+            sys.exit(1)
         
     def wait_for_escape(self):
         """Wait for escape key instead of enter"""
@@ -63,6 +84,7 @@ class IPTVMenuManager:
                 "Search",
                 "Browse Categories",
                 "Database Statistics",
+                "Build NGINX Container",
                 "Exit"
             ]
             
@@ -76,7 +98,7 @@ class IPTVMenuManager:
             
             choice = terminal_menu.show()
             
-            if choice is None or choice == 4:  # Exit
+            if choice is None or choice == 5:  # Exit
                 console.print("\nGoodbye!")
                 break
             elif choice == 0:  # Download/Update
@@ -87,6 +109,8 @@ class IPTVMenuManager:
                 self.browse_categories_menu()
             elif choice == 3:  # Statistics
                 self.show_statistics()
+            elif choice == 4:  # Build NGINX Container
+                self.nginx_container_menu()
     
     def show_status(self):
         """Show current database status"""
@@ -890,20 +914,198 @@ class IPTVMenuManager:
         console.print("Download started in background thread...")
     
     def restream_placeholder(self, item):
-        """Placeholder for restreaming functionality"""
+        """Restream content through NGINX-RTMP server"""
         console.clear()
-        console.print(Panel.fit("Restream Feature", style="dim white"))
+        console.print(Panel.fit(f"Restream: {item['name']}", style="dim white"))
         
-        console.print(f"Item: {item['name']}")
-        console.print(f"Stream URL: {item.get('stream_url', 'N/A')}")
+        # Check if NGINX container is running
+        if "[green]" not in self.check_container_status():
+            console.print("[red]✗[/red] NGINX-RTMP container is not running")
+            console.print("Start the container from 'Build NGINX Container' menu first")
+            self.wait_for_escape()
+            return
+        
+        # Check FFmpeg availability
+        try:
+            subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True, timeout=5)
+        except:
+            console.print("[red]✗[/red] FFmpeg not found. Install with:")
+            console.print("Ubuntu/Debian: sudo apt install ffmpeg")
+            console.print("macOS: brew install ffmpeg")
+            self.wait_for_escape()
+            return
+        
+        # Generate stream key from item name
+        stream_key = self._generate_stream_key(item['name'])
+        
+        console.print(f"Source: {item.get('stream_url', 'N/A')}")
+        console.print(f"Stream Key: {stream_key}")
+        console.print(f"RTMP Target: rtmp://localhost:1935/live/{stream_key}")
+        console.print(f"View URL: http://localhost:8080/hls/{stream_key}.m3u8")
         console.print()
-        console.print("[yellow]Restreaming functionality is not yet implemented.[/yellow]")
+        
+        options = [
+            "Start Restream",
+            "Start with Transcoding (Lower Bandwidth)",
+            "View Stream URLs",
+            "Stop Active Restream",
+            "Back"
+        ]
+        
+        terminal_menu = TerminalMenu(
+            options,
+            title="",
+            menu_cursor="> "
+        )
+        
+        choice = terminal_menu.show()
+        
+        if choice == 0:  # Start restream
+            self._start_restream(item, stream_key, transcode=False)
+        elif choice == 1:  # Start with transcoding
+            self._start_restream(item, stream_key, transcode=True)
+        elif choice == 2:  # View URLs
+            self._show_stream_urls(stream_key)
+        elif choice == 3:  # Stop restream
+            self._stop_restream()
+    
+    def _generate_stream_key(self, name):
+        """Generate a stream key from content name"""
+        # Clean name for use as stream key
+        key = re.sub(r'[^a-zA-Z0-9_-]', '_', name.lower())
+        key = re.sub(r'_+', '_', key)  # Remove multiple underscores
+        return key[:50]  # Limit length
+    
+    def _start_restream(self, item, stream_key, transcode=False):
+        """Start restreaming with FFmpeg"""
+        console.clear()
+        console.print(Panel.fit(f"Starting Restream: {item['name']}", style="dim white"))
+        
+        source_url = item.get('stream_url')
+        if not source_url:
+            console.print("[red]✗[/red] No stream URL available")
+            self.wait_for_escape()
+            return
+        
+        target_url = f"rtmp://localhost:1935/live/{stream_key}"
+        
+        if transcode:
+            # Transcode for lower bandwidth
+            ffmpeg_cmd = [
+                'ffmpeg',
+                '-i', source_url,
+                '-c:v', 'libx264',
+                '-preset', 'superfast',
+                '-tune', 'zerolatency',
+                '-b:v', '1M',
+                '-maxrate', '1M',
+                '-bufsize', '2M',
+                '-vf', 'scale=854:480',
+                '-c:a', 'aac',
+                '-b:a', '128k',
+                '-f', 'flv',
+                target_url
+            ]
+            console.print("Mode: Transcoding (Lower Bandwidth)")
+        else:
+            # Copy without transcoding for best quality
+            ffmpeg_cmd = [
+                'ffmpeg',
+                '-i', source_url,
+                '-c', 'copy',
+                '-f', 'flv',
+                target_url
+            ]
+            console.print("Mode: Copy (Best Quality)")
+        
+        console.print(f"Source: {source_url}")
+        console.print(f"Target: {target_url}")
+        console.print(f"View at: http://localhost:8080/hls/{stream_key}.m3u8")
         console.print()
-        console.print("This feature would:")
-        console.print("• Accept stream from IPTV server")
-        console.print("• Process with FFmpeg")
-        console.print("• Restream to configured server")
-        console.print("• Provide new endpoint URL")
+        console.print("[yellow]Starting restream... This will run in the background.[/yellow]")
+        console.print()
+        
+        try:
+            # Start FFmpeg process in background
+            process = subprocess.Popen(
+                ffmpeg_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True
+            )
+            
+            console.print(f"[green]✓[/green] Restream started with PID: {process.pid}")
+            console.print()
+            console.print("URLs for sharing:")
+            console.print(f"• HLS Stream: http://localhost:8080/hls/{stream_key}.m3u8")
+            console.print(f"• RTMP Stream: rtmp://localhost:1935/live/{stream_key}")
+            console.print()
+            console.print("The stream should be available in a few seconds.")
+            console.print("Check 'Container Status & URLs' for monitoring.")
+            
+            # Save process info for later stopping
+            with open(f".restream_{stream_key}.pid", "w") as f:
+                f.write(str(process.pid))
+                
+        except Exception as e:
+            console.print(f"[red]✗[/red] Failed to start restream: {e}")
+        
+        self.wait_for_escape()
+    
+    def _show_stream_urls(self, stream_key):
+        """Show stream URLs for sharing"""
+        console.clear()
+        console.print(Panel.fit("Stream URLs", style="dim white"))
+        
+        console.print(f"[bright_yellow]Stream Key:[/bright_yellow] {stream_key}")
+        console.print()
+        console.print("[bright_yellow]📺 Viewing URLs:[/bright_yellow]")
+        console.print(f"• HLS (Universal): http://localhost:8080/hls/{stream_key}.m3u8")
+        console.print(f"• RTMP: rtmp://localhost:1935/live/{stream_key}")
+        console.print()
+        console.print("[bright_yellow]🎬 Player Instructions:[/bright_yellow]")
+        console.print("• VLC: Open Network Stream → Paste HLS URL")
+        console.print("• Browser: Use HLS.js player or native support")
+        console.print("• OBS: Add Media Source → Paste HLS URL")
+        console.print("• FFplay: ffplay 'http://localhost:8080/hls/{stream_key}.m3u8'")
+        
+        self.wait_for_escape()
+    
+    def _stop_restream(self):
+        """Stop active restream processes"""
+        console.clear()
+        console.print(Panel.fit("Stop Restream", style="dim white"))
+        
+        pid_files = glob.glob(".restream_*.pid")
+        
+        if not pid_files:
+            console.print("No active restreams found")
+            self.wait_for_escape()
+            return
+        
+        stopped_count = 0
+        for pid_file in pid_files:
+            try:
+                with open(pid_file, "r") as f:
+                    pid = int(f.read().strip())
+                
+                # Try to terminate the process
+                os.kill(pid, signal.SIGTERM)
+                os.remove(pid_file)
+                stopped_count += 1
+                console.print(f"[green]✓[/green] Stopped restream process {pid}")
+                
+            except (OSError, ValueError, ProcessLookupError):
+                # Process already dead or invalid PID
+                try:
+                    os.remove(pid_file)
+                except:
+                    pass
+        
+        if stopped_count > 0:
+            console.print(f"[green]✓[/green] Stopped {stopped_count} restream(s)")
+        else:
+            console.print("[yellow]No active restreams to stop[/yellow]")
         
         self.wait_for_escape()
     
@@ -961,6 +1163,269 @@ class IPTVMenuManager:
             
         except Exception as e:
             console.print(f"Error reading statistics: {e}")
+        
+        self.wait_for_escape()
+    
+    def nginx_container_menu(self):
+        """NGINX Container management menu"""
+        while True:
+            console.clear()
+            console.print(Panel.fit("NGINX-RTMP Restreaming Server", style="dim white"))
+            
+            # Check Docker status
+            docker_status = self.check_docker_status()
+            container_status = self.check_container_status()
+            
+            console.print(f"Docker: {docker_status}")
+            console.print(f"Container: {container_status}")
+            console.print()
+            
+            options = [
+                "Build & Start NGINX Container",
+                "Stop Container",
+                "View Container Logs",
+                "Container Status & URLs",
+                "Test Restream Setup",
+                "Back to Main Menu"
+            ]
+            
+            terminal_menu = TerminalMenu(
+                options,
+                title="",
+                menu_cursor="> "
+            )
+            
+            choice = terminal_menu.show()
+            
+            if choice is None or choice == 5:  # Back
+                break
+            elif choice == 0:  # Build & Start
+                self.build_nginx_container()
+            elif choice == 1:  # Stop
+                self.stop_nginx_container()
+            elif choice == 2:  # Logs
+                self.show_container_logs()
+            elif choice == 3:  # Status
+                self.show_container_status()
+            elif choice == 4:  # Test setup
+                self.test_restream_setup()
+    
+    def check_docker_status(self):
+        """Check if Docker is available"""
+        try:
+            result = subprocess.run(['docker', '--version'], capture_output=True, check=True, timeout=5)
+            return "[green]✓ Available[/green]"
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+            return "[red]✗ Not available[/red]"
+    
+    def check_container_status(self):
+        """Check NGINX container status"""
+        try:
+            result = subprocess.run(['docker', 'ps', '--filter', 'name=iptv-nginx-rtmp', '--format', 'table {{.Status}}'], 
+                                  capture_output=True, check=True, timeout=5)
+            output = result.stdout.decode().strip()
+            if 'Up' in output:
+                return "[green]✓ Running[/green]"
+            else:
+                # Check if container exists but stopped
+                result = subprocess.run(['docker', 'ps', '-a', '--filter', 'name=iptv-nginx-rtmp', '--format', 'table {{.Status}}'], 
+                                      capture_output=True, check=True, timeout=5)
+                output = result.stdout.decode().strip()
+                if output and output != "STATUS":
+                    return "[yellow]○ Stopped[/yellow]"
+                else:
+                    return "[dim white]○ Not created[/dim white]"
+        except:
+            return "[dim white]○ Unknown[/dim white]"
+    
+    def build_nginx_container(self):
+        """Build and start NGINX container"""
+        console.clear()
+        console.print(Panel.fit("Building NGINX-RTMP Container", style="dim white"))
+        
+        # Check if Docker is available
+        if "[red]" in self.check_docker_status():
+            console.print("[red]✗[/red] Docker is not available. Please install Docker and Docker Compose.")
+            console.print("Installation: https://docs.docker.com/get-docker/")
+            self.wait_for_escape()
+            return
+        
+        try:
+            console.print("Building and starting containers...")
+            
+            # Use docker-compose to build and start
+            process = subprocess.Popen(
+                ['docker-compose', 'up', '-d', '--build'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True
+            )
+            
+            # Show output in real-time
+            for line in process.stdout:
+                console.print(f"[dim white]{line.strip()}[/dim white]")
+            
+            process.wait()
+            
+            if process.returncode == 0:
+                console.print("\n[green]✓[/green] Container started successfully!")
+                console.print("\nServer URLs:")
+                console.print("• Web Interface: http://localhost:8080")
+                console.print("• RTMP Input: rtmp://localhost:1935/live/[stream_key]")
+                console.print("• HLS Output: http://localhost:8080/hls/[stream_key].m3u8")
+                console.print("• Statistics: http://localhost:8080/stat")
+            else:
+                console.print(f"[red]✗[/red] Container build failed with exit code: {process.returncode}")
+                
+        except FileNotFoundError:
+            console.print("[red]✗[/red] docker-compose not found. Please install Docker Compose.")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Error building container: {e}")
+        
+        self.wait_for_escape()
+    
+    def stop_nginx_container(self):
+        """Stop NGINX container"""
+        console.clear()
+        console.print(Panel.fit("Stopping NGINX Container", style="dim white"))
+        
+        try:
+            result = subprocess.run(['docker-compose', 'down'], 
+                                  capture_output=True, check=True, timeout=30)
+            console.print("[green]✓[/green] Container stopped successfully")
+            console.print(result.stdout.decode())
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]✗[/red] Error stopping container: {e}")
+            console.print(e.stderr.decode())
+        except FileNotFoundError:
+            console.print("[red]✗[/red] docker-compose not found")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Error: {e}")
+        
+        self.wait_for_escape()
+    
+    def show_container_logs(self):
+        """Show container logs"""
+        console.clear()
+        console.print(Panel.fit("Container Logs", style="dim white"))
+        
+        try:
+            result = subprocess.run(['docker', 'logs', 'iptv-nginx-rtmp', '--tail', '50'], 
+                                  capture_output=True, check=True, timeout=10)
+            console.print(result.stdout.decode())
+            if result.stderr.decode():
+                console.print(f"[yellow]Stderr:[/yellow] {result.stderr.decode()}")
+        except subprocess.CalledProcessError:
+            console.print("[yellow]Container not found or not running[/yellow]")
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/red]")
+        
+        self.wait_for_escape()
+    
+    def show_container_status(self):
+        """Show detailed container status and URLs"""
+        console.clear()
+        console.print(Panel.fit("Container Status & Information", style="dim white"))
+        
+        # Container status
+        status = self.check_container_status()
+        console.print(f"Status: {status}")
+        
+        if "[green]" not in status:
+            console.print("\nContainer is not running. Use 'Build & Start NGINX Container' first.")
+            self.wait_for_escape()
+            return
+        
+        console.print("\n[bright_yellow]📡 RTMP Input Endpoints:[/bright_yellow]")
+        console.print("• Main: rtmp://localhost:1935/live/[stream_key]")
+        console.print("• Example: rtmp://localhost:1935/live/cnn_news")
+        
+        console.print("\n[bright_yellow]📺 HLS Output URLs:[/bright_yellow]")
+        console.print("• Base: http://localhost:8080/hls/[stream_key].m3u8")
+        console.print("• Example: http://localhost:8080/hls/cnn_news.m3u8")
+        
+        console.print("\n[bright_yellow]🌐 Web Interfaces:[/bright_yellow]")
+        console.print("• Main: http://localhost:8080")
+        console.print("• Statistics: http://localhost:8080/stat")
+        console.print("• Admin: http://localhost:8081")
+        
+        console.print("\n[bright_yellow]📊 Quality Variants:[/bright_yellow]")
+        console.print("• Source: Original quality")
+        console.print("• Mid: 854x480 @ 768k")
+        console.print("• Low: 480x270 @ 256k")
+        
+        self.wait_for_escape()
+    
+    def test_restream_setup(self):
+        """Test the restreaming setup"""
+        console.clear()
+        console.print(Panel.fit("Test Restream Setup", style="dim white"))
+        
+        # Check if FFmpeg is available
+        try:
+            subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True, timeout=5)
+            console.print("[green]✓[/green] FFmpeg is available")
+        except:
+            console.print("[red]✗[/red] FFmpeg not found. Install with:")
+            console.print("Ubuntu/Debian: sudo apt install ffmpeg")
+            console.print("macOS: brew install ffmpeg")
+            self.wait_for_escape()
+            return
+        
+        # Check container status
+        if "[green]" not in self.check_container_status():
+            console.print("[red]✗[/red] NGINX container is not running")
+            console.print("Start the container first using 'Build & Start NGINX Container'")
+            self.wait_for_escape()
+            return
+        
+        console.print("\n[bright_yellow]Testing with sample stream...[/bright_yellow]")
+        console.print("This will test the restream setup with a color bar test pattern.")
+        console.print("Press Enter to start test, or Escape to cancel...")
+        
+        try:
+            key = input()
+            if key == '\x1b':  # ESC
+                return
+        except:
+            pass
+        
+        try:
+            # Create a test stream with FFmpeg
+            console.print("Starting test stream...")
+            test_cmd = [
+                'ffmpeg',
+                '-f', 'lavfi',
+                '-i', 'testsrc2=size=640x480:rate=1',
+                '-f', 'lavfi', 
+                '-i', 'sine=frequency=1000',
+                '-c:v', 'libx264',
+                '-preset', 'ultrafast',
+                '-tune', 'zerolatency', 
+                '-c:a', 'aac',
+                '-f', 'flv',
+                '-t', '10',  # 10 second test
+                'rtmp://localhost:1935/live/test_stream'
+            ]
+            
+            process = subprocess.Popen(test_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            console.print("Test stream running for 10 seconds...")
+            console.print("You can view it at: http://localhost:8080/hls/test_stream.m3u8")
+            
+            stdout, stderr = process.communicate(timeout=15)
+            
+            if process.returncode == 0:
+                console.print("[green]✓[/green] Test stream completed successfully!")
+            else:
+                console.print(f"[yellow]⚠[/yellow] Test completed with warnings")
+                if stderr:
+                    console.print(f"Details: {stderr.decode()[:200]}...")
+                    
+        except subprocess.TimeoutExpired:
+            process.kill()
+            console.print("[yellow]⚠[/yellow] Test stream timed out (this is normal)")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Test failed: {e}")
         
         self.wait_for_escape()
     

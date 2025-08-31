@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPTV NGINX-RTMP Server</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .card {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            border-left: 4px solid #667eea;
+        }
+        .card h2 {
+            margin-top: 0;
+            color: #667eea;
+        }
+        .url-box {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #e9ecef;
+            font-family: 'Courier New', monospace;
+            word-break: break-all;
+            margin: 10px 0;
+        }
+        .status {
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .example {
+            background: #e7f3ff;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #2196f3;
+            margin: 15px 0;
+        }
+        .code {
+            background: #f4f4f4;
+            padding: 10px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            overflow-x: auto;
+        }
+        .button {
+            display: inline-block;
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 5px;
+            transition: background-color 0.3s;
+        }
+        .button:hover {
+            background: #5a67d8;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎬 IPTV NGINX-RTMP Restreaming Server</h1>
+        <p>Ready to accept and redistribute IPTV streams</p>
+    </div>
+
+    <div class="container">
+        <div class="card">
+            <h2>📡 Stream Input (RTMP)</h2>
+            <p>Send streams to this RTMP endpoint:</p>
+            <div class="url-box">
+                rtmp://localhost:1935/live/[stream_key]
+            </div>
+            <p><strong>Example:</strong></p>
+            <div class="example">
+                From your IPTV app, streams will be automatically sent to:<br>
+                <code>rtmp://localhost:1935/live/cnn_news</code>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>📺 Stream Output (HLS)</h2>
+            <p>View restreamed content via HTTP:</p>
+            <div class="url-box">
+                http://localhost:8080/hls/[stream_key].m3u8
+            </div>
+            <p><strong>Example:</strong></p>
+            <div class="example">
+                Watch in VLC, browser, or any HLS player:<br>
+                <code>http://localhost:8080/hls/cnn_news.m3u8</code>
+            </div>
+        </div>
+    </div>
+
+    <div class="status">
+        <h2>📊 Server Status & Controls</h2>
+        <p>Monitor and control your restreaming server:</p>
+        
+        <div style="margin: 20px 0;">
+            <a href="/live" class="button" style="background: linear-gradient(135deg, #FF39E8 0%, #044377 100%);">📺 Watch Live Stream</a>
+            <a href="/stat" class="button">📈 Live Statistics</a>
+            <a href="/control" class="button">⚙️ Stream Control</a>
+        </div>
+
+        <div class="example">
+            <h3>FFmpeg Push Example:</h3>
+            <div class="code">
+# From IPTV app, automatically executed:<br>
+ffmpeg -i "http://source.iptv.stream/channel.m3u8" \<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-c copy -f flv \<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;rtmp://localhost:1935/live/channel_name
+            </div>
+        </div>
+
+        <div class="example">
+            <h3>Multiple Quality Streams:</h3>
+            <p>The server automatically creates multiple quality versions:</p>
+            <ul>
+                <li><strong>Source:</strong> Original quality</li>
+                <li><strong>Mid:</strong> 854x480 @ 768k</li>
+                <li><strong>Low:</strong> 480x270 @ 256k</li>
+            </ul>
+        </div>
+    </div>
+
+    <div style="margin-top: 30px; text-align: center; color: #666;">
+        <p>Generated by IPTV CLI Application - Docker Container Running</p>
+    </div>
+
+    <script>
+        // Auto-refresh stats every 30 seconds
+        setInterval(function() {
+            // You could add AJAX calls to update stats here
+            console.log('Server running...');
+        }, 30000);
+    </script>
+</body>
+</html>
