@@ -37,6 +37,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from simple_term_menu import TerminalMenu
 from rich.console import Console
+from pyfiglet import Figlet
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.table import Table
@@ -91,19 +92,23 @@ class IPTVMenuManager:
         while True:
             console.clear()
             console.print()
-            console.print("[bright_red] ✻[/bright_red] Welcome to IPTV cli !")
+            console.print("[bright_red] ✻[/bright_red] Welcome to")
+            
+            # Create figlet title
+            figlet = Figlet(font='isometric1')
+            title = figlet.renderText('IPTV')
+            console.print(f"[cyan]{title}[/cyan]")
             console.print()
             
             # Show database status
             self.show_status()
             
             options = [
-                "Search",
+                "Search IPTV",
                 "Browse Categories",
                 "Database Statistics",
-                "Download/Update Database",
-                "Container Management",
-                "Exit"
+                "Update IPTV db",
+                "Install & Manage Tools"
             ]
             
             terminal_menu = TerminalMenu(
@@ -116,18 +121,18 @@ class IPTVMenuManager:
             
             choice = terminal_menu.show()
             
-            if choice is None or choice == 5:  # Exit
+            if choice is None:  # ESC pressed
                 console.print("\nGoodbye!")
                 break
-            elif choice == 0:  # Search
+            elif choice == 0:  # Search IPTV
                 self.unified_search_menu()
             elif choice == 1:  # Browse Categories
                 self.browse_categories_menu()
             elif choice == 2:  # Statistics
                 self.show_statistics()
-            elif choice == 3:  # Download/Update
+            elif choice == 3:  # Update IPTV db
                 self.download_menu()
-            elif choice == 4:  # Container Management
+            elif choice == 4:  # Install & Manage Tools
                 self.container_management_menu()
     
     def show_status(self):
@@ -1188,9 +1193,9 @@ class IPTVMenuManager:
         """Container management selection menu"""
         while True:
             console.clear()
-            console.print(Panel.fit("Container Management", style="dim white"))
+            console.print(Panel.fit("Install & Manage Tools", style="dim white"))
             
-            # Show status of both containers
+            # Show status of both containers and Docker
             docker_status = self.check_docker_status()
             nginx_status = self.check_container_status()
             jellyfin_status = self.check_jellyfin_status()
@@ -1201,8 +1206,10 @@ class IPTVMenuManager:
             console.print()
             
             options = [
+                "Install Docker",
+                "Install Lazydocker",
                 "NGINX-RTMP Server Management",
-                "Jellyfin Media Server Management",
+                "Jellyfin Media Server Management", 
                 "Start All Containers",
                 "Stop All Containers",
                 "Back to Main Menu"
@@ -1216,15 +1223,19 @@ class IPTVMenuManager:
             
             choice = terminal_menu.show()
             
-            if choice is None or choice == 4:  # Back
+            if choice is None or choice == 6:  # Back
                 break
-            elif choice == 0:  # NGINX Management
+            elif choice == 0:  # Install Docker
+                self.install_docker()
+            elif choice == 1:  # Install Lazydocker
+                self.install_lazydocker()
+            elif choice == 2:  # NGINX Management
                 self.nginx_container_menu()
-            elif choice == 1:  # Jellyfin Management
+            elif choice == 3:  # Jellyfin Management
                 self.jellyfin_container_menu()
-            elif choice == 2:  # Start All
+            elif choice == 4:  # Start All
                 self.start_all_containers()
-            elif choice == 3:  # Stop All
+            elif choice == 5:  # Stop All
                 self.stop_all_containers()
     
     def nginx_container_menu(self):
@@ -2001,6 +2012,361 @@ class IPTVMenuManager:
             console.print(f"[red]Error: {e}[/red]")
         
         self.wait_for_escape()
+    
+    def detect_os(self):
+        """Detect if system is Arch Linux or Ubuntu"""
+        try:
+            # Check for Arch Linux
+            if os.path.exists('/etc/arch-release'):
+                return 'arch'
+            
+            # Check for Ubuntu/Debian
+            if os.path.exists('/etc/lsb-release'):
+                with open('/etc/lsb-release', 'r') as f:
+                    content = f.read().lower()
+                    if 'ubuntu' in content:
+                        return 'ubuntu'
+            
+            # Check /etc/os-release for more distributions
+            if os.path.exists('/etc/os-release'):
+                with open('/etc/os-release', 'r') as f:
+                    content = f.read().lower()
+                    if 'arch' in content:
+                        return 'arch'
+                    elif 'ubuntu' in content:
+                        return 'ubuntu'
+            
+            # Fallback: check pacman or apt
+            try:
+                subprocess.run(['pacman', '--version'], capture_output=True, check=True)
+                return 'arch'
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                pass
+            
+            try:
+                subprocess.run(['apt', '--version'], capture_output=True, check=True)
+                return 'ubuntu'
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                pass
+            
+            return 'unknown'
+        except:
+            return 'unknown'
+    
+    def install_docker(self):
+        """Install Docker and Docker Compose with OS detection"""
+        console.clear()
+        console.print(Panel.fit("Install Docker", style="dim white"))
+        
+        # Detect OS
+        os_type = self.detect_os()
+        console.print(f"Detected OS: {os_type.upper()}")
+        
+        if os_type == 'unknown':
+            console.print("[red]✗[/red] Unsupported operating system")
+            console.print("This installer supports Arch Linux and Ubuntu only")
+            self.wait_for_escape()
+            return
+        
+        # Check if Docker is already installed
+        try:
+            subprocess.run(['docker', '--version'], capture_output=True, check=True)
+            console.print("[yellow]Docker is already installed[/yellow]")
+            
+            # Check if user is in docker group
+            try:
+                result = subprocess.run(['groups'], capture_output=True, text=True)
+                if 'docker' not in result.stdout:
+                    console.print("[yellow]User not in docker group[/yellow]")
+                    self._add_user_to_docker_group()
+                else:
+                    console.print("[green]✓[/green] User is already in docker group")
+            except:
+                console.print("[yellow]Could not check docker group membership[/yellow]")
+            
+            self.wait_for_escape()
+            return
+        except:
+            pass
+        
+        console.print("\\nThis will install Docker and Docker Compose")
+        console.print("The installation requires sudo privileges")
+        console.print("\\nPress Enter to continue, or Escape to cancel...")
+        
+        try:
+            key = input()
+            if key == '\\x1b':  # ESC
+                return
+        except:
+            pass
+        
+        if os_type == 'arch':
+            self._install_docker_arch()
+        elif os_type == 'ubuntu':
+            self._install_docker_ubuntu()
+    
+    def _install_docker_arch(self):
+        """Install Docker on Arch Linux"""
+        console.print("\\n[bright_yellow]Installing Docker on Arch Linux...[/bright_yellow]")
+        
+        try:
+            # Update package database
+            console.print("Updating package database...")
+            result = subprocess.run(['sudo', 'pacman', '-Sy'], check=True)
+            
+            # Install Docker
+            console.print("Installing Docker...")
+            result = subprocess.run(['sudo', 'pacman', '-S', '--noconfirm', 'docker', 'docker-compose'], check=True)
+            console.print("[green]✓[/green] Docker and Docker Compose installed")
+            
+            # Enable and start Docker service
+            console.print("Enabling Docker service...")
+            subprocess.run(['sudo', 'systemctl', 'enable', 'docker'], check=True)
+            subprocess.run(['sudo', 'systemctl', 'start', 'docker'], check=True)
+            console.print("[green]✓[/green] Docker service enabled and started")
+            
+            # Add user to docker group
+            self._add_user_to_docker_group()
+            
+            console.print("\\n[green]✓[/green] Docker installation completed successfully!")
+            console.print("Please log out and log back in for group changes to take effect")
+            
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]✗[/red] Installation failed: {e}")
+            console.print("Please check your sudo privileges and try again")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Error during installation: {e}")
+        
+        self.wait_for_escape()
+    
+    def _install_docker_ubuntu(self):
+        """Install Docker on Ubuntu"""
+        console.print("\\n[bright_yellow]Installing Docker on Ubuntu...[/bright_yellow]")
+        
+        try:
+            # Update package index
+            console.print("Updating package index...")
+            subprocess.run(['sudo', 'apt', 'update'], check=True)
+            
+            # Install prerequisites
+            console.print("Installing prerequisites...")
+            subprocess.run(['sudo', 'apt', 'install', '-y', 
+                          'apt-transport-https', 'ca-certificates', 'curl', 'gnupg', 'lsb-release'], check=True)
+            
+            # Add Docker's official GPG key
+            console.print("Adding Docker GPG key...")
+            subprocess.run(['curl', '-fsSL', 'https://download.docker.com/linux/ubuntu/gpg'], 
+                         stdout=subprocess.PIPE, check=True)
+            
+            # Add Docker repository
+            console.print("Adding Docker repository...")
+            arch_result = subprocess.run(['dpkg', '--print-architecture'], capture_output=True, text=True, check=True)
+            arch = arch_result.stdout.strip()
+            
+            lsb_result = subprocess.run(['lsb_release', '-cs'], capture_output=True, text=True, check=True)
+            codename = lsb_result.stdout.strip()
+            
+            repo_line = f"deb [arch={arch} signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu {codename} stable"
+            
+            # Create keyring directory and add key
+            subprocess.run(['sudo', 'mkdir', '-p', '/usr/share/keyrings'], check=True)
+            key_process = subprocess.run(['curl', '-fsSL', 'https://download.docker.com/linux/ubuntu/gpg'], 
+                                       stdout=subprocess.PIPE, check=True)
+            subprocess.run(['sudo', 'gpg', '--dearmor', '-o', '/usr/share/keyrings/docker-archive-keyring.gpg'], 
+                         input=key_process.stdout, check=True)
+            
+            # Add repository
+            with open('/tmp/docker.list', 'w') as f:
+                f.write(repo_line)
+            subprocess.run(['sudo', 'mv', '/tmp/docker.list', '/etc/apt/sources.list.d/docker.list'], check=True)
+            
+            # Update package index again
+            console.print("Updating package index with Docker repository...")
+            subprocess.run(['sudo', 'apt', 'update'], check=True)
+            
+            # Install Docker
+            console.print("Installing Docker...")
+            subprocess.run(['sudo', 'apt', 'install', '-y', 'docker-ce', 'docker-ce-cli', 'containerd.io'], check=True)
+            
+            # Install Docker Compose
+            console.print("Installing Docker Compose...")
+            subprocess.run(['sudo', 'apt', 'install', '-y', 'docker-compose-plugin'], check=True)
+            
+            console.print("[green]✓[/green] Docker and Docker Compose installed")
+            
+            # Enable and start Docker service
+            console.print("Enabling Docker service...")
+            subprocess.run(['sudo', 'systemctl', 'enable', 'docker'], check=True)
+            subprocess.run(['sudo', 'systemctl', 'start', 'docker'], check=True)
+            console.print("[green]✓[/green] Docker service enabled and started")
+            
+            # Add user to docker group
+            self._add_user_to_docker_group()
+            
+            console.print("\\n[green]✓[/green] Docker installation completed successfully!")
+            console.print("Please log out and log back in for group changes to take effect")
+            
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]✗[/red] Installation failed: {e}")
+            console.print("Please check your sudo privileges and internet connection")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Error during installation: {e}")
+        
+        self.wait_for_escape()
+    
+    def _add_user_to_docker_group(self):
+        """Add current user to docker group"""
+        try:
+            import getpass
+            username = getpass.getuser()
+            console.print(f"Adding user '{username}' to docker group...")
+            subprocess.run(['sudo', 'usermod', '-aG', 'docker', username], check=True)
+            console.print("[green]✓[/green] User added to docker group")
+        except Exception as e:
+            console.print(f"[yellow]⚠[/yellow] Could not add user to docker group: {e}")
+            console.print("You may need to run: sudo usermod -aG docker $USER")
+    
+    def install_lazydocker(self):
+        """Install Lazydocker with OS detection"""
+        console.clear()
+        console.print(Panel.fit("Install Lazydocker", style="dim white"))
+        
+        # Check if Docker is installed
+        docker_status = self.check_docker_status()
+        if "[green]" not in docker_status:
+            console.print("[red]✗[/red] Docker is not installed")
+            console.print("Please install Docker first using the 'Install Docker' option")
+            self.wait_for_escape()
+            return
+        
+        # Detect OS
+        os_type = self.detect_os()
+        console.print(f"Detected OS: {os_type.upper()}")
+        
+        if os_type == 'unknown':
+            console.print("[red]✗[/red] Unsupported operating system")
+            console.print("This installer supports Arch Linux and Ubuntu only")
+            self.wait_for_escape()
+            return
+        
+        # Check if Lazydocker is already installed
+        try:
+            result = subprocess.run(['lazydocker', '--version'], capture_output=True, check=True)
+            console.print("[yellow]Lazydocker is already installed[/yellow]")
+            console.print(result.stdout.decode())
+            self.wait_for_escape()
+            return
+        except:
+            pass
+        
+        console.print("\\nThis will install Lazydocker - a simple terminal UI for Docker")
+        console.print("The installation requires sudo privileges")
+        console.print("\\nPress Enter to continue, or Escape to cancel...")
+        
+        try:
+            key = input()
+            if key == '\\x1b':  # ESC
+                return
+        except:
+            pass
+        
+        if os_type == 'arch':
+            self._install_lazydocker_arch()
+        elif os_type == 'ubuntu':
+            self._install_lazydocker_ubuntu()
+    
+    def _install_lazydocker_arch(self):
+        """Install Lazydocker on Arch Linux"""
+        console.print("\\n[bright_yellow]Installing Lazydocker on Arch Linux...[/bright_yellow]")
+        
+        try:
+            # Check if yay is available for AUR packages
+            try:
+                subprocess.run(['yay', '--version'], capture_output=True, check=True)
+                console.print("Installing via yay (AUR)...")
+                result = subprocess.run(['yay', '-S', '--noconfirm', 'lazydocker'], check=True)
+                console.print("[green]✓[/green] Lazydocker installed via AUR")
+            except:
+                # Fallback to manual installation
+                console.print("yay not found, installing manually...")
+                self._install_lazydocker_manual()
+            
+            console.print("\\n[green]✓[/green] Lazydocker installation completed!")
+            console.print("You can now run 'lazydocker' to launch the Docker TUI")
+            
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]✗[/red] Installation failed: {e}")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Error during installation: {e}")
+        
+        self.wait_for_escape()
+    
+    def _install_lazydocker_ubuntu(self):
+        """Install Lazydocker on Ubuntu"""
+        console.print("\\n[bright_yellow]Installing Lazydocker on Ubuntu...[/bright_yellow]")
+        
+        try:
+            # Lazydocker is not in Ubuntu repos, so we install manually
+            self._install_lazydocker_manual()
+            
+            console.print("\\n[green]✓[/green] Lazydocker installation completed!")
+            console.print("You can now run 'lazydocker' to launch the Docker TUI")
+            
+        except Exception as e:
+            console.print(f"[red]✗[/red] Error during installation: {e}")
+        
+        self.wait_for_escape()
+    
+    def _install_lazydocker_manual(self):
+        """Install Lazydocker manually from GitHub releases"""
+        console.print("Installing Lazydocker from GitHub releases...")
+        
+        try:
+            # Get latest release URL
+            import json
+            
+            # Download the latest release info
+            result = subprocess.run(['curl', '-s', 'https://api.github.com/repos/jesseduffield/lazydocker/releases/latest'], 
+                                  capture_output=True, text=True, check=True)
+            release_data = json.loads(result.stdout)
+            
+            # Find the appropriate binary for Linux x86_64
+            download_url = None
+            for asset in release_data.get('assets', []):
+                if 'Linux_x86_64' in asset.get('name', '') and asset.get('name', '').endswith('.tar.gz'):
+                    download_url = asset.get('browser_download_url')
+                    break
+            
+            if not download_url:
+                raise Exception("Could not find appropriate release binary")
+            
+            console.print(f"Downloading from: {download_url}")
+            
+            # Download and install
+            temp_dir = '/tmp/lazydocker_install'
+            os.makedirs(temp_dir, exist_ok=True)
+            
+            # Download
+            subprocess.run(['curl', '-L', '-o', f'{temp_dir}/lazydocker.tar.gz', download_url], check=True)
+            
+            # Extract
+            subprocess.run(['tar', '-xzf', f'{temp_dir}/lazydocker.tar.gz', '-C', temp_dir], check=True)
+            
+            # Install to /usr/local/bin
+            subprocess.run(['sudo', 'mv', f'{temp_dir}/lazydocker', '/usr/local/bin/'], check=True)
+            subprocess.run(['sudo', 'chmod', '+x', '/usr/local/bin/lazydocker'], check=True)
+            
+            # Cleanup
+            subprocess.run(['rm', '-rf', temp_dir], check=True)
+            
+            console.print("[green]✓[/green] Lazydocker installed to /usr/local/bin/lazydocker")
+            
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]✗[/red] Download/installation failed: {e}")
+            raise
+        except Exception as e:
+            console.print(f"[red]✗[/red] Manual installation failed: {e}")
+            raise
 
 def main():
     """Main entry point"""
