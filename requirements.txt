@@ -1,0 +1,26 @@
+# IPTV CLI Requirements - Menu Navigation
+# Install with: pip install -r requirements.txt
+
+# Core CLI and formatting
+rich
+click
+
+# Menu navigation with arrow keys
+simple-term-menu
+
+# Advanced terminal input with styling
+prompt_toolkit
+
+# Modern TUI framework for beautiful interfaces
+textual
+
+# Database and HTTP requests  
+requests
+
+# Environment variable management
+python-dotenv
+
+# Note: MPV player should be installed separately:
+# Ubuntu/Debian: sudo apt install mpv
+# macOS: brew install mpv
+# Windows: Download from https://mpv.io
