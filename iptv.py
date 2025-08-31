@@ -36,7 +36,7 @@ class IPTVMenuManager:
         try:
             fd = sys.stdin.fileno()
             old_settings = termios.tcgetattr(fd)
-            tty.cbreak(fd)
+            tty.setcbreak(fd)
             console.print("\nPress [dim white]Escape[/dim white] to continue...")
             while True:
                 char = sys.stdin.read(1)
@@ -45,13 +45,14 @@ class IPTVMenuManager:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         except:
             # Fallback for environments where termios doesn't work
-            self.wait_for_escape()
+            console.print("\nPress [dim white]Enter[/dim white] to continue...")
+            input()
         
     def main_menu(self):
         """Main menu with arrow key navigation"""
         while True:
             console.clear()
-            console.print("[orange]✻[/orange] Welcome to IPTV cli !")
+            console.print("[bright_yellow]✻[/bright_yellow] Welcome to IPTV cli !")
             console.print()
             
             # Show database status
@@ -97,12 +98,12 @@ class IPTVMenuManager:
                 vod_count = cursor.execute("SELECT COUNT(*) FROM vod_streams").fetchone()[0]
                 conn.close()
                 
-                status = f"[dim white]●[/dim white] Database: Ready | Live: {live_count:,} | VOD: {vod_count:,}"
+                status = f"[green]●[/green] Database: Ready | Live: {live_count:,} | VOD: {vod_count:,}"
                 console.print(Panel(status, style="dim white"))
             except:
-                console.print(Panel("⚫ Database: Error reading", style="red"))
+                console.print(Panel("[dim white]●[/dim white] Database: Error reading", style="dim white"))
         else:
-            console.print(Panel("⚫ Database: Not found - Use 'Download/Update Database'", style="yellow"))
+            console.print(Panel("[dim white]●[/dim white] Database: Not found - Use 'Download/Update Database'", style="dim white"))
     
     def download_menu(self):
         """Download/Update menu"""
@@ -202,9 +203,9 @@ class IPTVMenuManager:
             if 0 <= choice < len(all_results):
                 result_type, selected = all_results[choice]
                 if result_type == 'live':
-                    self.channel_action_menu(selected)
+                    self.live_stream_action_menu(selected)
                 else:  # VOD
-                    self.play_with_mpv({'name': selected['name'], 'stream_url': selected['stream_url']})
+                    self.vod_action_menu(selected)
     
     def search_live_menu(self):
         """Search live channels menu"""
@@ -278,38 +279,88 @@ class IPTVMenuManager:
                 selected = results[choice]
                 self.channel_action_menu(selected)
     
+    def live_stream_action_menu(self, channel):
+        """Menu for live stream actions"""
+        while True:
+            console.clear()
+            console.print(Panel.fit(f"Live Stream: {channel['name']}", style="dim white"))
+            console.print(f"Category: {channel['category_name'] or 'Unknown'}")
+            console.print(f"Stream ID: {channel['stream_id']}")
+            console.print()
+            
+            options = [
+                "Watch Stream",
+                "Stream Information", 
+                "Restream (Placeholder)",
+                "Copy Stream URL",
+                "Back to Results"
+            ]
+            
+            terminal_menu = TerminalMenu(
+                options,
+                title="",
+                menu_cursor="> "
+            )
+            
+            choice = terminal_menu.show()
+            
+            if choice is None or choice == 4:  # Back
+                break
+            elif choice == 0:  # Watch
+                self.play_with_mpv(channel)
+            elif choice == 1:  # Info
+                self.show_live_stream_info(channel)
+            elif choice == 2:  # Restream
+                self.restream_placeholder(channel)
+            elif choice == 3:  # Copy URL
+                self.copy_stream_url(channel)
+    
+    def vod_action_menu(self, vod_item):
+        """Menu for VOD actions"""
+        while True:
+            console.clear()
+            console.print(Panel.fit(f"VOD: {vod_item['name']}", style="dim white"))
+            if vod_item.get('year'):
+                console.print(f"Year: {vod_item['year']}")
+            if vod_item.get('rating'):
+                console.print(f"Rating: {vod_item['rating']:.1f}/10")
+            if vod_item.get('genre'):
+                console.print(f"Genre: {vod_item['genre']}")
+            console.print()
+            
+            options = [
+                "Watch VOD",
+                "Download VOD",
+                "VOD Information",
+                "Restream (Placeholder)",
+                "Copy Stream URL",
+                "Back to Results"
+            ]
+            
+            terminal_menu = TerminalMenu(
+                options,
+                title="",
+                menu_cursor="> "
+            )
+            
+            choice = terminal_menu.show()
+            
+            if choice is None or choice == 5:  # Back
+                break
+            elif choice == 0:  # Watch
+                self.play_with_mpv({'name': vod_item['name'], 'stream_url': vod_item['stream_url']})
+            elif choice == 1:  # Download
+                self.download_vod(vod_item)
+            elif choice == 2:  # Info
+                self.show_vod_info(vod_item)
+            elif choice == 3:  # Restream
+                self.restream_placeholder(vod_item)
+            elif choice == 4:  # Copy URL
+                self.copy_stream_url({'stream_url': vod_item['stream_url']})
+    
     def channel_action_menu(self, channel):
-        """Menu for channel actions"""
-        console.clear()
-        console.print(Panel.fit(f"Channel: {channel['name']}", style="dim white"))
-        console.print(f"Category: {channel['category_name'] or 'Unknown'}")
-        console.print(f"Stream ID: {channel['stream_id']}")
-        console.print()
-        
-        options = [
-            "Play with MPV",
-            "Stream to Inject Server", 
-            "Copy Stream URL",
-            "Show Channel Details",
-            "Back to Results"
-        ]
-        
-        terminal_menu = TerminalMenu(
-            options,
-            title="",
-            menu_cursor="> "
-        )
-        
-        choice = terminal_menu.show()
-        
-        if choice == 0:  # Play MPV
-            self.play_with_mpv(channel)
-        elif choice == 1:  # Inject server
-            self.stream_to_inject_server(channel)
-        elif choice == 2:  # Copy URL
-            self.copy_stream_url(channel)
-        elif choice == 3:  # Details
-            self.show_channel_details(channel)
+        """Legacy menu for channel actions - redirect to new live stream menu"""
+        self.live_stream_action_menu(channel)
     
     def search_vod_menu(self):
         """Search VOD content menu"""
@@ -568,23 +619,79 @@ class IPTVMenuManager:
     
     def play_with_mpv(self, channel):
         """Play channel with MPV"""
+        console.clear()
+        console.print(Panel.fit(f"Playing: {channel['name']}", style="dim white"))
+        
         try:
-            subprocess.run(['mpv', '--version'], capture_output=True, check=True)
-            
-            console.print(f"\nStarting MPV: {channel['name']}")
-            subprocess.Popen([
-                'mpv',
-                '--title', f"IPTV: {channel['name']}",
-                '--really-quiet',
-                channel['stream_url']
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
-            console.print("MPV started successfully")
-            self.wait_for_escape()
+            # Test MPV availability
+            result = subprocess.run(['mpv', '--version'], capture_output=True, check=True, timeout=5)
+            console.print("[green]✓[/green] MPV is available")
             
         except (subprocess.CalledProcessError, FileNotFoundError):
-            console.print("\nMPV not found. Install MPV to play streams.")
-            console.print(f"Stream URL: {channel['stream_url']}")
+            console.print("[red]✗[/red] MPV not found. Install MPV to play streams.")
+            console.print("\nInstall instructions:")
+            console.print("Ubuntu/Debian: sudo apt install mpv")
+            console.print("macOS: brew install mpv")
+            console.print(f"\nStream URL: {channel['stream_url']}")
+            self.wait_for_escape()
+            return
+        except subprocess.TimeoutExpired:
+            console.print("[yellow]⚠[/yellow] MPV check timed out, trying to play anyway...")
+        
+        console.print(f"Stream URL: {channel['stream_url']}")
+        console.print()
+        
+        try:
+            console.print("Starting MPV player...")
+            
+            # Create MPV command with better error handling - SIMPLIFIED VERSION
+            mpv_cmd = [
+                'mpv',
+                channel['stream_url']
+            ]
+            
+            # Debug: Print exact command being executed
+            console.print(f"[dim white]Debug - Exact command: {' '.join(mpv_cmd)}[/dim white]")
+            console.print(f"[dim white]Debug - Command length: {len(mpv_cmd)}[/dim white]")
+            console.print(f"[dim white]Debug - Each arg: {mpv_cmd}[/dim white]")
+            
+            # Start MPV process
+            process = subprocess.Popen(
+                mpv_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            
+            console.print(f"[green]✓[/green] MPV started with PID: {process.pid}")
+            console.print()
+            console.print("If MPV doesn't start or fails:")
+            console.print("1. Check your internet connection")
+            console.print("2. Verify the stream URL is accessible")
+            console.print("3. Try the URL directly in a browser")
+            console.print()
+            console.print(f"Manual command: mpv '{channel['stream_url']}'")
+            
+            # Wait a moment to see if process starts successfully
+            import time
+            time.sleep(2)
+            
+            # Check if process is still running
+            if process.poll() is None:
+                console.print("[green]✓[/green] MPV process is running")
+            else:
+                # Process ended, get error output
+                stdout, stderr = process.communicate()
+                console.print(f"[red]✗[/red] MPV exited with code: {process.returncode}")
+                if stderr:
+                    console.print(f"Error: {stderr.decode().strip()}")
+                if stdout:
+                    console.print(f"Output: {stdout.decode().strip()}")
+            
+            self.wait_for_escape()
+            
+        except Exception as e:
+            console.print(f"[red]✗[/red] Failed to start MPV: {e}")
+            console.print(f"\nTry running manually: mpv '{channel['stream_url']}'")
             self.wait_for_escape()
     
     def stream_to_inject_server(self, channel):
@@ -610,14 +717,199 @@ class IPTVMenuManager:
         
         self.wait_for_escape()
     
-    def show_channel_details(self, channel):
-        """Show detailed channel information"""
-        console.print(f"\nChannel Details:")
-        console.print(f"Name: {channel['name']}")
-        console.print(f"Category: {channel['category_name'] or 'Unknown'}")
-        console.print(f"Stream ID: {channel['stream_id']}")
-        console.print(f"Stream URL: {channel['stream_url']}")
+    def show_live_stream_info(self, channel):
+        """Show detailed live stream information"""
+        console.clear()
+        console.print(Panel.fit("Live Stream Information", style="dim white"))
+        
+        table = Table(show_header=False, box=None)
+        table.add_column("Property", style="dim white")
+        table.add_column("Value", style="white")
+        
+        table.add_row("Name", channel['name'])
+        table.add_row("Category", channel['category_name'] or 'Unknown')
+        table.add_row("Stream ID", str(channel['stream_id']))
+        table.add_row("Stream URL", channel['stream_url'])
+        
+        console.print(table)
+        console.print("\n[dim white]EPG (Electronic Program Guide) information not available[/dim white]")
         self.wait_for_escape()
+    
+    def show_vod_info(self, vod_item):
+        """Show detailed VOD information"""
+        console.clear()
+        console.print(Panel.fit("VOD Information", style="dim white"))
+        
+        table = Table(show_header=False, box=None)
+        table.add_column("Property", style="dim white")
+        table.add_column("Value", style="white")
+        
+        table.add_row("Name", vod_item['name'])
+        if vod_item.get('year'):
+            table.add_row("Year", str(vod_item['year']))
+        if vod_item.get('rating'):
+            table.add_row("Rating", f"{vod_item['rating']:.1f}/10")
+        if vod_item.get('genre'):
+            table.add_row("Genre", vod_item['genre'])
+        table.add_row("Stream URL", vod_item['stream_url'])
+        
+        console.print(table)
+        console.print("\n[dim white]Additional metadata not available[/dim white]")
+        self.wait_for_escape()
+    
+    def download_vod(self, vod_item):
+        """Download VOD content"""
+        console.clear()
+        console.print(Panel.fit(f"Download: {vod_item['name']}", style="dim white"))
+        
+        # Determine download method priority: wget > curl > python-requests
+        download_cmd = None
+        try:
+            subprocess.run(['wget', '--version'], capture_output=True, check=True)
+            download_cmd = 'wget'
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            try:
+                subprocess.run(['curl', '--version'], capture_output=True, check=True)
+                download_cmd = 'curl'
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                # Fall back to Python requests
+                download_cmd = 'python'
+        
+        # Get filename from URL or use default
+        filename = vod_item['name'].replace(" ", "_").replace("/", "_") + ".mp4"
+        
+        console.print(f"Download tool: {download_cmd}")
+        console.print(f"Filename: {filename}")
+        console.print(f"URL: {vod_item['stream_url']}")
+        console.print()
+        
+        if download_cmd == 'wget':
+            console.print(f"Command: wget -O '{filename}' --user-agent='VLC/3.0.0' '{vod_item['stream_url']}'")
+        elif download_cmd == 'curl':
+            console.print(f"Command: curl -o '{filename}' -A 'VLC/3.0.0' '{vod_item['stream_url']}'")
+        else:  # python
+            console.print(f"Using Python requests with proper headers")
+        
+        console.print("\n[yellow]Warning: Large file download will start![/yellow]")
+        console.print("Press Escape to cancel, or any other key to continue...")
+        
+        # Simple confirmation
+        try:
+            key = input()
+            if key == '\x1b':  # ESC key
+                console.print("Download cancelled")
+                self.wait_for_escape()
+                return
+        except:
+            pass
+        
+        console.print("\nStarting download...")
+        try:
+            if download_cmd == 'wget':
+                # Add headers for wget to mimic a browser/player
+                process = subprocess.Popen([
+                    'wget', 
+                    '-O', filename,
+                    '--user-agent=VLC/3.0.0 LibVLC/3.0.0',
+                    '--header=Accept: */*',
+                    '--header=Connection: keep-alive',
+                    '--timeout=30',
+                    '--tries=3',
+                    vod_item['stream_url']
+                ])
+                console.print(f"Download started with PID: {process.pid}")
+                console.print("Download is running in the background...")
+                
+            elif download_cmd == 'curl':
+                # Add headers for curl to mimic a browser/player
+                process = subprocess.Popen([
+                    'curl', 
+                    '-o', filename,
+                    '-A', 'VLC/3.0.0 LibVLC/3.0.0',
+                    '-H', 'Accept: */*',
+                    '-H', 'Connection: keep-alive',
+                    '--connect-timeout', '30',
+                    '--max-time', '0',
+                    '-L',  # Follow redirects
+                    vod_item['stream_url']
+                ])
+                console.print(f"Download started with PID: {process.pid}")
+                console.print("Download is running in the background...")
+                
+            else:  # python requests
+                self._download_with_requests(vod_item, filename)
+            
+            console.print()
+            console.print("Note: If download fails with authentication errors,")
+            console.print("the server may require streaming-only access.")
+            
+        except Exception as e:
+            console.print(f"[red]Download failed: {e}[/red]")
+        
+        self.wait_for_escape()
+    
+    def _download_with_requests(self, vod_item, filename):
+        """Download using Python requests with proper headers"""
+        import threading
+        
+        def download_thread():
+            try:
+                headers = {
+                    'User-Agent': 'VLC/3.0.0 LibVLC/3.0.0',
+                    'Accept': '*/*',
+                    'Connection': 'keep-alive',
+                    'Range': 'bytes=0-'
+                }
+                
+                console.print("Starting Python requests download...")
+                response = requests.get(vod_item['stream_url'], headers=headers, stream=True, timeout=30)
+                response.raise_for_status()
+                
+                total_size = int(response.headers.get('content-length', 0))
+                console.print(f"File size: {total_size / (1024*1024):.2f} MB" if total_size > 0 else "File size: Unknown")
+                
+                with open(filename, 'wb') as f:
+                    downloaded = 0
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total_size > 0:
+                                progress = (downloaded / total_size) * 100
+                                console.print(f"\rDownload progress: {progress:.1f}%", end="")
+                
+                console.print(f"\n[green]✓[/green] Download completed: {filename}")
+                
+            except Exception as e:
+                console.print(f"\n[red]✗[/red] Download failed: {e}")
+        
+        # Start download in background thread
+        thread = threading.Thread(target=download_thread)
+        thread.daemon = True
+        thread.start()
+        console.print("Download started in background thread...")
+    
+    def restream_placeholder(self, item):
+        """Placeholder for restreaming functionality"""
+        console.clear()
+        console.print(Panel.fit("Restream Feature", style="dim white"))
+        
+        console.print(f"Item: {item['name']}")
+        console.print(f"Stream URL: {item.get('stream_url', 'N/A')}")
+        console.print()
+        console.print("[yellow]Restreaming functionality is not yet implemented.[/yellow]")
+        console.print()
+        console.print("This feature would:")
+        console.print("• Accept stream from IPTV server")
+        console.print("• Process with FFmpeg")
+        console.print("• Restream to configured server")
+        console.print("• Provide new endpoint URL")
+        
+        self.wait_for_escape()
+    
+    def show_channel_details(self, channel):
+        """Legacy method - redirect to new live stream info"""
+        self.show_live_stream_info(channel)
     
     def preview_channel(self, channel_option):
         """Preview function for channel selection"""
@@ -953,7 +1245,8 @@ def main():
         console.print("Warning: MPV not found. Install it to play streams.")
         console.print("Ubuntu/Debian: sudo apt install mpv")
         console.print("macOS: brew install mpv")
-        self.wait_for_escape()
+        console.print("\nPress Enter to continue...")
+        input()
     
     manager = IPTVMenuManager()
     manager.main_menu()
