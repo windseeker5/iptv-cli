@@ -30,28 +30,44 @@ class IPTVMenuManager:
         self.password = "d808eed40f"
         self.inject_server = None  # Set your inject server URL here
         
+    def wait_for_escape(self):
+        """Wait for escape key instead of enter"""
+        import termios, sys, tty
+        try:
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+            tty.cbreak(fd)
+            console.print("\nPress [dim white]Escape[/dim white] to continue...")
+            while True:
+                char = sys.stdin.read(1)
+                if ord(char) == 27:  # ESC key
+                    break
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        except:
+            # Fallback for environments where termios doesn't work
+            self.wait_for_escape()
+        
     def main_menu(self):
         """Main menu with arrow key navigation"""
         while True:
             console.clear()
-            console.print(Panel.fit("IPTV Database Manager", style="bold blue"))
+            console.print("[orange]✻[/orange] Welcome to IPTV cli !")
+            console.print()
             
             # Show database status
             self.show_status()
             
             options = [
                 "Download/Update Database",
-                "Search Live Channels", 
-                "Search VOD Content",
+                "Search",
                 "Browse Categories",
                 "Database Statistics",
-                "Settings",
                 "Exit"
             ]
             
             terminal_menu = TerminalMenu(
                 options,
-                title="Select an option:",
+                title="",
                 menu_cursor="> ",
                 cycle_cursor=True,
                 clear_screen=False
@@ -59,21 +75,17 @@ class IPTVMenuManager:
             
             choice = terminal_menu.show()
             
-            if choice is None or choice == 6:  # Exit
+            if choice is None or choice == 4:  # Exit
                 console.print("\nGoodbye!")
                 break
             elif choice == 0:  # Download/Update
                 self.download_menu()
-            elif choice == 1:  # Search Live
-                self.search_live_menu()
-            elif choice == 2:  # Search VOD
-                self.search_vod_menu()
-            elif choice == 3:  # Browse Categories
+            elif choice == 1:  # Search
+                self.unified_search_menu()
+            elif choice == 2:  # Browse Categories
                 self.browse_categories_menu()
-            elif choice == 4:  # Statistics
+            elif choice == 3:  # Statistics
                 self.show_statistics()
-            elif choice == 5:  # Settings
-                self.settings_menu()
     
     def show_status(self):
         """Show current database status"""
@@ -85,20 +97,18 @@ class IPTVMenuManager:
                 vod_count = cursor.execute("SELECT COUNT(*) FROM vod_streams").fetchone()[0]
                 conn.close()
                 
-                status = f"Database: Ready | Live: {live_count:,} | VOD: {vod_count:,}"
-                console.print(Panel(status, style="green"))
+                status = f"[dim white]●[/dim white] Database: Ready | Live: {live_count:,} | VOD: {vod_count:,}"
+                console.print(Panel(status, style="dim white"))
             except:
-                console.print(Panel("Database: Error reading", style="red"))
+                console.print(Panel("⚫ Database: Error reading", style="red"))
         else:
-            console.print(Panel("Database: Not found - Use 'Download/Update Database'", style="yellow"))
-        
-        console.print()
+            console.print(Panel("⚫ Database: Not found - Use 'Download/Update Database'", style="yellow"))
     
     def download_menu(self):
         """Download/Update menu"""
         while True:
             console.clear()
-            console.print(Panel.fit("Download/Update Database", style="bold blue"))
+            console.print(Panel.fit("Download/Update Database", style="dim white"))
             
             options = [
                 "Download Fresh Data (Full Update)",
@@ -109,7 +119,7 @@ class IPTVMenuManager:
             
             terminal_menu = TerminalMenu(
                 options,
-                title="Select download option:",
+                title="",
                 menu_cursor="> "
             )
             
@@ -124,13 +134,85 @@ class IPTVMenuManager:
             elif choice == 2:  # VOD only
                 self.download_vod_only()
     
+    def unified_search_menu(self):
+        """Unified search menu for both live channels and VOD content"""
+        if not self.check_database():
+            return
+        
+        console.clear()
+        console.print(Panel.fit("Enter your search term", style="dim white"))
+        
+        try:
+            search_term = input("\n > ").strip()
+            if not search_term:
+                return
+            
+            # Search both live channels and VOD content
+            live_results = self.search_live_channels(search_term)
+            vod_results = self.search_vod_content(search_term)
+            
+            if not live_results and not vod_results:
+                console.print(f"\nNo content found for '{search_term}'")
+                self.wait_for_escape()
+                return
+            
+            self.show_unified_results(live_results, vod_results, search_term)
+            
+        except KeyboardInterrupt:
+            return
+    
+    def show_unified_results(self, live_results, vod_results, search_term):
+        """Show unified search results with live channels and VOD content"""
+        while True:
+            console.clear()
+            console.print(Panel.fit(f"Search Results: '{search_term}' ({len(live_results + vod_results)} found)", style="dim white"))
+            
+            options = []
+            all_results = []
+            
+            # Add live channel results with [LIVE] prefix
+            for result in live_results:
+                category = result['category_name'] or 'Unknown'
+                option = f"[LIVE] {result['name'][:45]} | {category[:12]} | ID: {result['stream_id']}"
+                options.append(option)
+                all_results.append(('live', result))
+            
+            # Add VOD results with [VOD] prefix
+            for result in vod_results:
+                year = result['year'] or 'N/A'
+                rating = f"{result['rating']:.1f}" if result['rating'] else 'N/A'
+                genre = result['genre'][:12] if result['genre'] else 'Unknown'
+                option = f"[VOD] {result['name'][:37]} ({year}) | {rating} | {genre}"
+                options.append(option)
+                all_results.append(('vod', result))
+            
+            options.append("Back to Search")
+            
+            terminal_menu = TerminalMenu(
+                options,
+                title="",
+                menu_cursor="> "
+            )
+            
+            choice = terminal_menu.show()
+            
+            if choice is None or choice == len(all_results):  # Back
+                break
+            
+            if 0 <= choice < len(all_results):
+                result_type, selected = all_results[choice]
+                if result_type == 'live':
+                    self.channel_action_menu(selected)
+                else:  # VOD
+                    self.play_with_mpv({'name': selected['name'], 'stream_url': selected['stream_url']})
+    
     def search_live_menu(self):
         """Search live channels menu"""
         if not self.check_database():
             return
         
         console.clear()
-        console.print(Panel.fit("Search Live Channels", style="bold blue"))
+        console.print(Panel.fit("Search Live Channels", style="dim white"))
         
         try:
             search_term = input("\nEnter search term: ").strip()
@@ -140,7 +222,7 @@ class IPTVMenuManager:
             results = self.search_live_channels(search_term)
             if not results:
                 console.print(f"\nNo channels found for '{search_term}'")
-                input("Press Enter to continue...")
+                self.wait_for_escape()
                 return
             
             self.show_live_results(results, search_term)
@@ -170,7 +252,7 @@ class IPTVMenuManager:
         """Show live channel results with arrow navigation"""
         while True:
             console.clear()
-            console.print(Panel.fit(f"Live Channels: '{search_term}' ({len(results)} found)", style="bold blue"))
+            console.print(Panel.fit(f"Live Channels: '{search_term}' ({len(results)} found)", style="dim white"))
             
             # Create menu options from results
             options = []
@@ -183,7 +265,7 @@ class IPTVMenuManager:
             
             terminal_menu = TerminalMenu(
                 options,
-                title="Select channel:",
+                title="",
                 menu_cursor="> "
             )
             
@@ -199,7 +281,7 @@ class IPTVMenuManager:
     def channel_action_menu(self, channel):
         """Menu for channel actions"""
         console.clear()
-        console.print(Panel.fit(f"Channel: {channel['name']}", style="bold blue"))
+        console.print(Panel.fit(f"Channel: {channel['name']}", style="dim white"))
         console.print(f"Category: {channel['category_name'] or 'Unknown'}")
         console.print(f"Stream ID: {channel['stream_id']}")
         console.print()
@@ -214,7 +296,7 @@ class IPTVMenuManager:
         
         terminal_menu = TerminalMenu(
             options,
-            title="Select action:",
+            title="",
             menu_cursor="> "
         )
         
@@ -235,7 +317,7 @@ class IPTVMenuManager:
             return
         
         console.clear()
-        console.print(Panel.fit("Search VOD Content", style="bold blue"))
+        console.print(Panel.fit("Search VOD Content", style="dim white"))
         
         try:
             search_term = input("\nEnter search term: ").strip()
@@ -245,7 +327,7 @@ class IPTVMenuManager:
             results = self.search_vod_content(search_term)
             if not results:
                 console.print(f"\nNo VOD content found for '{search_term}'")
-                input("Press Enter to continue...")
+                self.wait_for_escape()
                 return
             
             self.show_vod_results(results, search_term)
@@ -275,7 +357,7 @@ class IPTVMenuManager:
         """Show VOD results with arrow navigation"""
         while True:
             console.clear()
-            console.print(Panel.fit(f"VOD Content: '{search_term}' ({len(results)} found)", style="bold blue"))
+            console.print(Panel.fit(f"VOD Content: '{search_term}' ({len(results)} found)", style="dim white"))
             
             # Create menu options from results
             options = []
@@ -290,7 +372,7 @@ class IPTVMenuManager:
             
             terminal_menu = TerminalMenu(
                 options,
-                title="Select content:",
+                title="",
                 menu_cursor="> "
             )
             
@@ -309,7 +391,7 @@ class IPTVMenuManager:
             return
         
         console.clear()
-        console.print(Panel.fit("Browse Categories", style="bold blue"))
+        console.print(Panel.fit("Browse Categories", style="dim white"))
         
         options = [
             "Live TV Categories",
@@ -319,7 +401,7 @@ class IPTVMenuManager:
         
         terminal_menu = TerminalMenu(
             options,
-            title="Select category type:",
+            title="",
             menu_cursor="> "
         )
         
@@ -349,18 +431,18 @@ class IPTVMenuManager:
         
         if not results:
             console.print("No categories found")
-            input("Press Enter to continue...")
+            self.wait_for_escape()
             return
         
         console.clear()
-        console.print(Panel.fit("Live TV Categories", style="bold blue"))
+        console.print(Panel.fit("Live TV Categories", style="dim white"))
         
         options = [f"{row[0]} ({row[1]} channels)" for row in results]
         options.append("Back")
         
         terminal_menu = TerminalMenu(
             options,
-            title="Select category:",
+            title="",
             menu_cursor="> "
         )
         
@@ -396,7 +478,7 @@ class IPTVMenuManager:
         """Settings menu"""
         while True:
             console.clear()
-            console.print(Panel.fit("Settings", style="bold blue"))
+            console.print(Panel.fit("Settings", style="dim white"))
             
             options = [
                 f"Inject Server URL: {self.inject_server or 'Not set'}",
@@ -407,7 +489,7 @@ class IPTVMenuManager:
             
             terminal_menu = TerminalMenu(
                 options,
-                title="Settings:",
+                title="",
                 menu_cursor="> "
             )
             
@@ -429,7 +511,7 @@ class IPTVMenuManager:
             if url:
                 self.inject_server = url
                 console.print(f"Inject server set to: {url}")
-            input("Press Enter to continue...")
+            self.wait_for_escape()
         except KeyboardInterrupt:
             pass
     
@@ -446,13 +528,13 @@ class IPTVMenuManager:
         except subprocess.TimeoutExpired:
             console.print("\nMPV installation test timed out")
         
-        input("\nPress Enter to continue...")
+        self.wait_for_escape()
     
     def show_database_info(self):
         """Show database information"""
         if not os.path.exists(self.db_path):
             console.print("\nDatabase not found")
-            input("Press Enter to continue...")
+            self.wait_for_escape()
             return
         
         try:
@@ -474,13 +556,13 @@ class IPTVMenuManager:
         except Exception as e:
             console.print(f"\nError reading database: {e}")
         
-        input("\nPress Enter to continue...")
+        self.wait_for_escape()
     
     def check_database(self):
         """Check if database exists"""
         if not os.path.exists(self.db_path):
             console.print(Panel("Database not found. Use 'Download/Update Database' first.", style="red"))
-            input("Press Enter to continue...")
+            self.wait_for_escape()
             return False
         return True
     
@@ -498,23 +580,23 @@ class IPTVMenuManager:
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
             console.print("MPV started successfully")
-            input("Press Enter to continue...")
+            self.wait_for_escape()
             
         except (subprocess.CalledProcessError, FileNotFoundError):
             console.print("\nMPV not found. Install MPV to play streams.")
             console.print(f"Stream URL: {channel['stream_url']}")
-            input("Press Enter to continue...")
+            self.wait_for_escape()
     
     def stream_to_inject_server(self, channel):
         """Stream to inject server"""
         if not self.inject_server:
             console.print("\nInject server not configured. Set it in Settings.")
-            input("Press Enter to continue...")
+            self.wait_for_escape()
             return
         
         console.print(f"\nStreaming {channel['name']} to inject server...")
         console.print("This feature needs implementation based on your inject server API")
-        input("Press Enter to continue...")
+        self.wait_for_escape()
     
     def copy_stream_url(self, channel):
         """Copy stream URL to clipboard"""
@@ -526,7 +608,7 @@ class IPTVMenuManager:
         except:
             console.print("Copy to clipboard manually")
         
-        input("Press Enter to continue...")
+        self.wait_for_escape()
     
     def show_channel_details(self, channel):
         """Show detailed channel information"""
@@ -535,7 +617,7 @@ class IPTVMenuManager:
         console.print(f"Category: {channel['category_name'] or 'Unknown'}")
         console.print(f"Stream ID: {channel['stream_id']}")
         console.print(f"Stream URL: {channel['stream_url']}")
-        input("\nPress Enter to continue...")
+        self.wait_for_escape()
     
     def preview_channel(self, channel_option):
         """Preview function for channel selection"""
@@ -544,7 +626,7 @@ class IPTVMenuManager:
     def show_vod_categories(self):
         """Show VOD categories - placeholder"""
         console.print("VOD categories feature coming soon...")
-        input("Press Enter to continue...")
+        self.wait_for_escape()
     
     def show_statistics(self):
         """Show database statistics"""
@@ -567,11 +649,11 @@ class IPTVMenuManager:
             conn.close()
             
             console.clear()
-            console.print(Panel.fit("Database Statistics", style="bold blue"))
+            console.print(Panel.fit("Database Statistics", style="dim white"))
             
-            table = Table(show_header=True, header_style="bold magenta")
-            table.add_column("Metric", style="cyan")
-            table.add_column("Value", style="white")
+            table = Table(show_header=True, header_style="dim white")
+            table.add_column("Metric", style="dim white")
+            table.add_column("Value", style="dim white")
             
             table.add_row("Live Channels", f"{live_count:,}")
             table.add_row("VOD Content", f"{vod_count:,}")
@@ -588,7 +670,7 @@ class IPTVMenuManager:
         except Exception as e:
             console.print(f"Error reading statistics: {e}")
         
-        input("\nPress Enter to continue...")
+        self.wait_for_escape()
     
     def download_full(self):
         """Download full database"""
@@ -603,7 +685,7 @@ class IPTVMenuManager:
         else:
             console.print("Database download failed!")
         
-        input("Press Enter to continue...")
+        self.wait_for_escape()
     
     def download_live_only(self):
         """Download live streams only"""
@@ -615,7 +697,7 @@ class IPTVMenuManager:
         else:
             console.print("Live streams update failed!")
         
-        input("Press Enter to continue...")
+        self.wait_for_escape()
     
     def download_vod_only(self):
         """Download VOD content only"""
@@ -627,7 +709,7 @@ class IPTVMenuManager:
         else:
             console.print("VOD content download failed!")
         
-        input("Press Enter to continue...")
+        self.wait_for_escape()
     
     def _download_and_create_db(self, components):
         """Download specified components and update database"""
@@ -871,7 +953,7 @@ def main():
         console.print("Warning: MPV not found. Install it to play streams.")
         console.print("Ubuntu/Debian: sudo apt install mpv")
         console.print("macOS: brew install mpv")
-        input("\nPress Enter to continue...")
+        self.wait_for_escape()
     
     manager = IPTVMenuManager()
     manager.main_menu()
