@@ -9,6 +9,23 @@ Run: python3 menu_driven_iptv.py
 
 import os
 import sys
+
+# Auto-activate virtual environment and set working directory
+script_dir = os.path.dirname(os.path.abspath(__file__))
+venv_activate = os.path.join(script_dir, 'venv', 'bin', 'activate_this.py')
+
+# Change to script directory
+os.chdir(script_dir)
+
+# Activate virtual environment if it exists
+if os.path.exists(venv_activate):
+    with open(venv_activate) as f:
+        exec(f.read(), {'__file__': venv_activate})
+elif os.path.exists(os.path.join(script_dir, 'venv', 'bin', 'python')):
+    # Alternative method if activate_this.py doesn't exist
+    venv_python = os.path.join(script_dir, 'venv', 'bin', 'python')
+    if sys.executable != venv_python:
+        os.execv(venv_python, [venv_python] + sys.argv)
 import sqlite3
 import requests
 import json
