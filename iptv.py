@@ -90,18 +90,19 @@ class IPTVMenuManager:
         """Main menu with arrow key navigation"""
         while True:
             console.clear()
-            console.print("[bright_yellow]✻[/bright_yellow] Welcome to IPTV cli !")
+            console.print()
+            console.print("[bright_red] ✻[/bright_red] Welcome to IPTV cli !")
             console.print()
             
             # Show database status
             self.show_status()
             
             options = [
-                "Download/Update Database",
                 "Search",
                 "Browse Categories",
                 "Database Statistics",
-                "Build NGINX Container",
+                "Download/Update Database",
+                "Container Management",
                 "Exit"
             ]
             
@@ -118,16 +119,16 @@ class IPTVMenuManager:
             if choice is None or choice == 5:  # Exit
                 console.print("\nGoodbye!")
                 break
-            elif choice == 0:  # Download/Update
-                self.download_menu()
-            elif choice == 1:  # Search
+            elif choice == 0:  # Search
                 self.unified_search_menu()
-            elif choice == 2:  # Browse Categories
+            elif choice == 1:  # Browse Categories
                 self.browse_categories_menu()
-            elif choice == 3:  # Statistics
+            elif choice == 2:  # Statistics
                 self.show_statistics()
-            elif choice == 4:  # Build NGINX Container
-                self.nginx_container_menu()
+            elif choice == 3:  # Download/Update
+                self.download_menu()
+            elif choice == 4:  # Container Management
+                self.container_management_menu()
     
     def show_status(self):
         """Show current database status"""
@@ -1183,6 +1184,49 @@ class IPTVMenuManager:
         
         self.wait_for_escape()
     
+    def container_management_menu(self):
+        """Container management selection menu"""
+        while True:
+            console.clear()
+            console.print(Panel.fit("Container Management", style="dim white"))
+            
+            # Show status of both containers
+            docker_status = self.check_docker_status()
+            nginx_status = self.check_container_status()
+            jellyfin_status = self.check_jellyfin_status()
+            
+            console.print(f"Docker: {docker_status}")
+            console.print(f"NGINX-RTMP: {nginx_status}")
+            console.print(f"Jellyfin: {jellyfin_status}")
+            console.print()
+            
+            options = [
+                "NGINX-RTMP Server Management",
+                "Jellyfin Media Server Management",
+                "Start All Containers",
+                "Stop All Containers",
+                "Back to Main Menu"
+            ]
+            
+            terminal_menu = TerminalMenu(
+                options,
+                title="",
+                menu_cursor="> "
+            )
+            
+            choice = terminal_menu.show()
+            
+            if choice is None or choice == 4:  # Back
+                break
+            elif choice == 0:  # NGINX Management
+                self.nginx_container_menu()
+            elif choice == 1:  # Jellyfin Management
+                self.jellyfin_container_menu()
+            elif choice == 2:  # Start All
+                self.start_all_containers()
+            elif choice == 3:  # Stop All
+                self.stop_all_containers()
+    
     def nginx_container_menu(self):
         """NGINX Container management menu"""
         while True:
@@ -1226,6 +1270,47 @@ class IPTVMenuManager:
                 self.show_container_status()
             elif choice == 4:  # Test setup
                 self.test_restream_setup()
+    
+    def jellyfin_container_menu(self):
+        """Jellyfin Container management menu"""
+        while True:
+            console.clear()
+            console.print(Panel.fit("Jellyfin Media Server", style="dim white"))
+            
+            # Check Docker status
+            docker_status = self.check_docker_status()
+            container_status = self.check_jellyfin_status()
+            
+            console.print(f"Docker: {docker_status}")
+            console.print(f"Container: {container_status}")
+            console.print()
+            
+            options = [
+                "Build & Start Jellyfin Container",
+                "Stop Container",
+                "View Container Logs",
+                "Container Status & URLs",
+                "Back to Container Menu"
+            ]
+            
+            terminal_menu = TerminalMenu(
+                options,
+                title="",
+                menu_cursor="> "
+            )
+            
+            choice = terminal_menu.show()
+            
+            if choice is None or choice == 4:  # Back
+                break
+            elif choice == 0:  # Build & Start
+                self.build_jellyfin_container()
+            elif choice == 1:  # Stop
+                self.stop_jellyfin_container()
+            elif choice == 2:  # Logs
+                self.show_jellyfin_logs()
+            elif choice == 3:  # Status
+                self.show_jellyfin_status()
     
     def check_docker_status(self):
         """Check if Docker is available"""
@@ -1717,6 +1802,205 @@ class IPTVMenuManager:
                     ''', (stream.get('stream_id'), stream.get('name'),
                          stream.get('category_id'), stream_url,
                          stream.get('year'), stream.get('rating'), stream.get('genre')))
+    
+    def check_jellyfin_status(self):
+        """Check Jellyfin container status"""
+        try:
+            result = subprocess.run(['docker', 'ps', '--filter', 'name=iptv-jellyfin', '--format', 'table {{.Status}}'], 
+                                  capture_output=True, check=True, timeout=5)
+            if result.stdout.strip():
+                lines = result.stdout.decode().strip().split('\n')
+                if len(lines) > 1:  # Skip header
+                    status = lines[1].strip()
+                    if "Up" in status:
+                        return "[green]✓ Running[/green]"
+                    else:
+                        return f"[yellow]○ {status}[/yellow]"
+                else:
+                    return "[dim white]○ Not created[/dim white]"
+        except:
+            return "[dim white]○ Unknown[/dim white]"
+    
+    def build_jellyfin_container(self):
+        """Build and start Jellyfin container"""
+        console.clear()
+        console.print(Panel.fit("Building Jellyfin Media Server Container", style="dim white"))
+        
+        # Check if Docker is available
+        docker_status = self.check_docker_status()
+        if "[green]" not in docker_status:
+            console.print("[red]✗[/red] Docker is not available")
+            self.wait_for_escape()
+            return
+        
+        console.print("Building and starting Jellyfin container...")
+        console.print("This may take a few minutes...")
+        
+        try:
+            # Create necessary directories
+            os.makedirs("jellyfin/config", exist_ok=True)
+            os.makedirs("jellyfin/cache", exist_ok=True)
+            os.makedirs("media", exist_ok=True)
+            
+            # Build and start only Jellyfin service
+            result = subprocess.run(['docker-compose', 'up', '-d', 'jellyfin'], 
+                                  capture_output=True, check=True, timeout=300)
+            
+            console.print("[green]✓[/green] Jellyfin container started successfully!")
+            console.print("\nContainer Information:")
+            console.print("• Web Interface: http://localhost:8096")
+            console.print("• Setup will be required on first run")
+            console.print("• Media path: /media/library (maps to ./media)")
+            console.print("• Recordings path: /media/recordings (maps to ./nginx/recordings)")
+            
+            console.print(f"\n[dim]Docker output:[/dim]\n{result.stdout.decode()}")
+            if result.stderr.decode():
+                console.print(f"[dim]Stderr:[/dim] {result.stderr.decode()}")
+                
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]Error building container: {e}[/red]")
+            if e.stdout:
+                console.print(f"Stdout: {e.stdout.decode()}")
+            if e.stderr:
+                console.print(f"Stderr: {e.stderr.decode()}")
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/red]")
+        
+        self.wait_for_escape()
+    
+    def stop_jellyfin_container(self):
+        """Stop Jellyfin container"""
+        console.clear()
+        console.print(Panel.fit("Stopping Jellyfin Container", style="dim white"))
+        
+        try:
+            result = subprocess.run(['docker-compose', 'stop', 'jellyfin'], 
+                                  capture_output=True, check=True, timeout=30)
+            console.print("[green]✓[/green] Jellyfin container stopped successfully!")
+            console.print(f"\n[dim]Docker output:[/dim]\n{result.stdout.decode()}")
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]Error stopping container: {e}[/red]")
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/red]")
+        
+        self.wait_for_escape()
+    
+    def show_jellyfin_logs(self):
+        """Show Jellyfin container logs"""
+        console.clear()
+        console.print(Panel.fit("Jellyfin Container Logs", style="dim white"))
+        
+        try:
+            result = subprocess.run(['docker', 'logs', 'iptv-jellyfin', '--tail', '50'], 
+                                  capture_output=True, check=True, timeout=10)
+            console.print(result.stdout.decode())
+            if result.stderr.decode():
+                console.print(f"[yellow]Stderr:[/yellow] {result.stderr.decode()}")
+        except subprocess.CalledProcessError:
+            console.print("[yellow]Container not found or not running[/yellow]")
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/red]")
+        
+        self.wait_for_escape()
+    
+    def show_jellyfin_status(self):
+        """Show detailed Jellyfin container status and URLs"""
+        console.clear()
+        console.print(Panel.fit("Jellyfin Container Status & Information", style="dim white"))
+        
+        # Container status
+        status = self.check_jellyfin_status()
+        console.print(f"Status: {status}")
+        
+        if "[green]" not in status:
+            console.print("\nContainer is not running. Use 'Build & Start Jellyfin Container' first.")
+            self.wait_for_escape()
+            return
+        
+        # Show URLs and information
+        jellyfin_port = os.getenv('JELLYFIN_HTTP_PORT', '8096')
+        jellyfin_https_port = os.getenv('JELLYFIN_HTTPS_PORT', '8920')
+        
+        console.print("\n[bright_yellow]Access Information:[/bright_yellow]")
+        console.print(f"• Web Interface: http://localhost:{jellyfin_port}")
+        console.print(f"• HTTPS Interface: https://localhost:{jellyfin_https_port}")
+        console.print(f"• Network Access: http://YOUR_SERVER_IP:{jellyfin_port}")
+        
+        console.print("\n[bright_yellow]Media Paths:[/bright_yellow]")
+        media_path = os.getenv('JELLYFIN_MEDIA_PATH', './media')
+        console.print(f"• Media Library: {os.path.abspath(media_path)}")
+        console.print(f"• NGINX Recordings: {os.path.abspath('./nginx/recordings')}")
+        
+        console.print("\n[bright_yellow]First Time Setup:[/bright_yellow]")
+        console.print("1. Open web interface in browser")
+        console.print("2. Create admin user account")
+        console.print("3. Add media libraries:")
+        console.print("   - Library: /media/library (your USB drive)")
+        console.print("   - Recordings: /media/recordings (NGINX recordings)")
+        
+        console.print("\n[dim]Press any key to continue...[/dim]")
+        self.wait_for_escape()
+    
+    def start_all_containers(self):
+        """Start all containers"""
+        console.clear()
+        console.print(Panel.fit("Starting All Containers", style="dim white"))
+        
+        # Check if Docker is available
+        docker_status = self.check_docker_status()
+        if "[green]" not in docker_status:
+            console.print("[red]✗[/red] Docker is not available")
+            self.wait_for_escape()
+            return
+        
+        console.print("Starting all containers...")
+        console.print("This may take a few minutes...")
+        
+        try:
+            # Create necessary directories
+            os.makedirs("jellyfin/config", exist_ok=True)
+            os.makedirs("jellyfin/cache", exist_ok=True)
+            os.makedirs("media", exist_ok=True)
+            
+            result = subprocess.run(['docker-compose', 'up', '-d'], 
+                                  capture_output=True, check=True, timeout=300)
+            
+            console.print("[green]✓[/green] All containers started successfully!")
+            console.print("\nContainer Information:")
+            console.print("• NGINX-RTMP: http://localhost:8080")
+            console.print("• Jellyfin: http://localhost:8096")
+            
+            console.print(f"\n[dim]Docker output:[/dim]\n{result.stdout.decode()}")
+            if result.stderr.decode():
+                console.print(f"[dim]Stderr:[/dim] {result.stderr.decode()}")
+                
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]Error starting containers: {e}[/red]")
+            if e.stdout:
+                console.print(f"Stdout: {e.stdout.decode()}")
+            if e.stderr:
+                console.print(f"Stderr: {e.stderr.decode()}")
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/red]")
+        
+        self.wait_for_escape()
+    
+    def stop_all_containers(self):
+        """Stop all containers"""
+        console.clear()
+        console.print(Panel.fit("Stopping All Containers", style="dim white"))
+        
+        try:
+            result = subprocess.run(['docker-compose', 'down'], 
+                                  capture_output=True, check=True, timeout=60)
+            console.print("[green]✓[/green] All containers stopped successfully!")
+            console.print(f"\n[dim]Docker output:[/dim]\n{result.stdout.decode()}")
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]Error stopping containers: {e}[/red]")
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/red]")
+        
+        self.wait_for_escape()
 
 def main():
     """Main entry point"""

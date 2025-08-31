@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is a menu-driven IPTV CLI application that provides arrow key navigation to browse, search, and play IPTV content. The application uses a SQLite database to store downloaded IPTV data and integrates with external players like MPV. It includes a comprehensive NGINX-RTMP restreaming feature with Docker containers for sharing streams.
+This is a menu-driven IPTV CLI application that provides arrow key navigation to browse, search, and play IPTV content. The application uses a SQLite database to store downloaded IPTV data and integrates with external players like MPV. It includes a comprehensive NGINX-RTMP restreaming feature and Jellyfin media server with Docker containers for sharing streams and managing local media libraries.
 
 ## Commands
 
@@ -42,16 +42,23 @@ brew install ffmpeg                        # macOS
 python3 iptv.py
 ```
 
-### Docker/NGINX-RTMP Commands
+### Docker Container Commands
 ```bash
-# Build and start NGINX-RTMP containers
+# Build and start all containers (NGINX-RTMP + Jellyfin)
 docker-compose up -d --build
 
+# Start individual containers
+docker-compose up -d nginx-rtmp    # NGINX-RTMP only  
+docker-compose up -d jellyfin      # Jellyfin only
+
 # Stop containers
-docker-compose down
+docker-compose down                # Stop all containers
+docker-compose stop nginx-rtmp     # Stop NGINX-RTMP only
+docker-compose stop jellyfin       # Stop Jellyfin only
 
 # View container logs
-docker logs iptv-nginx-rtmp
+docker logs iptv-nginx-rtmp        # NGINX-RTMP logs
+docker logs iptv-jellyfin          # Jellyfin logs
 
 # Rebuild containers after configuration changes
 docker-compose build --no-cache && docker-compose up -d
@@ -77,6 +84,7 @@ docker-compose build --no-cache && docker-compose up -d
 6. **Database Management**: Automatic SQLite database creation and updates with indexing
 7. **Restreaming**: FFmpeg-based restreaming through NGINX-RTMP with multiple quality outputs
 8. **Web Interface**: Beautiful dark-themed live streaming page with HLS.js player and Chromecast support
+9. **Media Server**: Integrated Jellyfin media server for local media library management with USB drive support
 
 ### Database Schema
 
@@ -89,7 +97,7 @@ docker-compose build --no-cache && docker-compose up -d
 The application uses environment variables for IPTV server credentials to ensure security:
 - **Required Setup**: Copy `.env.example` to `.env` and configure your credentials
 - **Required Variables**: `IPTV_SERVER_URL`, `IPTV_USERNAME`, `IPTV_PASSWORD`
-- **Optional Variables**: `INJECT_SERVER_URL` for streaming injection, NGINX port configurations
+- **Optional Variables**: `INJECT_SERVER_URL` for streaming injection, NGINX port configurations, Jellyfin port configurations, `JELLYFIN_MEDIA_PATH` for USB drive mount
 - **Security**: The `.env` file is excluded from git to protect sensitive credentials
 - **Validation**: The application validates all required environment variables on startup
 
