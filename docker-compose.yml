@@ -26,21 +26,27 @@ services:
       timeout: 10s
       retries: 3
 
-  # Future services can be added here
-  # jellyfin:
-  #   image: jellyfin/jellyfin:latest
-  #   container_name: iptv-jellyfin
-  #   ports:
-  #     - "8096:8096"
-  #   volumes:
-  #     - ./jellyfin/config:/config
-  #     - ./jellyfin/cache:/cache
-  #     - ./nginx/recordings:/media
-  #   networks:
-  #     - iptv-network
-  #   depends_on:
-  #     - nginx-rtmp
-  #   restart: unless-stopped
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    container_name: iptv-jellyfin
+    ports:
+      - "${JELLYFIN_HTTP_PORT:-8096}:8096"    # Jellyfin web interface
+      - "${JELLYFIN_HTTPS_PORT:-8920}:8920"   # Jellyfin HTTPS (optional)
+    volumes:
+      - ./jellyfin/config:/config
+      - ./jellyfin/cache:/cache
+      - ./nginx/recordings:/media/recordings
+      - "${JELLYFIN_MEDIA_PATH:-./media}:/media/library"
+    environment:
+      - JELLYFIN_PublishedServerUrl=http://localhost:${JELLYFIN_HTTP_PORT:-8096}
+    networks:
+      - iptv-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8096/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 networks:
   iptv-network:
