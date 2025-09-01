@@ -77,7 +77,6 @@ class IPTVMenuManager:
             fd = sys.stdin.fileno()
             old_settings = termios.tcgetattr(fd)
             tty.setcbreak(fd)
-            console.print("\nPress [dim white]Escape[/dim white] to continue...")
             while True:
                 char = sys.stdin.read(1)
                 if ord(char) == 27:  # ESC key
@@ -85,7 +84,6 @@ class IPTVMenuManager:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         except:
             # Fallback for environments where termios doesn't work
-            console.print("\nPress [dim white]Enter[/dim white] to continue...")
             input()
         
     def main_menu(self):
@@ -215,7 +213,7 @@ class IPTVMenuManager:
         while True:
             console.clear()
             console.print(Panel.fit(f"Search Results: '{search_term}' ({len(live_results + vod_results)} found)", style="dim white"))
-            console.print("[dim white]Press: Enter=Select | S=Save to favorites | D=Delete from favorites | Esc=Back[/dim white]\n")
+            console.print("[dim white]P=Play | I=Info | R=Restream | C=Copy | S=Save | D=Delete/Download | Esc=Back[/dim white]\n")
             
             options = []
             all_results = []
@@ -224,11 +222,12 @@ class IPTVMenuManager:
             favorites_set = self.get_favorites_set()
             
             # Add live channel results with [LIVE] prefix and favorite indicator
+            # Keep options shorter to prevent truncation in terminal menu
             for result in live_results:
-                category = result['category_name'] or 'Unknown'
                 is_fav = (result.get('stream_id'), 'live') in favorites_set
                 fav_indicator = "♥ " if is_fav else "  "
-                option = f"{fav_indicator}[LIVE] {result['name'][:43]} | {category[:12]} | ID: {result['stream_id']}"
+                # Shorter format without category and ID to prevent truncation
+                option = f"{fav_indicator}[LIVE] {result['name']}"
                 options.append(option)
                 all_results.append(('live', result))
             
@@ -241,7 +240,8 @@ class IPTVMenuManager:
                 result['category_name'] = f"VOD/{genre}" if genre else 'VOD'
                 is_fav = (result.get('stream_id'), 'vod') in favorites_set
                 fav_indicator = "♥ " if is_fav else "  "
-                option = f"{fav_indicator}[VOD] {result['name'][:35]} ({year}) | {rating} | {genre}"
+                # Shorter format to prevent truncation
+                option = f"{fav_indicator}[VOD] {result['name'][:35]} ({year})"
                 options.append(option)
                 all_results.append(('vod', result))
             
@@ -251,7 +251,7 @@ class IPTVMenuManager:
                 options,
                 title="",
                 menu_cursor="> ",
-                accept_keys=("enter", "s", "d"),
+                accept_keys=("enter", "s", "d", "p", "r", "c", "i"),
                 show_shortcut_hints=False
             )
             
@@ -265,15 +265,55 @@ class IPTVMenuManager:
                 result_type, selected = all_results[choice]
                 
                 # Handle shortcuts
-                if chosen_key == 's':  # Save to favorites
-                    self.save_to_favorites(selected, result_type)
+                if chosen_key == 'p':  # Play directly
+                    self.play_with_mpv(selected)
+                    continue  # Stay in menu after playing
+                    
+                elif chosen_key == 'i':  # Show information screen
+                    if result_type == 'live':
+                        self.show_live_stream_info(selected)
+                    else:  # VOD
+                        self.show_vod_info(selected)
+                    continue  # Return to menu after viewing info
+                    
+                elif chosen_key == 'r':  # Restream directly
+                    self.restream_placeholder(selected)
+                    continue  # Stay in menu after restreaming
+                    
+                elif chosen_key == 'c':  # Copy URL directly
+                    self.copy_stream_url(selected)
+                    continue  # Stay in menu after copying
+                    
+                elif chosen_key == 's':  # Save to favorites
+                    result = self.save_to_favorites(selected, result_type)
+                    if result == -1:
+                        console.print("[yellow]⚠[/yellow] Already in favorites!")
+                        self.wait_for_escape()
+                    elif result > 0:
+                        console.print(f"[green]✓[/green] Added to favorites ({result} total)")
+                        self.wait_for_escape()
+                    else:
+                        console.print("[red]✗[/red] Failed to add to favorites")
+                        self.wait_for_escape()
                     continue  # Refresh menu immediately
                     
-                elif chosen_key == 'd':  # Delete from favorites
-                    self.remove_from_favorites(selected, result_type)
-                    continue  # Refresh menu immediately
+                elif chosen_key == 'd':  # Delete from favorites OR Download (VOD)
+                    if result_type == 'vod':
+                        # For VOD, D means Download
+                        self.download_vod_to_data(selected)
+                        continue  # Stay in menu after download
+                    else:
+                        # For LIVE, D means Delete from favorites
+                        result = self.remove_from_favorites(selected, result_type)
+                        if result > 0:
+                            console.print(f"[green]✓[/green] Removed from favorites ({result} remaining)")
+                            self.wait_for_escape()
+                        else:
+                            console.print("[yellow]⚠[/yellow] Not in favorites or removal failed")
+                            self.wait_for_escape()
+                        continue  # Refresh menu immediately
                     
-                else:  # Enter key - show action menu
+                else:  # Enter key - show action menu (fallback for backwards compatibility)
                     if result_type == 'live':
                         self.live_stream_action_menu(selected)
                     else:  # VOD
@@ -954,6 +994,100 @@ class IPTVMenuManager:
         console.print("\n[dim white]Additional metadata not available[/dim white]")
         self.wait_for_escape()
     
+    
+    def download_vod_to_data(self, vod_item):
+        """Download VOD content to data folder (simplified version for shortcut)"""
+        console.clear()
+        console.print(Panel.fit(f"Download: {vod_item['name']}", style="dim white"))
+        
+        # Create data folder if it doesn't exist
+        import os
+        data_folder = "data"
+        if not os.path.exists(data_folder):
+            os.makedirs(data_folder)
+            console.print(f"[green]✓[/green] Created {data_folder} folder")
+        
+        # Generate filename
+        safe_filename = "".join(c for c in vod_item['name'] if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        filename = f"{safe_filename}.mp4".replace("  ", " ")
+        filepath = os.path.join(data_folder, filename)
+        
+        console.print(f"Downloading to: {filepath}")
+        console.print(f"Source: {vod_item['stream_url']}")
+        console.print()
+        
+        # Determine download method priority: wget > curl > python-requests
+        download_cmd = None
+        try:
+            subprocess.run(['wget', '--version'], capture_output=True, check=True)
+            download_cmd = 'wget'
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            try:
+                subprocess.run(['curl', '--version'], capture_output=True, check=True)
+                download_cmd = 'curl'
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                download_cmd = 'python'
+        
+        console.print(f"Using: {download_cmd}")
+        console.print()
+        
+        try:
+            if download_cmd == 'wget':
+                # Start wget in background
+                process = subprocess.Popen([
+                    'wget', 
+                    '-O', filepath,
+                    '--user-agent=VLC/3.0.0 LibVLC/3.0.0',
+                    '--timeout=30',
+                    '--tries=3',
+                    vod_item['stream_url']
+                ])
+                console.print(f"[green]✓[/green] Download started (PID: {process.pid})")
+                
+            elif download_cmd == 'curl':
+                # Start curl in background
+                process = subprocess.Popen([
+                    'curl', 
+                    '-o', filepath,
+                    '-A', 'VLC/3.0.0 LibVLC/3.0.0',
+                    '--connect-timeout', '30',
+                    '--max-time', '0',
+                    '-L',  # Follow redirects
+                    vod_item['stream_url']
+                ])
+                console.print(f"[green]✓[/green] Download started (PID: {process.pid})")
+                
+            else:  # python requests
+                console.print("[yellow]⚠[/yellow] Using Python requests (slower)")
+                # Quick start message, then download in background
+                import threading
+                def download_thread():
+                    try:
+                        headers = {'User-Agent': 'VLC/3.0.0 LibVLC/3.0.0'}
+                        response = requests.get(vod_item['stream_url'], headers=headers, stream=True, timeout=30)
+                        response.raise_for_status()
+                        
+                        with open(filepath, 'wb') as f:
+                            for chunk in response.iter_content(chunk_size=8192):
+                                if chunk:
+                                    f.write(chunk)
+                    except Exception as e:
+                        console.print(f"[red]✗[/red] Download failed: {e}")
+                
+                thread = threading.Thread(target=download_thread)
+                thread.daemon = True
+                thread.start()
+                console.print("[green]✓[/green] Download started in background")
+            
+            console.print(f"File will be saved to: {filepath}")
+            console.print("Download is running in background...")
+            
+        except Exception as e:
+            console.print(f"[red]✗[/red] Download failed: {e}")
+        
+        console.print("\n[dim white]Press any key to return to search results...[/dim white]")
+        input()
+
     def download_vod(self, vod_item):
         """Download VOD content"""
         console.clear()
@@ -988,7 +1122,6 @@ class IPTVMenuManager:
             console.print(f"Using Python requests with proper headers")
         
         console.print("\n[yellow]Warning: Large file download will start![/yellow]")
-        console.print("Press Escape to cancel, or any other key to continue...")
         
         # Simple confirmation
         try:
@@ -1291,9 +1424,84 @@ class IPTVMenuManager:
         return f"Preview: {channel_option[:60]}..."
     
     def show_vod_categories(self):
-        """Show VOD categories - placeholder"""
-        console.print("VOD categories feature coming soon...")
-        self.wait_for_escape()
+        """Show VOD categories"""
+        if not self.check_database():
+            return
+            
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        sql = """
+            SELECT vc.category_name, COUNT(*) as count
+            FROM vod_categories vc
+            JOIN vod_streams vs ON vc.category_id = vs.category_id
+            GROUP BY vc.category_name, vc.category_id
+            ORDER BY count DESC, vc.category_name
+            LIMIT 30
+        """
+        
+        results = cursor.execute(sql).fetchall()
+        conn.close()
+        
+        if not results:
+            console.print("No VOD categories found")
+            self.wait_for_escape()
+            return
+        
+        console.clear()
+        console.print(Panel.fit("VOD Categories", style="dim white"))
+        
+        options = [f"{row[0]} ({row[1]} movies/shows)" for row in results]
+        options.append("Back")
+        
+        terminal_menu = TerminalMenu(
+            options,
+            title="",
+            menu_cursor="> "
+        )
+        
+        choice = terminal_menu.show()
+        
+        if choice is not None and choice < len(results):
+            category_name = results[choice][0]
+            self.show_vod_by_category(category_name)
+    
+    def show_vod_by_category(self, category_name):
+        """Show VOD content in a specific category"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        sql = """
+            SELECT vs.name, vs.stream_id, vs.stream_url, vs.year, vs.rating, vs.genre
+            FROM vod_streams vs
+            JOIN vod_categories vc ON vs.category_id = vc.category_id
+            WHERE vc.category_name = ?
+            ORDER BY vs.name
+            LIMIT 100
+        """
+        
+        results = cursor.execute(sql, (category_name,)).fetchall()
+        conn.close()
+        
+        if not results:
+            console.print(f"No content found in category: {category_name}")
+            self.wait_for_escape()
+            return
+        
+        # Convert to dict format for show_vod_results
+        vod_list = []
+        for row in results:
+            vod_dict = {
+                'name': row[0],
+                'stream_id': row[1], 
+                'stream_url': row[2],
+                'year': row[3],
+                'rating': row[4],
+                'genre': row[5]
+            }
+            vod_list.append(vod_dict)
+        
+        self.show_vod_results(vod_list, f"Category: {category_name}")
     
     def show_statistics(self):
         """Show database statistics"""
@@ -1462,7 +1670,6 @@ class IPTVMenuManager:
         console.print("• NGINX-RTMP Restreaming Server")
         console.print("• Jellyfin Media Server")
         console.print()
-        console.print("Press Enter to continue, or Escape to cancel...")
         
         try:
             key = input()
@@ -1961,6 +2168,14 @@ class IPTVMenuManager:
             ''')
             
             cursor.execute('''
+                CREATE TABLE vod_categories (
+                    category_id INTEGER PRIMARY KEY,
+                    category_name TEXT,
+                    parent_id INTEGER
+                )
+            ''')
+            
+            cursor.execute('''
                 CREATE TABLE account_info (
                     username TEXT,
                     status TEXT,
@@ -1975,6 +2190,7 @@ class IPTVMenuManager:
             # Create indexes
             cursor.execute("CREATE INDEX idx_live_name ON live_streams(name)")
             cursor.execute("CREATE INDEX idx_vod_name ON vod_streams(name)")
+            cursor.execute("CREATE INDEX idx_vod_cat_name ON vod_categories(category_name)")
             
             conn.commit()
             conn.close()
@@ -1996,6 +2212,15 @@ class IPTVMenuManager:
                     INSERT INTO account_info VALUES (?, ?, ?, ?)
                 ''', (user_info.get('username'), user_info.get('status'),
                      user_info.get('exp_date'), user_info.get('max_connections')))
+        
+        # Load VOD categories
+        if os.path.exists("vod_categories.json"):
+            with open("vod_categories.json") as f:
+                vod_cats = json.load(f)
+                for cat in vod_cats:
+                    cursor.execute('''
+                        INSERT INTO vod_categories VALUES (?, ?, ?)
+                    ''', (cat.get('category_id'), cat.get('category_name'), cat.get('parent_id')))
         
         # Load live categories map
         categories = {}
@@ -2168,7 +2393,6 @@ class IPTVMenuManager:
         console.print("   - Library: /media/library (your USB drive)")
         console.print("   - Recordings: /media/recordings (NGINX recordings)")
         
-        console.print("\n[dim]Press any key to continue...[/dim]")
         self.wait_for_escape()
     
     def start_all_containers(self):
@@ -2310,7 +2534,6 @@ class IPTVMenuManager:
         
         console.print("\\nThis will install Docker and Docker Compose")
         console.print("The installation requires sudo privileges")
-        console.print("\\nPress Enter to continue, or Escape to cancel...")
         
         try:
             key = input()
@@ -2480,7 +2703,6 @@ class IPTVMenuManager:
         
         console.print("\\nThis will install Lazydocker - a simple terminal UI for Docker")
         console.print("The installation requires sudo privileges")
-        console.print("\\nPress Enter to continue, or Escape to cancel...")
         
         try:
             key = input()
@@ -2849,7 +3071,6 @@ def main():
         console.print("Warning: MPV not found. Install it to play streams.")
         console.print("Ubuntu/Debian: sudo apt install mpv")
         console.print("macOS: brew install mpv")
-        console.print("\nPress Enter to continue...")
         input()
     
     manager = IPTVMenuManager()
