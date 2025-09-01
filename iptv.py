@@ -33,6 +33,7 @@ import subprocess
 import signal
 import glob
 import re
+import base64
 from datetime import datetime
 from dotenv import load_dotenv
 from simple_term_menu import TerminalMenu
@@ -284,7 +285,7 @@ class IPTVMenuManager:
         cursor = conn.cursor()
         
         sql = """
-            SELECT name, category_name, stream_id, stream_url
+            SELECT name, category_name, stream_id, stream_url, epg_channel_id
             FROM live_streams 
             WHERE name LIKE ? 
             ORDER BY name 
@@ -294,7 +295,7 @@ class IPTVMenuManager:
         results = cursor.execute(sql, (f'%{query}%',)).fetchall()
         conn.close()
         
-        return [dict(zip(['name', 'category_name', 'stream_id', 'stream_url'], row)) for row in results]
+        return [dict(zip(['name', 'category_name', 'stream_id', 'stream_url', 'epg_channel_id'], row)) for row in results]
     
     def show_live_results(self, results, search_term):
         """Show live channel results with arrow navigation"""
@@ -338,7 +339,8 @@ class IPTVMenuManager:
             options = [
                 "Watch Stream",
                 "Stream Information", 
-                "Restream (Placeholder)",
+                "Restream",
+                "Save to Favorites",
                 "Copy Stream URL",
                 "Back to Results"
             ]
@@ -351,7 +353,7 @@ class IPTVMenuManager:
             
             choice = terminal_menu.show()
             
-            if choice is None or choice == 4:  # Back
+            if choice is None or choice == 5:  # Back
                 break
             elif choice == 0:  # Watch
                 self.play_with_mpv(channel)
@@ -359,7 +361,16 @@ class IPTVMenuManager:
                 self.show_live_stream_info(channel)
             elif choice == 2:  # Restream
                 self.restream_placeholder(channel)
-            elif choice == 3:  # Copy URL
+            elif choice == 3:  # Save to Favorites
+                result = self.save_to_favorites(channel, 'live')
+                if result == -1:
+                    console.print("[yellow]⚠[/yellow] Already in favorites!")
+                elif result > 0:
+                    console.print(f"[green]✓[/green] Added to favorites ({result} total)")
+                else:
+                    console.print("[red]✗[/red] Failed to add to favorites")
+                self.wait_for_escape()
+            elif choice == 4:  # Copy URL
                 self.copy_stream_url(channel)
     
     def vod_action_menu(self, vod_item):
@@ -379,7 +390,8 @@ class IPTVMenuManager:
                 "Watch VOD",
                 "Download VOD",
                 "VOD Information",
-                "Restream (Placeholder)",
+                "Restream",
+                "Save to Favorites",
                 "Copy Stream URL",
                 "Back to Results"
             ]
@@ -392,7 +404,7 @@ class IPTVMenuManager:
             
             choice = terminal_menu.show()
             
-            if choice is None or choice == 5:  # Back
+            if choice is None or choice == 6:  # Back
                 break
             elif choice == 0:  # Watch
                 self.play_with_mpv({'name': vod_item['name'], 'stream_url': vod_item['stream_url']})
@@ -402,7 +414,16 @@ class IPTVMenuManager:
                 self.show_vod_info(vod_item)
             elif choice == 3:  # Restream
                 self.restream_placeholder(vod_item)
-            elif choice == 4:  # Copy URL
+            elif choice == 4:  # Save to Favorites
+                result = self.save_to_favorites(vod_item, 'vod')
+                if result == -1:
+                    console.print("[yellow]⚠[/yellow] Already in favorites!")
+                elif result > 0:
+                    console.print(f"[green]✓[/green] Added to favorites ({result} total)")
+                else:
+                    console.print("[red]✗[/red] Failed to add to favorites")
+                self.wait_for_escape()
+            elif choice == 5:  # Copy URL
                 self.copy_stream_url({'stream_url': vod_item['stream_url']})
     
     def channel_action_menu(self, channel):
@@ -556,7 +577,7 @@ class IPTVMenuManager:
         cursor = conn.cursor()
         
         sql = """
-            SELECT name, stream_id, stream_url, category_name
+            SELECT name, stream_id, stream_url, category_name, epg_channel_id
             FROM live_streams 
             WHERE category_name = ?
             ORDER BY name
@@ -569,7 +590,7 @@ class IPTVMenuManager:
         if not results:
             return
         
-        channels = [dict(zip(['name', 'stream_id', 'stream_url', 'category_name'], row)) for row in results]
+        channels = [dict(zip(['name', 'stream_id', 'stream_url', 'category_name', 'epg_channel_id'], row)) for row in results]
         self.show_live_results(channels, f"Category: {category_name}")
     
     def settings_menu(self):
@@ -779,7 +800,70 @@ class IPTVMenuManager:
         table.add_row("Stream URL", channel['stream_url'])
         
         console.print(table)
-        console.print("\n[dim white]EPG (Electronic Program Guide) information not available[/dim white]")
+        
+        # Fetch and display EPG data
+        # Always try to fetch EPG using stream_id and channel name
+        console.print("\n[cyan]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/cyan]")
+        console.print("[yellow]Fetching EPG data...[/yellow]")
+        
+        epg_listings = self.get_epg_data(channel['stream_id'], channel_name=channel.get('name'))
+        
+        if epg_listings:
+            console.print("[green]✓[/green] EPG data available\n")
+            
+            # Display current and upcoming programs
+            for i, program in enumerate(epg_listings[:3]):
+                # Get raw values
+                title_raw = program.get('title', 'Unknown Program')
+                start_time = program.get('start', '')
+                end_time = program.get('end', '')
+                description_raw = program.get('description', '')
+                
+                # Decode base64 if needed
+                try:
+                    # Try to decode title if it looks like base64
+                    if title_raw and all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=' for c in title_raw.strip()):
+                        title = base64.b64decode(title_raw).decode('utf-8', errors='ignore')
+                    else:
+                        title = title_raw
+                except:
+                    title = title_raw
+                
+                try:
+                    # Try to decode description if it looks like base64
+                    if description_raw and all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=' for c in description_raw.strip()):
+                        description = base64.b64decode(description_raw).decode('utf-8', errors='ignore')
+                    else:
+                        description = description_raw
+                except:
+                    description = description_raw
+                
+                if i == 0:
+                    console.print("[bright_yellow]NOW PLAYING:[/bright_yellow]")
+                elif i == 1:
+                    console.print("\n[cyan]UP NEXT:[/cyan]")
+                else:
+                    console.print()
+                
+                if start_time and end_time:
+                    # Format times
+                    try:
+                        from datetime import datetime
+                        start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+                        end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+                        time_str = f"{start_dt.strftime('%H:%M')} - {end_dt.strftime('%H:%M')}"
+                    except:
+                        time_str = f"{start_time} - {end_time}"
+                    
+                    console.print(f"[dim white]{time_str}[/dim white] | [white]{title}[/white]")
+                else:
+                    console.print(f"[white]{title}[/white]")
+                
+                if description and i == 0:  # Show description only for current program
+                    console.print(f"[dim white]{description[:150]}...[/dim white]" if len(description) > 150 else f"[dim white]{description}[/dim white]")
+        else:
+            console.print("[yellow]No EPG data available for this channel[/yellow]")
+        
         self.wait_for_escape()
     
     def show_vod_info(self, vod_item):
@@ -1635,20 +1719,32 @@ class IPTVMenuManager:
         """Download account info"""
         try:
             url = f"{self.server}/player_api.php?username={self.username}&password={self.password}"
-            response = requests.get(url, timeout=30)
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            response = requests.get(url, headers=headers, timeout=30)
             if response.status_code == 200:
+                data = response.json()
                 with open("account_info.json", "w") as f:
-                    json.dump(response.json(), f, indent=2)
+                    json.dump(data, f, indent=2)
                 return True
-        except:
-            pass
-        return False
+            else:
+                console.print(f"[red]✗[/red] HTTP Error: {response.status_code}")
+                return False
+        except requests.exceptions.RequestException as e:
+            console.print(f"[red]✗[/red] Network error: {e}")
+            return False
+        except json.JSONDecodeError as e:
+            console.print(f"[red]✗[/red] JSON decode error: {e}")
+            return False
+        except Exception as e:
+            console.print(f"[red]✗[/red] Unexpected error: {e}")
+            return False
     
     def _download_live_categories(self):
         """Download live categories"""
         try:
             url = f"{self.server}/player_api.php?username={self.username}&password={self.password}&action=get_live_categories"
-            response = requests.get(url, timeout=30)
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            response = requests.get(url, headers=headers, timeout=30)
             if response.status_code == 200:
                 with open("live_categories.json", "w") as f:
                     json.dump(response.json(), f, indent=2)
@@ -1661,7 +1757,8 @@ class IPTVMenuManager:
         """Download live streams"""
         try:
             url = f"{self.server}/player_api.php?username={self.username}&password={self.password}&action=get_live_streams"
-            response = requests.get(url, timeout=120)
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            response = requests.get(url, headers=headers, timeout=120)
             if response.status_code == 200:
                 with open("live_streams.json", "w") as f:
                     json.dump(response.json(), f, indent=2)
@@ -1674,7 +1771,8 @@ class IPTVMenuManager:
         """Download VOD categories"""
         try:
             url = f"{self.server}/player_api.php?username={self.username}&password={self.password}&action=get_vod_categories"
-            response = requests.get(url, timeout=30)
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            response = requests.get(url, headers=headers, timeout=30)
             if response.status_code == 200:
                 with open("vod_categories.json", "w") as f:
                     json.dump(response.json(), f, indent=2)
@@ -1687,7 +1785,8 @@ class IPTVMenuManager:
         """Download VOD streams"""
         try:
             url = f"{self.server}/player_api.php?username={self.username}&password={self.password}&action=get_vod_streams"
-            response = requests.get(url, timeout=120)
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            response = requests.get(url, headers=headers, timeout=120)
             if response.status_code == 200:
                 with open("vod_streams.json", "w") as f:
                     json.dump(response.json(), f, indent=2)
@@ -1700,7 +1799,8 @@ class IPTVMenuManager:
         """Download series categories"""
         try:
             url = f"{self.server}/player_api.php?username={self.username}&password={self.password}&action=get_series_categories"
-            response = requests.get(url, timeout=30)
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            response = requests.get(url, headers=headers, timeout=30)
             if response.status_code == 200:
                 with open("series_categories.json", "w") as f:
                     json.dump(response.json(), f, indent=2)
@@ -1726,7 +1826,8 @@ class IPTVMenuManager:
                     name TEXT,
                     category_id INTEGER,
                     stream_url TEXT,
-                    category_name TEXT
+                    category_name TEXT,
+                    epg_channel_id TEXT
                 )
             ''')
             
@@ -1796,9 +1897,10 @@ class IPTVMenuManager:
                     cat_name = categories.get(stream.get('category_id'), 'Unknown')
                     
                     cursor.execute('''
-                        INSERT INTO live_streams VALUES (?, ?, ?, ?, ?)
+                        INSERT INTO live_streams VALUES (?, ?, ?, ?, ?, ?)
                     ''', (stream.get('stream_id'), stream.get('name'),
-                         stream.get('category_id'), stream_url, cat_name))
+                         stream.get('category_id'), stream_url, cat_name,
+                         stream.get('epg_channel_id', '')))
         
         # Load VOD streams
         if os.path.exists("vod_streams.json"):
@@ -2367,6 +2469,174 @@ class IPTVMenuManager:
         except Exception as e:
             console.print(f"[red]✗[/red] Manual installation failed: {e}")
             raise
+
+    def load_favorites(self):
+        """Load favorites from JSON file"""
+        try:
+            if os.path.exists('favorites.json'):
+                with open('favorites.json', 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            console.print(f"[yellow]⚠[/yellow] Error loading favorites: {e}")
+        return []
+
+    def save_to_favorites(self, item, item_type='live'):
+        """Add item to favorites JSON"""
+        try:
+            # Ensure data directory exists
+            os.makedirs('data', exist_ok=True)
+            
+            favs = self.load_favorites()
+            
+            # Create favorite item
+            favorite_item = {
+                'stream_id': item.get('stream_id', 0),
+                'name': item.get('name', 'Unknown'),
+                'stream_url': item.get('stream_url', ''),
+                'category': item.get('category_name', 'Uncategorized'),
+                'type': item_type,
+                'added': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+            # Check if already exists
+            for existing in favs:
+                if (existing.get('stream_id') == favorite_item['stream_id'] and 
+                    existing.get('type') == favorite_item['type']):
+                    return -1  # Already exists
+            
+            # Add to favorites
+            favs.append(favorite_item)
+            
+            # Save to file
+            with open('favorites.json', 'w') as f:
+                json.dump(favs, f, indent=2)
+            
+            # Auto-generate M3U playlist
+            self.generate_m3u_playlist()
+            
+            return len(favs)  # Return total count
+            
+        except Exception as e:
+            console.print(f"[red]✗[/red] Error saving to favorites: {e}")
+            return 0
+
+    def generate_m3u_playlist(self):
+        """Generate M3U playlist from favorites"""
+        try:
+            # Ensure directories exist
+            os.makedirs('data', exist_ok=True)
+            os.makedirs('nginx/html', exist_ok=True)
+            
+            favs = self.load_favorites()
+            
+            # Generate M3U content
+            m3u_content = "#EXTM3U\n"
+            for fav in favs:
+                category = fav.get('category', 'Uncategorized')
+                name = fav.get('name', 'Unknown')
+                url = fav.get('stream_url', '')
+                
+                m3u_content += f'#EXTINF:-1 group-title="{category}",{name}\n'
+                m3u_content += f'{url}\n'
+            
+            # Save to both locations
+            with open('nginx/html/iptv.m3u', 'w', encoding='utf-8') as f:
+                f.write(m3u_content)
+            
+            with open('data/iptv.m3u', 'w', encoding='utf-8') as f:
+                f.write(m3u_content)
+                
+            return True
+            
+        except Exception as e:
+            console.print(f"[red]✗[/red] Error generating M3U playlist: {e}")
+            return False
+
+    def get_epg_data(self, stream_id, channel_name=None, limit=3):
+        """Get EPG data for a stream using multiple strategies"""
+        
+        def try_epg_fetch(param_value):
+            """Helper function to try fetching EPG with a given parameter"""
+            try:
+                url = f"{self.server}/player_api.php?username={self.username}&password={self.password}&action=get_short_epg&stream_id={param_value}&limit={limit}"
+                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+                
+                response = requests.get(url, headers=headers, timeout=10)
+                if response.status_code == 200:
+                    epg_data = response.json()
+                    listings = epg_data.get('epg_listings', []) if isinstance(epg_data, dict) else []
+                    if listings:
+                        return listings
+            except:
+                pass
+            return []
+        
+        # Strategy 1: Try with stream_id first
+        epg_listings = try_epg_fetch(stream_id)
+        if epg_listings:
+            return epg_listings
+        
+        # Strategy 2: If channel name is provided, try to find base channel name
+        if channel_name:
+            # Remove common HD/SD suffixes and try again
+            base_name = channel_name
+            
+            # Remove HD/FHD/SD/4K suffixes
+            for suffix in [' HD', ' FHD', ' SD', ' 4K', ' UHD', ' ᴴᴰ', ' (HD)', ' [HD]']:
+                if base_name.endswith(suffix):
+                    base_name = base_name[:-len(suffix)].strip()
+                    break
+            
+            # Also try removing trailing numbers (like "SUPER ECRAN 2")
+            import re
+            base_name_no_number = re.sub(r'\s+\d+$', '', base_name).strip()
+            
+            # Try with base name variants
+            if base_name != channel_name:
+                # First try the base name without HD/SD suffix
+                epg_listings = try_epg_fetch(base_name)
+                if epg_listings:
+                    return epg_listings
+                
+                # Try base name without number
+                if base_name_no_number != base_name:
+                    epg_listings = try_epg_fetch(base_name_no_number)
+                    if epg_listings:
+                        return epg_listings
+            
+            # Strategy 3: Try to find a matching stream with similar name from database
+            try:
+                conn = sqlite3.connect('iptv.db')
+                cursor = conn.cursor()
+                
+                # Look for channels with similar base names
+                cursor.execute("""
+                    SELECT DISTINCT stream_id, name 
+                    FROM live_streams 
+                    WHERE name LIKE ? 
+                    ORDER BY 
+                        CASE 
+                            WHEN name = ? THEN 0
+                            WHEN name LIKE ? THEN 1
+                            ELSE 2
+                        END
+                    LIMIT 10
+                """, (f'%{base_name_no_number}%', base_name, f'{base_name}%'))
+                
+                similar_channels = cursor.fetchall()
+                conn.close()
+                
+                # Try each similar channel's stream_id
+                for similar_id, similar_name in similar_channels:
+                    if similar_id != stream_id:  # Don't retry the same stream_id
+                        epg_listings = try_epg_fetch(similar_id)
+                        if epg_listings:
+                            console.print(f"[dim yellow]EPG found using similar channel: {similar_name}[/dim yellow]")
+                            return epg_listings
+            except:
+                pass
+        
+        return []
 
 def main():
     """Main entry point"""
