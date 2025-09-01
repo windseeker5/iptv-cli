@@ -105,6 +105,7 @@ class IPTVMenuManager:
             options = [
                 "Search IPTV",
                 "Browse Categories",
+                "Smart VOD Picks",
                 "Database Statistics",
                 "Update IPTV db",
                 "Install & Manage Tools"
@@ -127,11 +128,13 @@ class IPTVMenuManager:
                 self.unified_search_menu()
             elif choice == 1:  # Browse Categories
                 self.browse_categories_menu()
-            elif choice == 2:  # Statistics
+            elif choice == 2:  # Smart VOD Picks
+                self.smart_vod_picks_menu()
+            elif choice == 3:  # Statistics
                 self.show_statistics()
-            elif choice == 3:  # Update IPTV db
+            elif choice == 4:  # Update IPTV db
                 self.download_menu()
-            elif choice == 4:  # Install & Manage Tools
+            elif choice == 5:  # Install & Manage Tools
                 self.container_management_menu()
     
     def show_status(self):
@@ -160,8 +163,7 @@ class IPTVMenuManager:
             options = [
                 "Download Fresh Data (Full Update)",
                 "Quick Update (Live Streams Only)",
-                "Download VOD Only",
-                "Back to Main Menu"
+                "Download VOD Only"
             ]
             
             terminal_menu = TerminalMenu(
@@ -172,7 +174,7 @@ class IPTVMenuManager:
             
             choice = terminal_menu.show()
             
-            if choice is None or choice == 3:  # Back
+            if choice is None:  # ESC
                 break
             elif choice == 0:  # Full download
                 self.download_full()
@@ -620,8 +622,7 @@ class IPTVMenuManager:
         
         options = [
             "Live TV Categories",
-            "VOD Categories", 
-            "Back to Main Menu"
+            "VOD Categories"
         ]
         
         terminal_menu = TerminalMenu(
@@ -636,6 +637,84 @@ class IPTVMenuManager:
             self.show_live_categories()
         elif choice == 1:
             self.show_vod_categories()
+    
+    def smart_vod_picks_menu(self):
+        """Smart VOD recommendations menu"""
+        if not self.check_database():
+            return
+        
+        while True:
+            console.clear()
+            console.print(Panel.fit("🎯 Smart VOD Picks", style="bright_cyan"))
+            console.print()
+            console.print("[dim]Find the perfect movie based on your preferences[/dim]")
+            console.print()
+            
+            options = [
+                "EN Top Rated English Movies (7.0+)",
+                "FR Top Rated French Movies (7.0+)",
+                "Netflix Originals",
+                "Must Watch (9.0+ Rating)",
+                "Recent Highly Rated (2018+, 7.5+)",
+                "I'm Feeling Lucky (Random Pick)"
+            ]
+            
+            terminal_menu = TerminalMenu(
+                options,
+                title="",
+                menu_cursor="> ",
+                cycle_cursor=True,
+                clear_screen=False
+            )
+            
+            choice = terminal_menu.show()
+            
+            if choice is None:  # ESC
+                break
+            elif choice == 0:  # Top English
+                results = self.get_smart_recommendations(languages=['EN'], min_rating=7.0, include_netflix=False, limit=40)
+                if results:
+                    self.show_vod_results(results, "English Movies 7.0+")
+                else:
+                    console.print("[yellow]No English movies found with rating 7.0+[/yellow]")
+                    self.wait_for_escape()
+            elif choice == 1:  # Top French
+                results = self.get_smart_recommendations(languages=['FR'], min_rating=7.0, include_netflix=False, limit=40)
+                if results:
+                    self.show_vod_results(results, "French Movies 7.0+")
+                else:
+                    console.print("[yellow]No French movies found with rating 7.0+[/yellow]")
+                    self.wait_for_escape()
+            elif choice == 2:  # Netflix
+                results = self.get_smart_recommendations(languages=['NETFLIX'], min_rating=6.0, include_netflix=True, limit=40)
+                if results:
+                    self.show_vod_results(results, "Netflix Originals")
+                else:
+                    console.print("[yellow]No Netflix content found[/yellow]")
+                    self.wait_for_escape()
+            elif choice == 3:  # Must Watch 9.0+
+                results = self.get_smart_recommendations(languages=['EN', 'FR'], min_rating=9.0, include_netflix=True, limit=25)
+                if results:
+                    self.show_vod_results(results, "Must Watch 9.0+")
+                else:
+                    console.print("[yellow]No movies found with rating 9.0+[/yellow]")
+                    self.wait_for_escape()
+            elif choice == 4:  # Recent Highly Rated
+                results = self.get_smart_recommendations(languages=['EN', 'FR'], min_rating=7.5, include_netflix=True, year_after=2018, limit=40)
+                if results:
+                    self.show_vod_results(results, "Recent Highly Rated 2018+")
+                else:
+                    console.print("[yellow]No recent highly rated movies found[/yellow]")
+                    self.wait_for_escape()
+            elif choice == 5:  # Random Pick
+                import random
+                results = self.get_smart_recommendations(languages=['EN', 'FR'], min_rating=7.5, include_netflix=True, limit=200)
+                if results:
+                    random_pick = [random.choice(results)]
+                    self.show_vod_results(random_pick, "Your Lucky Pick")
+                else:
+                    console.print("[yellow]No movies available for random selection[/yellow]")
+                    self.wait_for_escape()
     
     def show_live_categories(self):
         """Show live TV categories"""
@@ -708,8 +787,7 @@ class IPTVMenuManager:
             options = [
                 f"Inject Server URL: {self.inject_server or 'Not set'}",
                 "Test MPV Installation",
-                "Database Information", 
-                "Back to Main Menu"
+                "Database Information"
             ]
             
             terminal_menu = TerminalMenu(
@@ -720,7 +798,7 @@ class IPTVMenuManager:
             
             choice = terminal_menu.show()
             
-            if choice is None or choice == 3:  # Back
+            if choice is None:  # ESC
                 break
             elif choice == 0:  # Set inject server
                 self.set_inject_server()
@@ -1503,6 +1581,87 @@ class IPTVMenuManager:
         
         self.show_vod_results(vod_list, f"Category: {category_name}")
     
+    def get_smart_recommendations(self, languages=['EN', 'FR'], min_rating=7.0, include_netflix=True, year_after=None, limit=50, sort_by_rating=True):
+        """Get smart VOD recommendations based on language, rating, and other filters"""
+        if not self.check_database():
+            return []
+            
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Build dynamic WHERE clause
+        where_conditions = []
+        params = []
+        
+        # Language filtering
+        if languages:
+            language_conditions = []
+            for lang in languages:
+                if lang.upper() == 'NETFLIX':
+                    language_conditions.append("(vc.category_name LIKE '%NETFLIX%' OR vc.category_name LIKE 'NF -%')")
+                else:
+                    language_conditions.append("vc.category_name LIKE ?")
+                    params.append(f"{lang.upper()} -%")
+            
+            if include_netflix and 'NETFLIX' not in [lang.upper() for lang in languages]:
+                language_conditions.append("(vc.category_name LIKE '%NETFLIX%' OR vc.category_name LIKE 'NF -%')")
+                
+            where_conditions.append(f"({' OR '.join(language_conditions)})")
+        
+        # Rating filter
+        if min_rating:
+            where_conditions.append("vs.rating IS NOT NULL AND vs.rating <> '' AND CAST(vs.rating AS REAL) >= ?")
+            params.append(min_rating)
+        
+        # Year filter
+        if year_after:
+            where_conditions.append("vs.year IS NOT NULL AND vs.year <> '' AND CAST(vs.year AS INTEGER) > ?")
+            params.append(year_after)
+        
+        # Build final SQL query
+        where_clause = " AND ".join(where_conditions) if where_conditions else "1=1"
+        
+        if sort_by_rating:
+            order_clause = "ORDER BY CAST(vs.rating AS REAL) DESC, CAST(vs.year AS INTEGER) DESC"
+        else:
+            order_clause = "ORDER BY CAST(vs.year AS INTEGER) DESC, CAST(vs.rating AS REAL) DESC"
+        
+        sql = f"""
+            SELECT vs.name, vs.stream_id, vs.stream_url, vs.year, vs.rating, vs.genre, vc.category_name
+            FROM vod_streams vs
+            JOIN vod_categories vc ON vs.category_id = vc.category_id
+            WHERE {where_clause}
+            {order_clause}
+            LIMIT ?
+        """
+        
+        params.append(limit)
+        
+        try:
+            results = cursor.execute(sql, params).fetchall()
+            conn.close()
+            
+            # Convert to dict format for show_vod_results
+            vod_list = []
+            for row in results:
+                vod_dict = {
+                    'name': row[0],
+                    'stream_id': row[1], 
+                    'stream_url': row[2],
+                    'year': row[3],
+                    'rating': row[4],
+                    'genre': row[5],
+                    'category_name': row[6]
+                }
+                vod_list.append(vod_dict)
+            
+            return vod_list
+            
+        except Exception as e:
+            console.print(f"[red]Error getting smart recommendations: {e}[/red]")
+            conn.close()
+            return []
+    
     def show_statistics(self):
         """Show database statistics"""
         if not self.check_database():
@@ -1553,14 +1712,16 @@ class IPTVMenuManager:
             console.clear()
             console.print(Panel.fit("Install & Manage Tools", style="dim white"))
             
-            # Show status of both containers and Docker
+            # Show status of all containers and Docker
             docker_status = self.check_docker_status()
             nginx_status = self.check_container_status()
             jellyfin_status = self.check_jellyfin_status()
+            samba_status = self.check_samba_status()
             
             console.print(f"Docker: {docker_status}")
             console.print(f"NGINX-RTMP: {nginx_status}")
             console.print(f"Jellyfin: {jellyfin_status}")
+            console.print(f"Samba Share: {samba_status}")
             console.print()
             
             # Build dynamic options based on what's installed
@@ -1577,7 +1738,12 @@ class IPTVMenuManager:
             # Add remaining options
             options.extend([
                 "Container Status & URLs",
-                "Build & Start All Containers"
+                "Build & Start All Containers",
+                "── SAMBA NETWORK SHARE ──",
+                "Build & Start Samba Container",
+                "Configure Samba Users",
+                "Samba Container Status",
+                "Stop Samba Container"
             ])
             
             terminal_menu = TerminalMenu(
@@ -1600,6 +1766,17 @@ class IPTVMenuManager:
                 self.show_container_status_and_urls()
             elif (lazydocker_installed and choice == 4) or (not lazydocker_installed and choice == 3):  # Build & Start All
                 self.build_and_start_all_containers()
+            # Samba options (adjust indices based on lazydocker presence)
+            elif (lazydocker_installed and choice == 5) or (not lazydocker_installed and choice == 4):  # Separator - do nothing
+                pass
+            elif (lazydocker_installed and choice == 6) or (not lazydocker_installed and choice == 5):  # Build & Start Samba
+                self.build_and_start_samba_container()
+            elif (lazydocker_installed and choice == 7) or (not lazydocker_installed and choice == 6):  # Configure Samba Users
+                self.configure_samba_users()
+            elif (lazydocker_installed and choice == 8) or (not lazydocker_installed and choice == 7):  # Samba Status
+                self.show_samba_container_status()
+            elif (lazydocker_installed and choice == 9) or (not lazydocker_installed and choice == 8):  # Stop Samba
+                self.stop_samba_container()
     
     def show_container_status_and_urls(self):
         """Show combined container status and URLs for both NGINX and Jellyfin"""
@@ -1649,6 +1826,30 @@ class IPTVMenuManager:
             console.print("    • Roku, Fire TV, Android TV, Apple TV")
         
         console.print()
+        
+        # Samba Status
+        samba_status = self.check_samba_status()
+        console.print(f"[bright_yellow]Samba Network Share:[/bright_yellow]")
+        console.print(f"  Status: {samba_status}")
+        
+        if "[green]" in samba_status:
+            console.print("\n  [dim white]📁 Network Shares:[/dim white]")
+            try:
+                import socket
+                hostname = socket.gethostname()
+                server_ip = socket.gethostbyname(hostname)
+                console.print(f"    • \\\\{server_ip}\\recordings")
+                console.print(f"    • \\\\{server_ip}\\media")
+                console.print(f"    • \\\\{server_ip}\\downloads")
+            except:
+                console.print("    • \\\\YOUR_SERVER_IP\\recordings")
+                console.print("    • \\\\YOUR_SERVER_IP\\media")
+                console.print("    • \\\\YOUR_SERVER_IP\\downloads")
+            console.print("\n  [dim white]📱 Compatible TV Apps:[/dim white]")
+            console.print("    • X-plore File Manager, Total Commander")
+            console.print("    • Most built-in TV file managers")
+        
+        console.print()
         console.print("[dim white]Tip: Use 'Launch Lazydocker' for detailed container management[/dim white]")
         
         self.wait_for_escape()
@@ -1669,6 +1870,7 @@ class IPTVMenuManager:
         console.print("[bright_yellow]This will build and start:[/bright_yellow]")
         console.print("• NGINX-RTMP Restreaming Server")
         console.print("• Jellyfin Media Server")
+        console.print("• Samba Network Share")
         console.print()
         
         try:
@@ -2276,6 +2478,24 @@ class IPTVMenuManager:
         except:
             return "[dim white]○ Unknown[/dim white]"
     
+    def check_samba_status(self):
+        """Check Samba container status"""
+        try:
+            result = subprocess.run(['docker', 'ps', '--filter', 'name=iptv-samba', '--format', 'table {{.Status}}'], 
+                                  capture_output=True, check=True, timeout=5)
+            if result.stdout.strip():
+                lines = result.stdout.decode().strip().split('\n')
+                if len(lines) > 1:  # Skip header
+                    status = lines[1].strip()
+                    if "Up" in status:
+                        return "[green]✓ Running[/green]"
+                    else:
+                        return f"[yellow]○ {status}[/yellow]"
+                else:
+                    return "[dim white]○ Not created[/dim white]"
+        except:
+            return "[dim white]○ Unknown[/dim white]"
+    
     def build_jellyfin_container(self):
         """Build and start Jellyfin container"""
         console.clear()
@@ -2392,6 +2612,135 @@ class IPTVMenuManager:
         console.print("3. Add media libraries:")
         console.print("   - Library: /media/library (your USB drive)")
         console.print("   - Recordings: /media/recordings (NGINX recordings)")
+        
+        self.wait_for_escape()
+    
+    def build_and_start_samba_container(self):
+        """Build and start Samba network share container"""
+        console.clear()
+        console.print(Panel.fit("Building Samba Network Share Container", style="dim white"))
+        
+        # Check if Docker is available
+        docker_status = self.check_docker_status()
+        if "[green]" not in docker_status:
+            console.print("[red]✗[/red] Docker is not available")
+            self.wait_for_escape()
+            return
+        
+        console.print("Building and starting Samba container...")
+        console.print("This will create network shares accessible from your TV devices.\n")
+        
+        try:
+            # Build and start using docker-compose
+            result = subprocess.run(['docker-compose', 'up', '-d', '--build', 'samba'], 
+                                  capture_output=True, check=True, timeout=120)
+            
+            console.print("[green]✓[/green] Samba container built and started successfully!")
+            console.print(f"\n[dim]Docker output:[/dim]\n{result.stdout.decode()}")
+            
+            # Show connection info
+            console.print("\n[bright_yellow]Network Share Information:[/bright_yellow]")
+            console.print("• Share Name: \\\\YOUR_SERVER_IP\\recordings")
+            console.print("• Share Name: \\\\YOUR_SERVER_IP\\media")
+            console.print("• Share Name: \\\\YOUR_SERVER_IP\\downloads")
+            console.print("\n[bright_yellow]TV Device Connection:[/bright_yellow]")
+            console.print("1. Use file manager on your TV (X-plore, Total Commander)")
+            console.print("2. Add network location > SMB/CIFS")
+            console.print("3. Enter your server IP address")
+            console.print("4. Select the share you want to use for recordings")
+            
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]Error building container: {e}[/red]")
+            console.print(f"[red]Error output: {e.stderr.decode() if e.stderr else 'No error output'}[/red]")
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/red]")
+        
+        self.wait_for_escape()
+    
+    def configure_samba_users(self):
+        """Configure Samba users and shares"""
+        console.clear()
+        console.print(Panel.fit("Samba Configuration Information", style="dim white"))
+        
+        # Check if Samba container is running
+        samba_status = self.check_samba_status()
+        if "[green]" not in samba_status:
+            console.print("[red]✗[/red] Samba container is not running")
+            console.print("Please build and start the Samba container first.")
+            self.wait_for_escape()
+            return
+        
+        console.print("[bright_green]✓[/bright_green] Current configuration: Guest access (no password required)")
+        console.print("This is perfect for TV devices - they can connect immediately.\n")
+        
+        console.print("[bright_yellow]Current Shares:[/bright_yellow]")
+        console.print("• recordings → ./nginx/recordings (for TV recording)")
+        console.print("• media → ./media (your media library)")  
+        console.print("• downloads → ./downloads (downloaded content)\n")
+        
+        console.print("[bright_yellow]To Modify Configuration:[/bright_yellow]")
+        console.print("All Samba settings are configured in: [cyan]docker-compose.yml[/cyan]")
+        console.print("\n[dim white]To change folders or add authentication:[/dim white]")
+        console.print("1. Edit the 'samba' service section in docker-compose.yml")
+        console.print("2. Modify volumes to point to your desired folders")
+        console.print("3. Add -u \"username;password\" to command for authentication")
+        console.print("4. Rebuild container: docker-compose up -d --build samba")
+        console.print("\n[dim white]Current setup is optimal for TV device compatibility.[/dim white]")
+        
+        self.wait_for_escape()
+    
+    def show_samba_container_status(self):
+        """Show detailed Samba container status and connection info"""
+        console.clear()
+        console.print(Panel.fit("Samba Container Status", style="dim white"))
+        
+        # Show container status
+        samba_status = self.check_samba_status()
+        console.print(f"Samba Container: {samba_status}")
+        
+        if "[green]" not in samba_status:
+            console.print("\n[red]Container is not running.[/red]")
+            self.wait_for_escape()
+            return
+        
+        console.print("\n[bright_yellow]Network Shares Available:[/bright_yellow]")
+        console.print("• recordings - For TV device recordings")
+        console.print("• media - General media library")
+        console.print("• downloads - Downloaded VOD content")
+        
+        console.print("\n[bright_yellow]Connection Information:[/bright_yellow]")
+        try:
+            # Get server IP
+            import socket
+            hostname = socket.gethostname()
+            server_ip = socket.gethostbyname(hostname)
+            console.print(f"• Server IP: {server_ip}")
+            console.print(f"• SMB Shares: \\\\{server_ip}\\[share_name]")
+        except:
+            console.print("• Server IP: [Use your server's IP address]")
+        
+        console.print("\n[bright_yellow]Supported TV Apps:[/bright_yellow]")
+        console.print("• X-plore File Manager")
+        console.print("• Total Commander")
+        console.print("• Solid Explorer")
+        console.print("• Most built-in TV file managers")
+        
+        self.wait_for_escape()
+    
+    def stop_samba_container(self):
+        """Stop Samba container"""
+        console.clear()
+        console.print(Panel.fit("Stopping Samba Container", style="dim white"))
+        
+        try:
+            result = subprocess.run(['docker-compose', 'stop', 'samba'], 
+                                  capture_output=True, check=True, timeout=30)
+            console.print("[green]✓[/green] Samba container stopped successfully!")
+            console.print(f"\n[dim]Docker output:[/dim]\n{result.stdout.decode()}")
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]Error stopping container: {e}[/red]")
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/red]")
         
         self.wait_for_escape()
     

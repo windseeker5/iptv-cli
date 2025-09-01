@@ -48,6 +48,34 @@ services:
       timeout: 10s
       retries: 3
 
+  samba:
+    image: dperson/samba:latest
+    container_name: iptv-samba
+    ports:
+      - "${SAMBA_NETBIOS_PORT:-137}:137/udp"    # NetBIOS Name Service
+      - "${SAMBA_NETBIOS_DGM_PORT:-138}:138/udp" # NetBIOS Datagram Service
+      - "${SAMBA_NETBIOS_SSN_PORT:-139}:139/tcp" # NetBIOS Session Service
+      - "${SAMBA_SMB_PORT:-445}:445/tcp"         # SMB over TCP
+    volumes:
+      - ./nginx/recordings:/shared/recordings
+      - "${JELLYFIN_MEDIA_PATH:-./media}:/shared/media"
+      - ./downloads:/shared/downloads
+    environment:
+      - TZ=${TZ:-UTC}
+    command: >
+      -s "recordings;/shared/recordings;yes;no;yes;all;all;all;NGINX-RTMP recordings for TV devices" 
+      -s "media;/shared/media;yes;no;yes;all;all;all;Media library for streaming" 
+      -s "downloads;/shared/downloads;yes;no;yes;all;all;all;Downloaded VOD content"
+      -n -p
+    networks:
+      - iptv-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "smbclient", "-L", "localhost", "-N"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 networks:
   iptv-network:
     driver: bridge
