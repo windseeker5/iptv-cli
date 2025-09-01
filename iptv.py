@@ -215,23 +215,33 @@ class IPTVMenuManager:
         while True:
             console.clear()
             console.print(Panel.fit(f"Search Results: '{search_term}' ({len(live_results + vod_results)} found)", style="dim white"))
+            console.print("[dim white]Press: Enter=Select | S=Save to favorites | D=Delete from favorites | Esc=Back[/dim white]\n")
             
             options = []
             all_results = []
             
-            # Add live channel results with [LIVE] prefix
+            # Get current favorites for checking
+            favorites_set = self.get_favorites_set()
+            
+            # Add live channel results with [LIVE] prefix and favorite indicator
             for result in live_results:
                 category = result['category_name'] or 'Unknown'
-                option = f"[LIVE] {result['name'][:45]} | {category[:12]} | ID: {result['stream_id']}"
+                is_fav = (result.get('stream_id'), 'live') in favorites_set
+                fav_indicator = "♥ " if is_fav else "  "
+                option = f"{fav_indicator}[LIVE] {result['name'][:43]} | {category[:12]} | ID: {result['stream_id']}"
                 options.append(option)
                 all_results.append(('live', result))
             
-            # Add VOD results with [VOD] prefix
+            # Add VOD results with [VOD] prefix and favorite indicator
             for result in vod_results:
                 year = result['year'] or 'N/A'
                 rating = f"{result['rating']:.1f}" if result['rating'] else 'N/A'
                 genre = result['genre'][:12] if result['genre'] else 'Unknown'
-                option = f"[VOD] {result['name'][:37]} ({year}) | {rating} | {genre}"
+                # Add category_name for consistency with favorites
+                result['category_name'] = f"VOD/{genre}" if genre else 'VOD'
+                is_fav = (result.get('stream_id'), 'vod') in favorites_set
+                fav_indicator = "♥ " if is_fav else "  "
+                option = f"{fav_indicator}[VOD] {result['name'][:35]} ({year}) | {rating} | {genre}"
                 options.append(option)
                 all_results.append(('vod', result))
             
@@ -240,20 +250,34 @@ class IPTVMenuManager:
             terminal_menu = TerminalMenu(
                 options,
                 title="",
-                menu_cursor="> "
+                menu_cursor="> ",
+                accept_keys=("enter", "s", "d"),
+                show_shortcut_hints=False
             )
             
             choice = terminal_menu.show()
+            chosen_key = terminal_menu.chosen_accept_key
             
             if choice is None or choice == len(all_results):  # Back
                 break
             
             if 0 <= choice < len(all_results):
                 result_type, selected = all_results[choice]
-                if result_type == 'live':
-                    self.live_stream_action_menu(selected)
-                else:  # VOD
-                    self.vod_action_menu(selected)
+                
+                # Handle shortcuts
+                if chosen_key == 's':  # Save to favorites
+                    self.save_to_favorites(selected, result_type)
+                    continue  # Refresh menu immediately
+                    
+                elif chosen_key == 'd':  # Delete from favorites
+                    self.remove_from_favorites(selected, result_type)
+                    continue  # Refresh menu immediately
+                    
+                else:  # Enter key - show action menu
+                    if result_type == 'live':
+                        self.live_stream_action_menu(selected)
+                    else:  # VOD
+                        self.vod_action_menu(selected)
     
     def search_live_menu(self):
         """Search live channels menu"""
@@ -302,12 +326,18 @@ class IPTVMenuManager:
         while True:
             console.clear()
             console.print(Panel.fit(f"Live Channels: '{search_term}' ({len(results)} found)", style="dim white"))
+            console.print("[dim white]Press: Enter=Select | S=Save to favorites | D=Delete from favorites | Esc=Back[/dim white]\n")
+            
+            # Get current favorites for checking
+            favorites_set = self.get_favorites_set()
             
             # Create menu options from results
             options = []
             for i, result in enumerate(results):
                 category = result['category_name'] or 'Unknown'
-                option = f"{result['name'][:50]} | {category[:15]} | ID: {result['stream_id']}"
+                is_fav = (result.get('stream_id'), 'live') in favorites_set
+                fav_indicator = "♥ " if is_fav else "  "
+                option = f"{fav_indicator}{result['name'][:48]} | {category[:15]} | ID: {result['stream_id']}"
                 options.append(option)
             
             options.append("Back to Search")
@@ -315,17 +345,31 @@ class IPTVMenuManager:
             terminal_menu = TerminalMenu(
                 options,
                 title="",
-                menu_cursor="> "
+                menu_cursor="> ",
+                accept_keys=("enter", "s", "d"),
+                show_shortcut_hints=False
             )
             
             choice = terminal_menu.show()
+            chosen_key = terminal_menu.chosen_accept_key
             
             if choice is None or choice == len(results):  # Back
                 break
             
             if 0 <= choice < len(results):
                 selected = results[choice]
-                self.channel_action_menu(selected)
+                
+                # Handle shortcuts
+                if chosen_key == 's':  # Save to favorites
+                    self.save_to_favorites(selected, 'live')
+                    continue  # Refresh menu immediately
+                    
+                elif chosen_key == 'd':  # Delete from favorites
+                    self.remove_from_favorites(selected, 'live')
+                    continue  # Refresh menu immediately
+                    
+                else:  # Enter key - show action menu
+                    self.channel_action_menu(selected)
     
     def live_stream_action_menu(self, channel):
         """Menu for live stream actions"""
@@ -460,7 +504,7 @@ class IPTVMenuManager:
         cursor = conn.cursor()
         
         sql = """
-            SELECT name, year, rating, genre, stream_url
+            SELECT stream_id, name, year, rating, genre, stream_url
             FROM vod_streams 
             WHERE name LIKE ? 
             ORDER BY name 
@@ -470,13 +514,17 @@ class IPTVMenuManager:
         results = cursor.execute(sql, (f'%{query}%',)).fetchall()
         conn.close()
         
-        return [dict(zip(['name', 'year', 'rating', 'genre', 'stream_url'], row)) for row in results]
+        return [dict(zip(['stream_id', 'name', 'year', 'rating', 'genre', 'stream_url'], row)) for row in results]
     
     def show_vod_results(self, results, search_term):
         """Show VOD results with arrow navigation"""
         while True:
             console.clear()
             console.print(Panel.fit(f"VOD Content: '{search_term}' ({len(results)} found)", style="dim white"))
+            console.print("[dim white]Press: Enter=Select | S=Save to favorites | D=Delete from favorites | Esc=Back[/dim white]\n")
+            
+            # Get current favorites for checking
+            favorites_set = self.get_favorites_set()
             
             # Create menu options from results
             options = []
@@ -484,7 +532,11 @@ class IPTVMenuManager:
                 year = result['year'] or 'N/A'
                 rating = f"{result['rating']:.1f}" if result['rating'] else 'N/A'
                 genre = result['genre'][:15] if result['genre'] else 'Unknown'
-                option = f"{result['name'][:40]} ({year}) | {rating} | {genre}"
+                # Add category_name for consistency with favorites
+                result['category_name'] = f"VOD/{genre}" if genre else 'VOD'
+                is_fav = (result.get('stream_id'), 'vod') in favorites_set
+                fav_indicator = "♥ " if is_fav else "  "
+                option = f"{fav_indicator}{result['name'][:38]} ({year}) | {rating} | {genre}"
                 options.append(option)
             
             options.append("Back to Search")
@@ -492,17 +544,31 @@ class IPTVMenuManager:
             terminal_menu = TerminalMenu(
                 options,
                 title="",
-                menu_cursor="> "
+                menu_cursor="> ",
+                accept_keys=("enter", "s", "d"),
+                show_shortcut_hints=False
             )
             
             choice = terminal_menu.show()
+            chosen_key = terminal_menu.chosen_accept_key
             
             if choice is None or choice == len(results):  # Back
                 break
             
             if 0 <= choice < len(results):
                 selected = results[choice]
-                self.play_with_mpv({'name': selected['name'], 'stream_url': selected['stream_url']})
+                
+                # Handle shortcuts
+                if chosen_key == 's':  # Save to favorites
+                    self.save_to_favorites(selected, 'vod')
+                    continue  # Refresh menu immediately
+                    
+                elif chosen_key == 'd':  # Delete from favorites
+                    self.remove_from_favorites(selected, 'vod')
+                    continue  # Refresh menu immediately
+                    
+                else:  # Enter key - show action menu or play
+                    self.play_with_mpv({'name': selected['name'], 'stream_url': selected['stream_url']})
     
     def browse_categories_menu(self):
         """Browse categories menu"""
@@ -1289,15 +1355,22 @@ class IPTVMenuManager:
             console.print(f"Jellyfin: {jellyfin_status}")
             console.print()
             
-            options = [
-                "Install Docker",
-                "Install Lazydocker",
-                "NGINX-RTMP Server Management",
-                "Jellyfin Media Server Management", 
-                "Start All Containers",
-                "Stop All Containers",
-                "Back to Main Menu"
-            ]
+            # Build dynamic options based on what's installed
+            options = ["Install Docker", "Install Lazydocker"]
+            
+            # Check if lazydocker is installed to show launch option
+            try:
+                subprocess.run(['which', 'lazydocker'], capture_output=True, check=True)
+                options.append("Launch Lazydocker")
+                lazydocker_installed = True
+            except:
+                lazydocker_installed = False
+            
+            # Add remaining options
+            options.extend([
+                "Container Status & URLs",
+                "Build & Start All Containers"
+            ])
             
             terminal_menu = TerminalMenu(
                 options,
@@ -1307,105 +1380,149 @@ class IPTVMenuManager:
             
             choice = terminal_menu.show()
             
-            if choice is None or choice == 6:  # Back
+            if choice is None:  # ESC pressed
                 break
             elif choice == 0:  # Install Docker
                 self.install_docker()
             elif choice == 1:  # Install Lazydocker
                 self.install_lazydocker()
-            elif choice == 2:  # NGINX Management
-                self.nginx_container_menu()
-            elif choice == 3:  # Jellyfin Management
-                self.jellyfin_container_menu()
-            elif choice == 4:  # Start All
-                self.start_all_containers()
-            elif choice == 5:  # Stop All
-                self.stop_all_containers()
+            elif lazydocker_installed and choice == 2:  # Launch Lazydocker
+                self.launch_lazydocker()
+            elif (lazydocker_installed and choice == 3) or (not lazydocker_installed and choice == 2):  # Status & URLs
+                self.show_container_status_and_urls()
+            elif (lazydocker_installed and choice == 4) or (not lazydocker_installed and choice == 3):  # Build & Start All
+                self.build_and_start_all_containers()
     
-    def nginx_container_menu(self):
-        """NGINX Container management menu"""
-        while True:
-            console.clear()
-            console.print(Panel.fit("NGINX-RTMP Restreaming Server", style="dim white"))
-            
-            # Check Docker status
-            docker_status = self.check_docker_status()
-            container_status = self.check_container_status()
-            
-            console.print(f"Docker: {docker_status}")
-            console.print(f"Container: {container_status}")
-            console.print()
-            
-            options = [
-                "Build & Start NGINX Container",
-                "Stop Container",
-                "View Container Logs",
-                "Container Status & URLs",
-                "Test Restream Setup",
-                "Back to Main Menu"
-            ]
-            
-            terminal_menu = TerminalMenu(
-                options,
-                title="",
-                menu_cursor="> "
-            )
-            
-            choice = terminal_menu.show()
-            
-            if choice is None or choice == 5:  # Back
-                break
-            elif choice == 0:  # Build & Start
-                self.build_nginx_container()
-            elif choice == 1:  # Stop
-                self.stop_nginx_container()
-            elif choice == 2:  # Logs
-                self.show_container_logs()
-            elif choice == 3:  # Status
-                self.show_container_status()
-            elif choice == 4:  # Test setup
-                self.test_restream_setup()
+    def show_container_status_and_urls(self):
+        """Show combined container status and URLs for both NGINX and Jellyfin"""
+        console.clear()
+        console.print(Panel.fit("Container Status & URLs", style="dim white"))
+        
+        # Check Docker status first
+        docker_status = self.check_docker_status()
+        console.print(f"Docker: {docker_status}")
+        
+        if "[green]" not in docker_status:
+            console.print("\n[red]Docker is not running. Please install/start Docker first.[/red]")
+            self.wait_for_escape()
+            return
+        
+        console.print()
+        
+        # NGINX-RTMP Status
+        nginx_status = self.check_container_status()
+        console.print(f"[bright_yellow]NGINX-RTMP Container:[/bright_yellow]")
+        console.print(f"  Status: {nginx_status}")
+        
+        if "[green]" in nginx_status:
+            console.print("\n  [dim white]📡 RTMP Input:[/dim white]")
+            console.print("    • rtmp://localhost:1935/live/[stream_key]")
+            console.print("\n  [dim white]📺 HLS Output:[/dim white]")
+            console.print("    • http://localhost:8080/hls/[stream_key].m3u8")
+            console.print("\n  [dim white]🌐 Web Interfaces:[/dim white]")
+            console.print("    • Player: http://localhost:8080")
+            console.print("    • Stats: http://localhost:8080/stat")
+            console.print("    • Admin: http://localhost:8081")
+        
+        console.print()
+        
+        # Jellyfin Status
+        jellyfin_status = self.check_jellyfin_status()
+        console.print(f"[bright_yellow]Jellyfin Media Server:[/bright_yellow]")
+        console.print(f"  Status: {jellyfin_status}")
+        
+        if "[green]" in jellyfin_status:
+            console.print("\n  [dim white]🌐 Web Interface:[/dim white]")
+            console.print("    • http://localhost:8096")
+            console.print("\n  [dim white]📱 Mobile Apps:[/dim white]")
+            console.print("    • iOS: Jellyfin Mobile (App Store)")
+            console.print("    • Android: Jellyfin (Google Play)")
+            console.print("\n  [dim white]📺 TV Apps:[/dim white]")
+            console.print("    • Roku, Fire TV, Android TV, Apple TV")
+        
+        console.print()
+        console.print("[dim white]Tip: Use 'Launch Lazydocker' for detailed container management[/dim white]")
+        
+        self.wait_for_escape()
     
-    def jellyfin_container_menu(self):
-        """Jellyfin Container management menu"""
-        while True:
-            console.clear()
-            console.print(Panel.fit("Jellyfin Media Server", style="dim white"))
+    def build_and_start_all_containers(self):
+        """Build and start all containers with docker-compose"""
+        console.clear()
+        console.print(Panel.fit("Build & Start All Containers", style="dim white"))
+        
+        # Check if Docker is available
+        docker_status = self.check_docker_status()
+        if "[green]" not in docker_status:
+            console.print("[red]✗[/red] Docker is not available")
+            console.print("Please install Docker first using the 'Install Docker' option")
+            self.wait_for_escape()
+            return
+        
+        console.print("[bright_yellow]This will build and start:[/bright_yellow]")
+        console.print("• NGINX-RTMP Restreaming Server")
+        console.print("• Jellyfin Media Server")
+        console.print()
+        console.print("Press Enter to continue, or Escape to cancel...")
+        
+        try:
+            key = input()
+            if key == '\x1b':  # ESC
+                return
+        except:
+            pass
+        
+        console.print("\n[bright_yellow]Building and starting containers...[/bright_yellow]")
+        console.print("This may take a few minutes on first run...")
+        
+        try:
+            # Create necessary directories
+            os.makedirs("jellyfin/config", exist_ok=True)
+            os.makedirs("jellyfin/cache", exist_ok=True)
+            os.makedirs("media", exist_ok=True)
             
-            # Check Docker status
-            docker_status = self.check_docker_status()
-            container_status = self.check_jellyfin_status()
+            # Build and start with docker-compose
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                transient=True
+            ) as progress:
+                task = progress.add_task("Building containers...", total=None)
+                
+                result = subprocess.run(['docker-compose', 'build', '--no-cache'], 
+                                      capture_output=True, check=True, timeout=600)
+                
+                progress.update(task, description="Starting containers...")
+                
+                result = subprocess.run(['docker-compose', 'up', '-d'], 
+                                      capture_output=True, check=True, timeout=300)
             
-            console.print(f"Docker: {docker_status}")
-            console.print(f"Container: {container_status}")
-            console.print()
+            console.print("\n[green]✓[/green] All containers built and started successfully!")
+            console.print("\n[bright_yellow]Access URLs:[/bright_yellow]")
+            console.print("• NGINX-RTMP Player: http://localhost:8080")
+            console.print("• Jellyfin: http://localhost:8096")
+            console.print("\n[dim white]Tip: Use 'Launch Lazydocker' to monitor containers[/dim white]")
             
-            options = [
-                "Build & Start Jellyfin Container",
-                "Stop Container",
-                "View Container Logs",
-                "Container Status & URLs",
-                "Back to Container Menu"
-            ]
-            
-            terminal_menu = TerminalMenu(
-                options,
-                title="",
-                menu_cursor="> "
-            )
-            
-            choice = terminal_menu.show()
-            
-            if choice is None or choice == 4:  # Back
-                break
-            elif choice == 0:  # Build & Start
-                self.build_jellyfin_container()
-            elif choice == 1:  # Stop
-                self.stop_jellyfin_container()
-            elif choice == 2:  # Logs
-                self.show_jellyfin_logs()
-            elif choice == 3:  # Status
-                self.show_jellyfin_status()
+        except subprocess.CalledProcessError as e:
+            console.print(f"\n[red]✗[/red] Error building/starting containers")
+            if e.stderr:
+                error_msg = e.stderr.decode()
+                if "docker-compose: command not found" in error_msg:
+                    console.print("Docker Compose is not installed. Please install Docker first.")
+                else:
+                    console.print(f"Error: {error_msg[:500]}...")
+        except Exception as e:
+            console.print(f"\n[red]✗[/red] Unexpected error: {e}")
+        
+        self.wait_for_escape()
+    
+    # The following container menu methods are deprecated - replaced by Launch Lazydocker
+    # def nginx_container_menu(self):
+    #     """NGINX Container management menu - DEPRECATED"""
+    #     pass
+    
+    # def jellyfin_container_menu(self):  
+    #     """Jellyfin Container management menu - DEPRECATED"""
+    #     pass
     
     def check_docker_status(self):
         """Check if Docker is available"""
@@ -2470,12 +2587,49 @@ class IPTVMenuManager:
             console.print(f"[red]✗[/red] Manual installation failed: {e}")
             raise
 
+    def launch_lazydocker(self):
+        """Launch Lazydocker TUI"""
+        try:
+            # Check if lazydocker is installed
+            subprocess.run(['which', 'lazydocker'], capture_output=True, check=True)
+            
+            # Clear screen and launch lazydocker
+            console.clear()
+            console.print("[bright_yellow]Launching Lazydocker...[/bright_yellow]\n")
+            console.print("Press 'q' to exit Lazydocker and return to the menu\n")
+            
+            # Launch lazydocker and wait for it to complete
+            subprocess.call(['lazydocker'])
+            
+            # After lazydocker exits, we'll automatically return to the menu
+            console.clear()
+            
+        except subprocess.CalledProcessError:
+            console.print("[red]✗[/red] Lazydocker is not installed")
+            console.print("Please install it first using the 'Install Lazydocker' option")
+            self.wait_for_escape()
+        except Exception as e:
+            console.print(f"[red]✗[/red] Error launching Lazydocker: {e}")
+            self.wait_for_escape()
+
     def load_favorites(self):
         """Load favorites from JSON file"""
         try:
-            if os.path.exists('favorites.json'):
-                with open('favorites.json', 'r') as f:
+            # Check new location first
+            if os.path.exists('data/favorites.json'):
+                with open('data/favorites.json', 'r') as f:
                     return json.load(f)
+            # Fall back to old location for backward compatibility
+            elif os.path.exists('favorites.json'):
+                with open('favorites.json', 'r') as f:
+                    favs = json.load(f)
+                # Migrate to new location
+                os.makedirs('data', exist_ok=True)
+                with open('data/favorites.json', 'w') as f:
+                    json.dump(favs, f, indent=2)
+                # Remove old file
+                os.remove('favorites.json')
+                return favs
         except Exception as e:
             console.print(f"[yellow]⚠[/yellow] Error loading favorites: {e}")
         return []
@@ -2507,8 +2661,8 @@ class IPTVMenuManager:
             # Add to favorites
             favs.append(favorite_item)
             
-            # Save to file
-            with open('favorites.json', 'w') as f:
+            # Save to file in data folder
+            with open('data/favorites.json', 'w') as f:
                 json.dump(favs, f, indent=2)
             
             # Auto-generate M3U playlist
@@ -2551,6 +2705,54 @@ class IPTVMenuManager:
         except Exception as e:
             console.print(f"[red]✗[/red] Error generating M3U playlist: {e}")
             return False
+
+    def is_favorite(self, item, item_type='live'):
+        """Check if an item is in favorites"""
+        try:
+            favs = self.load_favorites()
+            stream_id = item.get('stream_id', 0)
+            
+            for existing in favs:
+                if (existing.get('stream_id') == stream_id and 
+                    existing.get('type') == item_type):
+                    return True
+            return False
+        except:
+            return False
+    
+    def remove_from_favorites(self, item, item_type='live'):
+        """Remove item from favorites"""
+        try:
+            favs = self.load_favorites()
+            stream_id = item.get('stream_id', 0)
+            
+            # Find and remove the item
+            original_count = len(favs)
+            favs = [f for f in favs if not (f.get('stream_id') == stream_id and f.get('type') == item_type)]
+            
+            if len(favs) < original_count:
+                # Save updated favorites to data folder
+                with open('data/favorites.json', 'w') as f:
+                    json.dump(favs, f, indent=2)
+                
+                # Regenerate M3U playlist
+                self.generate_m3u_playlist()
+                
+                return len(favs)  # Return new count
+            
+            return -1  # Item not found
+            
+        except Exception as e:
+            console.print(f"[red]✗[/red] Error removing from favorites: {e}")
+            return 0
+    
+    def get_favorites_set(self):
+        """Get favorites as a set for quick lookups"""
+        try:
+            favs = self.load_favorites()
+            return {(f.get('stream_id'), f.get('type')) for f in favs}
+        except:
+            return set()
 
     def get_epg_data(self, stream_id, channel_name=None, limit=3):
         """Get EPG data for a stream using multiple strategies"""
