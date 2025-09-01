@@ -215,7 +215,7 @@ class IPTVMenuManager:
         while True:
             console.clear()
             console.print(Panel.fit(f"Search Results: '{search_term}' ({len(live_results + vod_results)} found)", style="dim white"))
-            console.print("[dim white]P=Play | I=Info | R=Restream | C=Copy | S=Save | D=Delete/Download | Esc=Back[/dim white]\n")
+            console.print("[dim white]# (s)ave | (d)elete | (i)nfo | (r)estream | (c)download | (p)lay[/dim white]\n")
             
             options = []
             all_results = []
@@ -282,9 +282,12 @@ class IPTVMenuManager:
                     self.restream_placeholder(selected)
                     continue  # Stay in menu after restreaming
                     
-                elif chosen_key == 'c':  # Copy URL directly
-                    self.copy_stream_url(selected)
-                    continue  # Stay in menu after copying
+                elif chosen_key == 'c':  # Download content
+                    if result_type == 'vod':
+                        self.download_vod_to_data(selected)
+                    else:
+                        self.download_live_to_data(selected)
+                    continue  # Stay in menu after downloading
                     
                 elif chosen_key == 's':  # Save to favorites
                     result = self.save_to_favorites(selected, result_type)
@@ -299,21 +302,15 @@ class IPTVMenuManager:
                         self.wait_for_escape()
                     continue  # Refresh menu immediately
                     
-                elif chosen_key == 'd':  # Delete from favorites OR Download (VOD)
-                    if result_type == 'vod':
-                        # For VOD, D means Download
-                        self.download_vod_to_data(selected)
-                        continue  # Stay in menu after download
+                elif chosen_key == 'd':  # Delete from favorites
+                    result = self.remove_from_favorites(selected, result_type)
+                    if result > 0:
+                        console.print(f"[green]✓[/green] Removed from favorites ({result} remaining)")
+                        self.wait_for_escape()
                     else:
-                        # For LIVE, D means Delete from favorites
-                        result = self.remove_from_favorites(selected, result_type)
-                        if result > 0:
-                            console.print(f"[green]✓[/green] Removed from favorites ({result} remaining)")
-                            self.wait_for_escape()
-                        else:
-                            console.print("[yellow]⚠[/yellow] Not in favorites or removal failed")
-                            self.wait_for_escape()
-                        continue  # Refresh menu immediately
+                        console.print("[yellow]⚠[/yellow] Not in favorites")
+                        self.wait_for_escape()
+                    continue  # Refresh menu immediately
                     
                 else:  # Enter key - show action menu (fallback for backwards compatibility)
                     if result_type == 'live':
@@ -364,23 +361,48 @@ class IPTVMenuManager:
         return [dict(zip(['name', 'category_name', 'stream_id', 'stream_url', 'epg_channel_id'], row)) for row in results]
     
     def show_live_results(self, results, search_term):
-        """Show live channel results with arrow navigation"""
+        """Show live channel results with arrow navigation, keyboard shortcuts and pagination"""
+        page_size = 25
+        current_page = 0
+        total_pages = (len(results) + page_size - 1) // page_size if results else 1
+        
         while True:
             console.clear()
-            console.print(Panel.fit(f"Live Channels: '{search_term}' ({len(results)} found)", style="dim white"))
-            console.print("[dim white]Press: Enter=Select | S=Save to favorites | D=Delete from favorites | Esc=Back[/dim white]\n")
+            
+            # Display header with page info
+            if total_pages > 1:
+                console.print(Panel.fit(f"Live Channels: '{search_term}' ({len(results)} found) - Page {current_page + 1}/{total_pages}", style="dim white"))
+            else:
+                console.print(Panel.fit(f"Live Channels: '{search_term}' ({len(results)} found)", style="dim white"))
+            
+            console.print("[dim white]# (s)ave | (d)elete | (i)nfo | (r)estream | (c)download | (p)lay[/dim white]\n")
             
             # Get current favorites for checking
             favorites_set = self.get_favorites_set()
             
-            # Create menu options from results
+            # Calculate page boundaries
+            start_idx = current_page * page_size
+            end_idx = min(start_idx + page_size, len(results))
+            page_results = results[start_idx:end_idx]
+            
+            # Create menu options from current page results
             options = []
-            for i, result in enumerate(results):
+            
+            # Add Previous Page option if not on first page
+            if current_page > 0:
+                options.append("← Previous Page")
+            
+            # Add current page items
+            for result in page_results:
                 category = result['category_name'] or 'Unknown'
                 is_fav = (result.get('stream_id'), 'live') in favorites_set
                 fav_indicator = "♥ " if is_fav else "  "
                 option = f"{fav_indicator}{result['name'][:48]} | {category[:15]} | ID: {result['stream_id']}"
                 options.append(option)
+            
+            # Add Next Page option if not on last page
+            if current_page < total_pages - 1:
+                options.append("Next Page →")
             
             options.append("Back to Search")
             
@@ -388,26 +410,72 @@ class IPTVMenuManager:
                 options,
                 title="",
                 menu_cursor="> ",
-                accept_keys=("enter", "s", "d"),
+                accept_keys=("enter", "p", "i", "r", "c", "s", "d"),
                 show_shortcut_hints=False
             )
             
             choice = terminal_menu.show()
             chosen_key = terminal_menu.chosen_accept_key
             
-            if choice is None or choice == len(results):  # Back
+            if choice is None:  # Escape pressed
                 break
             
-            if 0 <= choice < len(results):
-                selected = results[choice]
+            selected_option = options[choice] if 0 <= choice < len(options) else None
+            
+            # Handle navigation options
+            if selected_option == "← Previous Page":
+                current_page -= 1
+                continue
+            elif selected_option == "Next Page →":
+                current_page += 1
+                continue
+            elif selected_option == "Back to Search":
+                break
+            
+            # Calculate actual result index accounting for navigation options
+            result_offset = 1 if current_page > 0 else 0  # Account for "Previous Page" option
+            result_idx = choice - result_offset
+            
+            if 0 <= result_idx < len(page_results):
+                selected = page_results[result_idx]
                 
                 # Handle shortcuts
-                if chosen_key == 's':  # Save to favorites
-                    self.save_to_favorites(selected, 'live')
+                if chosen_key == 'p':  # Play directly
+                    self.play_with_mpv(selected)
+                    continue  # Stay in menu after playing
+                    
+                elif chosen_key == 'i':  # Show information screen
+                    self.show_live_stream_info(selected)
+                    continue  # Return to menu after viewing info
+                    
+                elif chosen_key == 'r':  # Restream directly
+                    self.restream_placeholder(selected)
+                    continue  # Stay in menu after restreaming
+                    
+                elif chosen_key == 'c':  # Download (changed from Copy URL)
+                    self.download_live_to_data(selected)
+                    continue  # Stay in menu after downloading
+                    
+                elif chosen_key == 's':  # Save to favorites
+                    result = self.save_to_favorites(selected, 'live')
+                    if result == -1:
+                        console.print("[yellow]⚠[/yellow] Already in favorites!")
+                    elif result > 0:
+                        console.print(f"[green]✓[/green] Added to favorites ({result} total)")
+                    else:
+                        console.print("[red]✗[/red] Failed to add to favorites")
+                    console.print("Press any key to continue...")
+                    input()
                     continue  # Refresh menu immediately
                     
                 elif chosen_key == 'd':  # Delete from favorites
-                    self.remove_from_favorites(selected, 'live')
+                    result = self.remove_from_favorites(selected, 'live')
+                    if result:
+                        console.print(f"[green]✓[/green] Removed from favorites")
+                    else:
+                        console.print("[yellow]⚠[/yellow] Not in favorites")
+                    console.print("Press any key to continue...")
+                    input()
                     continue  # Refresh menu immediately
                     
                 else:  # Enter key - show action menu
@@ -559,18 +627,39 @@ class IPTVMenuManager:
         return [dict(zip(['stream_id', 'name', 'year', 'rating', 'genre', 'stream_url'], row)) for row in results]
     
     def show_vod_results(self, results, search_term):
-        """Show VOD results with arrow navigation"""
+        """Show VOD results with arrow navigation and pagination"""
+        page_size = 25
+        current_page = 0
+        total_pages = (len(results) + page_size - 1) // page_size if results else 1
+        
         while True:
             console.clear()
-            console.print(Panel.fit(f"VOD Content: '{search_term}' ({len(results)} found)", style="dim white"))
-            console.print("[dim white]Press: Enter=Select | S=Save to favorites | D=Delete from favorites | Esc=Back[/dim white]\n")
+            
+            # Display header with page info
+            if total_pages > 1:
+                console.print(Panel.fit(f"VOD Content: '{search_term}' ({len(results)} found) - Page {current_page + 1}/{total_pages}", style="dim white"))
+            else:
+                console.print(Panel.fit(f"VOD Content: '{search_term}' ({len(results)} found)", style="dim white"))
+            
+            console.print("[dim white]# (s)ave | (d)elete | (i)nfo | (r)estream | (c)download | (p)lay[/dim white]\n")
             
             # Get current favorites for checking
             favorites_set = self.get_favorites_set()
             
-            # Create menu options from results
+            # Calculate page boundaries
+            start_idx = current_page * page_size
+            end_idx = min(start_idx + page_size, len(results))
+            page_results = results[start_idx:end_idx]
+            
+            # Create menu options from current page results
             options = []
-            for result in results:
+            
+            # Add Previous Page option if not on first page
+            if current_page > 0:
+                options.append("← Previous Page")
+            
+            # Add current page items
+            for result in page_results:
                 year = result['year'] or 'N/A'
                 rating = f"{result['rating']:.1f}" if result['rating'] else 'N/A'
                 genre = result['genre'][:15] if result['genre'] else 'Unknown'
@@ -581,33 +670,81 @@ class IPTVMenuManager:
                 option = f"{fav_indicator}{result['name'][:38]} ({year}) | {rating} | {genre}"
                 options.append(option)
             
+            # Add Next Page option if not on last page
+            if current_page < total_pages - 1:
+                options.append("Next Page →")
+            
             options.append("Back to Search")
             
             terminal_menu = TerminalMenu(
                 options,
                 title="",
                 menu_cursor="> ",
-                accept_keys=("enter", "s", "d"),
+                accept_keys=("enter", "s", "d", "i", "r", "c", "p"),
                 show_shortcut_hints=False
             )
             
             choice = terminal_menu.show()
             chosen_key = terminal_menu.chosen_accept_key
             
-            if choice is None or choice == len(results):  # Back
+            if choice is None:  # Escape pressed
                 break
             
-            if 0 <= choice < len(results):
-                selected = results[choice]
+            selected_option = options[choice] if 0 <= choice < len(options) else None
+            
+            # Handle navigation options
+            if selected_option == "← Previous Page":
+                current_page -= 1
+                continue
+            elif selected_option == "Next Page →":
+                current_page += 1
+                continue
+            elif selected_option == "Back to Search":
+                break
+            
+            # Calculate actual result index accounting for navigation options
+            result_offset = 1 if current_page > 0 else 0  # Account for "Previous Page" option
+            result_idx = choice - result_offset
+            
+            if 0 <= result_idx < len(page_results):
+                selected = page_results[result_idx]
                 
                 # Handle shortcuts
                 if chosen_key == 's':  # Save to favorites
-                    self.save_to_favorites(selected, 'vod')
-                    continue  # Refresh menu immediately
+                    result = self.save_to_favorites(selected, 'vod')
+                    if result == -1:
+                        console.print("[yellow]⚠[/yellow] Already in favorites!")
+                        self.wait_for_escape()
+                    elif result > 0:
+                        console.print(f"[green]✓[/green] Added to favorites ({result} total)")
+                        self.wait_for_escape()
+                    continue
                     
                 elif chosen_key == 'd':  # Delete from favorites
-                    self.remove_from_favorites(selected, 'vod')
-                    continue  # Refresh menu immediately
+                    result = self.remove_from_favorites(selected, 'vod')
+                    if result > 0:
+                        console.print(f"[green]✓[/green] Removed from favorites ({result} remaining)")
+                        self.wait_for_escape()
+                    else:
+                        console.print("[yellow]⚠[/yellow] Not in favorites")
+                        self.wait_for_escape()
+                    continue
+                    
+                elif chosen_key == 'i':  # Show info
+                    self.show_vod_info(selected)
+                    continue
+                    
+                elif chosen_key == 'r':  # Restream
+                    self.restream_placeholder(selected)
+                    continue
+                    
+                elif chosen_key == 'c':  # Download
+                    self.download_vod_to_data(selected)
+                    continue
+                    
+                elif chosen_key == 'p':  # Play
+                    self.play_with_mpv({'name': selected['name'], 'stream_url': selected['stream_url']})
+                    continue
                     
                 else:  # Enter key - show action menu or play
                     self.play_with_mpv({'name': selected['name'], 'stream_url': selected['stream_url']})
@@ -1072,6 +1209,62 @@ class IPTVMenuManager:
         console.print("\n[dim white]Additional metadata not available[/dim white]")
         self.wait_for_escape()
     
+    
+    def download_live_to_data(self, live_item):
+        """Download/Record live stream to data folder"""
+        console.clear()
+        console.print(Panel.fit(f"Download Live: {live_item['name']}", style="dim white"))
+        
+        # Create data folder if it doesn't exist
+        import os
+        data_folder = "data"
+        if not os.path.exists(data_folder):
+            os.makedirs(data_folder)
+            console.print(f"[green]✓[/green] Created {data_folder} folder")
+        
+        # Generate filename with timestamp
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_filename = "".join(c for c in live_item['name'] if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        filename = f"{safe_filename}_{timestamp}.ts".replace("  ", " ")
+        filepath = os.path.join(data_folder, filename)
+        
+        console.print(f"Recording to: {filepath}")
+        console.print(f"Source: {live_item['stream_url']}")
+        console.print()
+        
+        # Use ffmpeg to record live stream
+        try:
+            # Check if ffmpeg is installed
+            subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
+            
+            # Start ffmpeg recording in background
+            ffmpeg_cmd = [
+                'ffmpeg',
+                '-i', live_item['stream_url'],
+                '-c', 'copy',  # Copy codec, no transcoding
+                '-t', '3600',  # Max 1 hour recording
+                filepath
+            ]
+            
+            process = subprocess.Popen(
+                ffmpeg_cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            
+            console.print(f"[green]✓[/green] Recording started (PID: {process.pid})")
+            console.print("Recording for max 1 hour or press Ctrl+C in terminal to stop")
+            console.print(f"File will be saved to: {filepath}")
+            
+        except FileNotFoundError:
+            console.print("[red]✗[/red] FFmpeg not installed")
+            console.print("Install with: sudo apt install ffmpeg")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Recording failed: {e}")
+        
+        console.print("\n[dim white]Press any key to return...[/dim white]")
+        input()
     
     def download_vod_to_data(self, vod_item):
         """Download VOD content to data folder (simplified version for shortcut)"""
