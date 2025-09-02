@@ -227,7 +227,7 @@ class IPTVMenuManager:
             # Keep options shorter to prevent truncation in terminal menu
             for result in live_results:
                 is_fav = (result.get('stream_id'), 'live') in favorites_set
-                fav_indicator = "♥ " if is_fav else "  "
+                fav_indicator = "⭐ " if is_fav else "  "
                 # Shorter format without category and ID to prevent truncation
                 option = f"{fav_indicator}[LIVE] {result['name']}"
                 options.append(option)
@@ -235,15 +235,35 @@ class IPTVMenuManager:
             
             # Add VOD results with [VOD] prefix and favorite indicator
             for result in vod_results:
-                year = result['year'] or 'N/A'
-                rating = f"{result['rating']:.1f}" if result['rating'] else 'N/A'
-                genre = result['genre'][:12] if result['genre'] else 'Unknown'
-                # Add category_name for consistency with favorites
-                result['category_name'] = f"VOD/{genre}" if genre else 'VOD'
+                # Extract year from name if not in year field
+                year_match = re.search(r'\((\d{4})\)', result['name'])
+                if year_match:
+                    year = year_match.group(1)
+                    # Remove year from display name
+                    display_name = re.sub(r'\s*\(\d{4}\)\s*', '', result['name'])
+                else:
+                    year = result.get('year') or 'N/A'
+                    display_name = result['name']
+                    
+                rating = f"⭐{result['rating']:.1f}" if result['rating'] else '⭐N/A'
+                
+                # Use category_name as genre if available
+                if result.get('category_name'):
+                    # Simplify category for display
+                    category = result['category_name']
+                    if ' - ' in category:
+                        parts = category.split(' - ', 1)
+                        genre = parts[0][:3] if len(parts) > 0 else 'VOD'
+                    else:
+                        genre = category[:8]
+                else:
+                    genre = result.get('genre', 'VOD')[:8] if result.get('genre') else 'VOD'
+                    result['category_name'] = f"VOD/{genre}"
+                    
                 is_fav = (result.get('stream_id'), 'vod') in favorites_set
-                fav_indicator = "♥ " if is_fav else "  "
-                # Shorter format to prevent truncation
-                option = f"{fav_indicator}[VOD] {result['name'][:35]} ({year})"
+                fav_indicator = "⭐ " if is_fav else "  "
+                # Compact format for unified search
+                option = f"{fav_indicator}[VOD] {rating} {year:<4} {display_name[:20]}"
                 options.append(option)
                 all_results.append(('vod', result))
             
@@ -396,7 +416,7 @@ class IPTVMenuManager:
             for result in page_results:
                 category = result['category_name'] or 'Unknown'
                 is_fav = (result.get('stream_id'), 'live') in favorites_set
-                fav_indicator = "♥ " if is_fav else "  "
+                fav_indicator = "⭐ " if is_fav else "  "
                 option = f"{fav_indicator}{result['name'][:48]} | {category[:15]} | ID: {result['stream_id']}"
                 options.append(option)
             
@@ -660,14 +680,60 @@ class IPTVMenuManager:
             
             # Add current page items
             for result in page_results:
-                year = result['year'] or 'N/A'
-                rating = f"{result['rating']:.1f}" if result['rating'] else 'N/A'
-                genre = result['genre'][:15] if result['genre'] else 'Unknown'
-                # Add category_name for consistency with favorites
-                result['category_name'] = f"VOD/{genre}" if genre else 'VOD'
+                # Extract year from name if not in year field
+                year_match = re.search(r'\((\d{4})\)', result['name'])
+                if year_match:
+                    year = year_match.group(1)
+                    # Remove year from display name
+                    display_name = re.sub(r'\s*\(\d{4}\)\s*', '', result['name'])
+                else:
+                    year = result.get('year') or 'N/A'
+                    display_name = result['name']
+                
+                # Format rating without star and decimal if .0
+                if result['rating']:
+                    # Convert to int if it's a whole number, otherwise keep 1 decimal
+                    rating_val = result['rating']
+                    if rating_val == int(rating_val):
+                        rating = str(int(rating_val))
+                    else:
+                        rating = f"{rating_val:.1f}"
+                else:
+                    rating = 'N/A'
+                
+                # Use category_name as genre since genre field is empty
+                if result.get('category_name'):
+                    # Clean up category name to make it shorter
+                    category = result['category_name']
+                    # Extract main part (e.g., "FR - ACTION" -> "FR-ACTION")
+                    if ' - ' in category:
+                        parts = category.split(' - ')
+                        genre = f"{parts[0][:2]}-{parts[1][:8]}" if len(parts) > 1 else parts[0][:12]
+                    else:
+                        genre = category[:12]
+                else:
+                    genre = result.get('genre', 'Unknown')[:12] if result.get('genre') else 'Unknown'
+                
+                # Store full category for favorites
+                if not result.get('category_name'):
+                    result['category_name'] = f"VOD/{genre}"
+                    
                 is_fav = (result.get('stream_id'), 'vod') in favorites_set
-                fav_indicator = "♥ " if is_fav else "  "
-                option = f"{fav_indicator}{result['name'][:38]} ({year}) | {rating} | {genre}"
+                fav_indicator = "⭐ " if is_fav else "  "
+                
+                # Ultra-compact format to avoid truncation
+                # Remove prefixes like "EN -", "FR -", "NF -" from display
+                clean_name = display_name
+                if ' - ' in clean_name:
+                    parts = clean_name.split(' - ', 1)
+                    if len(parts[0]) <= 3:  # If prefix is short (EN, FR, NF, etc.)
+                        clean_name = parts[1] if len(parts) > 1 else clean_name
+                
+                # Format: score year title (no star, compact rating)
+                if year != 'N/A':
+                    option = f"{fav_indicator}{rating:>3} {year} {clean_name[:25]}"
+                else:
+                    option = f"{fav_indicator}{rating:>3} {clean_name[:30]}"
                 options.append(option)
             
             # Add Next Page option if not on last page
