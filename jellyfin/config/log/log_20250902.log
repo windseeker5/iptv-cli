@@ -1,0 +1,5 @@
+[2025-09-02 00:11:16.269 +00:00] [INF] [129] Emby.Server.Implementations.Library.LibraryManager: Validating media library
+[2025-09-02 00:11:16.284 +00:00] [INF] [131] Emby.Server.Implementations.ScheduledTasks.TaskManager: "Media Segment Scan" Completed after 0 minute(s) and 0 seconds
+[2025-09-02 00:11:16.508 +00:00] [WRN] [129] MediaBrowser.Controller.Entities.BaseItem: Library folder "/config/data/playlists" is inaccessible or empty, skipping
+[2025-09-02 00:11:16.551 +00:00] [WRN] [129] MediaBrowser.Controller.Entities.BaseItem: Library folder "/config/data/playlists" is inaccessible or empty, skipping
+[2025-09-02 00:11:16.572 +00:00] [INF] [56] Emby.Server.Implementations.ScheduledTasks.TaskManager: "Scan Media Library" Completed after 0 minute(s) and 0 seconds
