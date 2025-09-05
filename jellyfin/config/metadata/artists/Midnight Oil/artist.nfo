@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:05:56</dateadded>
+  <title>Midnight Oil</title>
+  <runtime>10</runtime>
+  <musicbrainzartistid>05072650-4b05-4e8b-83d0-dba2576e306a</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Midnight Oil/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Midnight Oil/backdrop.jpg</fanart>
+  </art>
+</artist>

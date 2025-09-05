@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:05:55</dateadded>
+  <title>Michael Nyman</title>
+  <runtime>7</runtime>
+  <musicbrainzartistid>c3161cf7-cab1-4409-9b1f-876561dd7716</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Michael Nyman/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Michael Nyman/backdrop.jpg</fanart>
+  </art>
+</artist>

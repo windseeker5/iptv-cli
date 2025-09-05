@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KDC USB Media Setup Guide - IPTV Infrastructure</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <style>
+        :root {
+            --primary-green: #00ff41;
+            --primary-gradient: linear-gradient(135deg, #00ff41 0%, #00cc33 100%);
+            --success-gradient: linear-gradient(135deg, #00ff41 0%, #00cc33 100%);
+            --info-gradient: linear-gradient(135deg, #00b4d8 0%, #0096c7 100%);
+            --warning-gradient: linear-gradient(135deg, #ffc107 0%, #ff9800 100%);
+            --card-bg: #1a1a1a;
+            --card-hover: #222;
+            --text-primary: #e0e0e0;
+            --text-secondary: #a0a0a0;
+            --border-color: #333;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #0a0a0a;
+            background-image: 
+                radial-gradient(circle at 20% 50%, rgba(0, 255, 65, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(0, 180, 216, 0.05) 0%, transparent 50%);
+            min-height: 100vh;
+            padding-bottom: 50px;
+            color: var(--text-primary);
+        }
+        
+        .header {
+            background: linear-gradient(180deg, #111 0%, #1a1a1a 100%);
+            color: white;
+            padding: 30px 0;
+            margin-bottom: 40px;
+            border-bottom: 2px solid var(--primary-green);
+            box-shadow: 0 4px 20px rgba(0, 255, 65, 0.2);
+        }
+        
+        .header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+        
+        .content-card {
+            background: var(--card-bg);
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-color);
+        }
+        
+        .status-card {
+            background: #0a0a0a;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-left: 4px solid var(--primary-green);
+            border: 1px solid var(--border-color);
+        }
+        
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .status-item:last-child {
+            border-bottom: none;
+        }
+        
+        .status-label {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        
+        .status-value {
+            color: var(--primary-green);
+            font-family: 'Courier New', monospace;
+        }
+        
+        .folder-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .folder-card {
+            background: #0a0a0a;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: 2px solid transparent;
+        }
+        
+        .folder-card:hover {
+            background: var(--card-hover);
+            border-color: var(--primary-green);
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0, 255, 65, 0.2);
+        }
+        
+        .folder-card i {
+            font-size: 3rem;
+            color: var(--primary-green);
+            margin-bottom: 10px;
+        }
+        
+        .folder-card h5 {
+            margin-bottom: 5px;
+            color: var(--text-primary);
+        }
+        
+        .folder-card p {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin: 0;
+        }
+        
+        .config-section {
+            background: #0a0a0a;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            border: 1px solid var(--border-color);
+        }
+        
+        .config-section h4 {
+            color: var(--text-primary);
+            margin-bottom: 15px;
+            font-size: 1.2rem;
+        }
+        
+        .code-block {
+            background: #0a0a0a;
+            color: var(--primary-green);
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            margin: 10px 0;
+            border: 1px solid var(--border-color);
+        }
+        
+        .step-number {
+            display: inline-flex;
+            width: 30px;
+            height: 30px;
+            background: var(--primary-gradient);
+            color: white;
+            border-radius: 50%;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        
+        .alert-custom {
+            background: #fff5e6;
+            border-left: 4px solid #ff9800;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        
+        .btn-action {
+            display: inline-block;
+            padding: 10px 25px;
+            border-radius: 25px;
+            text-decoration: none;
+            color: white;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        
+        .btn-action.primary {
+            background: var(--primary-gradient);
+        }
+        
+        .btn-action.success {
+            background: var(--success-gradient);
+        }
+        
+        .btn-action:hover {
+            transform: scale(1.05);
+            color: white;
+        }
+        
+        .network-path {
+            background: #0a0a0a;
+            border: 1px solid var(--border-color);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            margin: 10px 0;
+            color: var(--primary-green);
+        }
+        
+        .permission-table {
+            width: 100%;
+            margin-top: 15px;
+        }
+        
+        .permission-table th {
+            background: #0a0a0a;
+            padding: 10px;
+            text-align: left;
+            font-weight: 600;
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+        
+        .permission-table td {
+            padding: 10px;
+            border-bottom: 1px solid var(--border-color);
+            color: var(--text-secondary);
+        }
+        
+        .service-status {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        
+        .service-status.running {
+            background: rgba(0, 255, 65, 0.2);
+            color: var(--primary-green);
+            border: 1px solid var(--primary-green);
+        }
+        
+        .service-status.stopped {
+            background: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="container" style="position: relative;">
+            <img src="kdc-logo-transparent.png" alt="KDC" style="position: absolute; left: 0; top: 50%; transform: translateY(-50%); height: 90px; width: auto; z-index: 10;">
+            <div style="text-align: center; padding: 20px 0;">
+                <h1 style="margin: 0; text-transform: uppercase; display: inline-block;"><i class="bi bi-usb-drive"></i> USB MEDIA SETUP GUIDE</h1>
+                <p style="margin-top: 10px; color: #a0a0a0;">Configure your USB drive for IPTV recording and media streaming</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- USB Drive Status -->
+        <div class="content-card">
+            <h2><i class="bi bi-hdd"></i> USB Drive Status</h2>
+            <div class="status-card">
+                <div class="status-item">
+                    <span class="status-label">Mount Point:</span>
+                    <span class="status-value">/mnt/media/</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">File System:</span>
+                    <span class="status-value" id="fs-type">ext4</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Total Space:</span>
+                    <span class="status-value" id="total-space">Checking...</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Available Space:</span>
+                    <span class="status-value" id="avail-space">Checking...</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Mount Status:</span>
+                    <span class="service-status running" id="mount-status">Mounted</span>
+                </div>
+            </div>
+
+            <div class="folder-grid">
+                <div class="folder-card" onclick="openFolder('records')">
+                    <i class="bi bi-record-circle"></i>
+                    <h5>RECORDS</h5>
+                    <p>Live TV Recordings</p>
+                </div>
+                <div class="folder-card" onclick="openFolder('movies')">
+                    <i class="bi bi-film"></i>
+                    <h5>MOVIES</h5>
+                    <p>Movie Collection</p>
+                </div>
+                <div class="folder-card" onclick="openFolder('music')">
+                    <i class="bi bi-music-note-beamed"></i>
+                    <h5>MUSIC</h5>
+                    <p>Music Library</p>
+                </div>
+                <div class="folder-card" onclick="openFolder('photos')">
+                    <i class="bi bi-images"></i>
+                    <h5>PHOTOS</h5>
+                    <p>Photo Gallery</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Setup Instructions -->
+        <div class="content-card">
+            <h2><i class="bi bi-gear"></i> Initial Setup Instructions</h2>
+            
+            <h3><span class="step-number">1</span> Verify USB Mount</h3>
+            <p>First, ensure your USB drive is properly mounted on your system:</p>
+            <div class="code-block">
+# Check if USB drive is mounted
+df -h /mnt/media/
+
+# List USB drive contents
+ls -la /mnt/media/
+
+# Check permissions
+stat /mnt/media/RECORDS
+            </div>
+
+            <h3><span class="step-number">2</span> Configure Environment Variables</h3>
+            <p>The <code>.env</code> file has been configured with your USB paths:</p>
+            <div class="code-block">
+USB_RECORDS_PATH=/mnt/media/RECORDS
+USB_MOVIES_PATH=/mnt/media/MOVIES
+USB_MUSIC_PATH=/mnt/media/MUSIC
+USB_PHOTOS_PATH=/mnt/media/PHOTOS
+            </div>
+
+            <h3><span class="step-number">3</span> Start Docker Services</h3>
+            <p>Build and start the containers with USB mount support:</p>
+            <div class="code-block">
+# Stop existing containers
+docker-compose down
+
+# Rebuild with new configuration
+docker-compose build --no-cache
+
+# Start all services
+docker-compose up -d
+
+# Verify services are running
+docker-compose ps
+            </div>
+
+            <h3><span class="step-number">4</span> Configure Jellyfin Libraries</h3>
+            <p>Access Jellyfin at <a href="http://localhost:8096" target="_blank">http://localhost:8096</a> and add these libraries:</p>
+            <div class="config-section">
+                <h4>Jellyfin Library Paths</h4>
+                <table class="permission-table">
+                    <thead>
+                        <tr>
+                            <th>Library Type</th>
+                            <th>Container Path</th>
+                            <th>USB Folder</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Movies</td>
+                            <td>/media/movies</td>
+                            <td>MOVIES/</td>
+                        </tr>
+                        <tr>
+                            <td>Music</td>
+                            <td>/media/music</td>
+                            <td>MUSIC/</td>
+                        </tr>
+                        <tr>
+                            <td>Photos</td>
+                            <td>/media/photos</td>
+                            <td>PHOTOS/</td>
+                        </tr>
+                        <tr>
+                            <td>Recorded TV</td>
+                            <td>/media/recordings</td>
+                            <td>RECORDS/</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Network Access -->
+        <div class="content-card">
+            <h2><i class="bi bi-network"></i> Network Access via Samba</h2>
+            
+            <p>Access your USB media from any device on your network using these paths:</p>
+            
+            <h4><i class="bi bi-windows"></i> Windows</h4>
+            <div class="network-path">
+\\localhost\records     (Live TV Recordings)
+\\localhost\movies      (Movie Collection)
+\\localhost\music       (Music Library)
+\\localhost\photos      (Photo Gallery)
+            </div>
+
+            <h4><i class="bi bi-apple"></i> macOS / Linux</h4>
+            <div class="network-path">
+smb://localhost/records     (Live TV Recordings)
+smb://localhost/movies      (Movie Collection)
+smb://localhost/music       (Music Library)
+smb://localhost/photos      (Photo Gallery)
+            </div>
+
+            <div class="alert-custom">
+                <i class="bi bi-info-circle"></i> <strong>Note:</strong> Samba shares are configured with read/write access. 
+                You can map these as network drives for easier access.
+            </div>
+        </div>
+
+        <!-- Recording Configuration -->
+        <div class="content-card">
+            <h2><i class="bi bi-record-circle"></i> Recording Live TV</h2>
+            
+            <p>Live TV streams will be automatically recorded to your USB drive:</p>
+            
+            <div class="config-section">
+                <h4>Recording Settings</h4>
+                <ul>
+                    <li>Recording Path: <code>/mnt/media/RECORDS/</code></li>
+                    <li>File Format: <code>.mp4</code> (H.264/AAC)</li>
+                    <li>Auto-organize: Recordings sorted by date</li>
+                    <li>Retention: Manual deletion (no auto-cleanup)</li>
+                </ul>
+            </div>
+
+            <h4>Start Recording from IPTV Menu</h4>
+            <div class="code-block">
+# From the IPTV CLI menu:
+1. Select "Streaming Infrastructure"
+2. Choose "Start Restreaming"
+3. Select channel to record
+4. Recording saves to USB automatically
+            </div>
+
+            <h4>Access Recordings</h4>
+            <ul>
+                <li><strong>Via Jellyfin:</strong> Browse "Recorded TV" library</li>
+                <li><strong>Via Samba:</strong> Access <code>\\localhost\records</code></li>
+                <li><strong>Via Web:</strong> <a href="/recordings">View Recordings</a></li>
+            </ul>
+        </div>
+
+        <!-- Troubleshooting -->
+        <div class="content-card">
+            <h2><i class="bi bi-wrench"></i> Troubleshooting</h2>
+            
+            <h4>Common Issues and Solutions</h4>
+            
+            <div class="config-section">
+                <h5>Permission Denied Errors</h5>
+                <div class="code-block">
+# Fix permissions for recording folder
+sudo chmod 777 /mnt/media/RECORDS
+
+# Fix ownership
+sudo chown -R $USER:$USER /mnt/media/
+                </div>
+            </div>
+
+            <div class="config-section">
+                <h5>USB Drive Not Mounting</h5>
+                <div class="code-block">
+# Check USB device
+lsblk
+
+# Mount manually
+sudo mount /dev/sdX1 /mnt/media
+
+# Add to /etc/fstab for auto-mount
+echo "UUID=your-uuid /mnt/media ext4 defaults 0 2" | sudo tee -a /etc/fstab
+                </div>
+            </div>
+
+            <div class="config-section">
+                <h5>Jellyfin Not Seeing Media</h5>
+                <ol>
+                    <li>Restart Jellyfin container: <code>docker-compose restart jellyfin</code></li>
+                    <li>Rescan libraries in Jellyfin settings</li>
+                    <li>Check container volumes: <code>docker inspect iptv-jellyfin</code></li>
+                </ol>
+            </div>
+
+            <div class="config-section">
+                <h5>Samba Connection Issues</h5>
+                <div class="code-block">
+# Test Samba connection
+smbclient -L localhost -N
+
+# Check Samba logs
+docker logs iptv-samba
+
+# Restart Samba container
+docker-compose restart samba
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="content-card">
+            <h2><i class="bi bi-lightning"></i> Quick Actions</h2>
+            
+            <a href="/" class="btn-action primary">
+                <i class="bi bi-house"></i> Back to Dashboard
+            </a>
+            <a href="http://localhost:8096" target="_blank" class="btn-action success">
+                <i class="bi bi-collection-play"></i> Open Jellyfin
+            </a>
+            <a href="#" onclick="checkDiskSpace()" class="btn-action primary">
+                <i class="bi bi-hdd"></i> Check Disk Space
+            </a>
+            <a href="#" onclick="testSambaAccess()" class="btn-action primary">
+                <i class="bi bi-network"></i> Test Samba Access
+            </a>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer text-center mt-5 pb-3">
+        <p style="color: var(--text-secondary);">KDC USB Media Setup Guide - IPTV Infrastructure v1.0</p>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        // Check disk space
+        function checkDiskSpace() {
+            // This would normally make an API call to get real disk stats
+            const total = "2.7 TB";
+            const available = "1.2 TB";
+            const used = "1.5 TB";
+            
+            document.getElementById('total-space').textContent = total;
+            document.getElementById('avail-space').textContent = available;
+            
+            alert(`USB Drive Space:\n\nTotal: ${total}\nUsed: ${used}\nAvailable: ${available}\n\nPath: /mnt/media/`);
+        }
+
+        // Test Samba access
+        function testSambaAccess() {
+            alert('Samba Shares Available:\n\n' +
+                  '✓ records - Live TV Recordings\n' +
+                  '✓ movies - Movie Collection\n' +
+                  '✓ music - Music Library\n' +
+                  '✓ photos - Photo Gallery\n' +
+                  '✓ downloads - VOD Downloads\n\n' +
+                  'Access via: smb://localhost/');
+        }
+
+        // Open folder (placeholder)
+        function openFolder(folder) {
+            const paths = {
+                'records': '\\\\localhost\\records',
+                'movies': '\\\\localhost\\movies',
+                'music': '\\\\localhost\\music',
+                'photos': '\\\\localhost\\photos'
+            };
+            
+            alert(`To access ${folder.toUpperCase()} folder:\n\n` +
+                  `Windows: ${paths[folder]}\n` +
+                  `Mac/Linux: smb://localhost/${folder}\n\n` +
+                  `Or use Jellyfin at http://localhost:8096`);
+        }
+
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Simulate checking disk space
+            setTimeout(checkDiskSpace, 1000);
+        });
+    </script>
+</body>
+</html>

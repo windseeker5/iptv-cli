@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:04:53</dateadded>
+  <title>Dusty Springfield</title>
+  <runtime>5</runtime>
+  <musicbrainzartistid>b896aa8c-2761-40ce-b485-0e1fffd26167</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Dusty Springfield/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Dusty Springfield/backdrop.jpg</fanart>
+  </art>
+</artist>

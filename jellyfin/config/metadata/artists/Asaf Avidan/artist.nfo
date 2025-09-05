@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:04:29</dateadded>
+  <title>Asaf Avidan</title>
+  <runtime>11</runtime>
+  <genre>House</genre>
+  <musicbrainzartistid>5b9890b9-a2e8-4768-ad70-9f28bb81fc00</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Asaf Avidan/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Asaf Avidan/backdrop.jpg</fanart>
+  </art>
+</artist>

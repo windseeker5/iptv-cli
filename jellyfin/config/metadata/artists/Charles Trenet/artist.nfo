@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:04:43</dateadded>
+  <title>Charles Trenet</title>
+  <runtime>7</runtime>
+  <musicbrainzartistid>cf97f8c4-f287-4c0c-a07e-6ca2fdd8e8c2</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Charles Trenet/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Charles Trenet/backdrop.jpg</fanart>
+  </art>
+</artist>

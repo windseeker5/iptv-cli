@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:05:50</dateadded>
+  <title>Martin Garrix</title>
+  <runtime>7</runtime>
+  <musicbrainzartistid>3e1f2ee4-16be-4406-bf18-6173840cf2b1</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Martin Garrix/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Martin Garrix/backdrop.jpg</fanart>
+  </art>
+</artist>

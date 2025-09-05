@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:06:01</dateadded>
+  <title>Niccolò Paganini</title>
+  <runtime>9</runtime>
+  <musicbrainzartistid>d581b2f2-f945-4566-a249-2d0171466993</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Niccolò Paganini/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Niccolò Paganini/backdrop.jpg</fanart>
+  </art>
+</artist>

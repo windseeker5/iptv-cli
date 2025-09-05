@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:05:33</dateadded>
+  <title>Johann Strauss II</title>
+  <runtime>29</runtime>
+  <musicbrainzartistid>8255db36-4902-4cf6-8612-0f2b4288bc9a</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Johann Strauss II/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Johann Strauss II/backdrop.jpg</fanart>
+  </art>
+</artist>

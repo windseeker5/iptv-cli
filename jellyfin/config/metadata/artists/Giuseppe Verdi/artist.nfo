@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:05:21</dateadded>
+  <title>Giuseppe Verdi</title>
+  <runtime>32</runtime>
+  <musicbrainzartistid>f1bedf1f-4445-4651-9c35-f4a3f3860a13</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Giuseppe Verdi/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Giuseppe Verdi/backdrop.jpg</fanart>
+  </art>
+</artist>

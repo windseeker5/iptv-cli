@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:06:03</dateadded>
+  <title>Pink Floyd</title>
+  <runtime>13</runtime>
+  <musicbrainzartistid>83d91898-7763-47d7-b03b-b92132375c47</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Pink Floyd/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Pink Floyd/backdrop.jpg</fanart>
+  </art>
+</artist>

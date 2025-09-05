@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:05:48</dateadded>
+  <title>Ludwig van Beethoven</title>
+  <runtime>40</runtime>
+  <musicbrainzartistid>1f9df192-a621-4f54-8850-2c5373b7eac9</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Ludwig van Beethoven/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Ludwig van Beethoven/backdrop.jpg</fanart>
+  </art>
+</artist>

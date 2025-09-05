@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:04:22</dateadded>
+  <title>A$AP Rocky</title>
+  <runtime>9</runtime>
+  <musicbrainzartistid>25b7b584-d952-4662-a8b9-dd8cdfbfeb64</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/A$AP Rocky/folder.jpg</poster>
+    <fanart>/config/metadata/artists/A$AP Rocky/backdrop.jpg</fanart>
+  </art>
+</artist>

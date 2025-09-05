@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:05:42</dateadded>
+  <title>Léo Delibes</title>
+  <runtime>5</runtime>
+  <musicbrainzartistid>a56056f7-4e47-4209-abdc-171331ff1089</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Léo Delibes/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Léo Delibes/backdrop.jpg</fanart>
+  </art>
+</artist>

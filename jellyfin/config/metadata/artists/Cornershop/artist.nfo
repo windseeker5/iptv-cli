@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:04:48</dateadded>
+  <title>Cornershop</title>
+  <runtime>8</runtime>
+  <musicbrainzartistid>92046be7-0927-4835-a4ed-a90416747d53</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Cornershop/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Cornershop/backdrop.jpg</fanart>
+  </art>
+</artist>
