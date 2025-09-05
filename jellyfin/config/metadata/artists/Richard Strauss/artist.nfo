@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:06:10</dateadded>
+  <title>Richard Strauss</title>
+  <runtime>3</runtime>
+  <musicbrainzartistid>4cb43d82-824e-4034-b03d-1a98f36f6e16</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Richard Strauss/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Richard Strauss/backdrop.jpg</fanart>
+  </art>
+</artist>

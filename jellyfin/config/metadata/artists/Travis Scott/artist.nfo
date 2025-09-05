@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-02 23:36:27</dateadded>
+  <title>Travis Scott</title>
+  <runtime>9</runtime>
+  <musicbrainzartistid>e4a51f17-a57b-47b1-b37b-f552d0f8e9e6</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Travis Scott/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Travis Scott/backdrop.jpg</fanart>
+  </art>
+</artist>

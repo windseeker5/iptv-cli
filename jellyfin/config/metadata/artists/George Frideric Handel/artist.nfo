@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:05:16</dateadded>
+  <title>George Frideric Handel</title>
+  <runtime>37</runtime>
+  <musicbrainzartistid>27870d47-bb98-42d1-bf2b-c7e972e6befc</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/George Frideric Handel/folder.jpg</poster>
+    <fanart>/config/metadata/artists/George Frideric Handel/backdrop.jpg</fanart>
+  </art>
+</artist>

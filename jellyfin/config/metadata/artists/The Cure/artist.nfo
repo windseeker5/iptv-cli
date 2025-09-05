@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:06:22</dateadded>
+  <title>The Cure</title>
+  <runtime>6</runtime>
+  <musicbrainzartistid>69ee3720-a7cb-4402-b48d-a02c366f2bcf</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/The Cure/folder.jpg</poster>
+    <fanart>/config/metadata/artists/The Cure/backdrop.jpg</fanart>
+  </art>
+</artist>

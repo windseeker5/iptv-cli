@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:04:51</dateadded>
+  <title>Dinosaur Jr.</title>
+  <runtime>12</runtime>
+  <musicbrainzartistid>77c167d2-4965-4421-830a-9815e4956475</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Dinosaur Jr/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Dinosaur Jr/backdrop.jpg</fanart>
+  </art>
+</artist>

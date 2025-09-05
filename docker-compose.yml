@@ -10,7 +10,7 @@ services:
       - "${NGINX_ADMIN_PORT:-8081}:8081"   # Admin/stats port
     volumes:
       - ./nginx/hls:/nginx/hls
-      - ./nginx/recordings:/nginx/recordings
+      - ${USB_RECORDS_PATH:-./nginx/recordings}:/nginx/recordings
       - ./nginx/logs:/nginx/log
       - ./nginx/html:/nginx/html
     environment:
@@ -35,8 +35,10 @@ services:
     volumes:
       - ./jellyfin/config:/config
       - ./jellyfin/cache:/cache
-      - ./nginx/recordings:/media/recordings
-      - "${JELLYFIN_MEDIA_PATH:-./media}:/media/library"
+      - ${USB_RECORDS_PATH:-./nginx/recordings}:/media/recordings:ro
+      - ${USB_MOVIES_PATH:-./media/movies}:/media/movies:ro
+      - ${USB_MUSIC_PATH:-./media/music}:/media/music:ro
+      - ${USB_PHOTOS_PATH:-./media/photos}:/media/photos:ro
     environment:
       - JELLYFIN_PublishedServerUrl=http://localhost:${JELLYFIN_HTTP_PORT:-8096}
     networks:
@@ -57,14 +59,18 @@ services:
       - "${SAMBA_NETBIOS_SSN_PORT:-139}:139/tcp" # NetBIOS Session Service
       - "${SAMBA_SMB_PORT:-445}:445/tcp"         # SMB over TCP
     volumes:
-      - ./nginx/recordings:/shared/recordings
-      - "${JELLYFIN_MEDIA_PATH:-./media}:/shared/media"
+      - ${USB_RECORDS_PATH:-./nginx/recordings}:/shared/records
+      - ${USB_MOVIES_PATH:-./media/movies}:/shared/movies
+      - ${USB_MUSIC_PATH:-./media/music}:/shared/music
+      - ${USB_PHOTOS_PATH:-./media/photos}:/shared/photos
       - ./downloads:/shared/downloads
     environment:
       - TZ=${TZ:-UTC}
     command: >
-      -s "recordings;/shared/recordings;yes;no;yes;all;all;all;NGINX-RTMP recordings for TV devices" 
-      -s "media;/shared/media;yes;no;yes;all;all;all;Media library for streaming" 
+      -s "records;/shared/records;yes;no;yes;all;all;all;Live TV recordings on USB drive" 
+      -s "movies;/shared/movies;yes;no;yes;all;all;all;Movies collection from USB drive" 
+      -s "music;/shared/music;yes;no;yes;all;all;all;Music collection from USB drive" 
+      -s "photos;/shared/photos;yes;no;yes;all;all;all;Photos collection from USB drive" 
       -s "downloads;/shared/downloads;yes;no;yes;all;all;all;Downloaded VOD content"
       -n -p
     networks:

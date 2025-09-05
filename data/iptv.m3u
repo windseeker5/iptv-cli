@@ -43,7 +43,5 @@ http://your-provider-server.com/live/IPTV_USERNAME_REDACTED/IPTV_PASSWORD_REDACT
 http://your-provider-server.com/live/IPTV_USERNAME_REDACTED/IPTV_PASSWORD_REDACTED/498781.ts
 #EXTINF:-1 group-title="FR - NETFLIX 2025",FR - Au-delà des vagues (2025)
 http://your-provider-server.com/movie/IPTV_USERNAME_REDACTED/IPTV_PASSWORD_REDACTED/1295348.mkv
-#EXTINF:-1 group-title="VOD/VOD",DE - Nightbitch (2024)
-http://your-provider-server.com/movie/IPTV_USERNAME_REDACTED/IPTV_PASSWORD_REDACTED/1296891.mkv
 #EXTINF:-1 group-title="CA| CANADA ᴴᴰ/ᴿᴬᵂ ⁶⁰ᶠᵖˢ",CA: TVA SPORTS 2 HD
 http://your-provider-server.com/live/IPTV_USERNAME_REDACTED/IPTV_PASSWORD_REDACTED/1044084.ts

@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:06:34</dateadded>
+  <title>will.i.am</title>
+  <runtime>9</runtime>
+  <musicbrainzartistid>d574c9bd-46f6-440a-8d6a-8412a283eeb1</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/will.i.am/folder.jpg</poster>
+    <fanart>/config/metadata/artists/will.i.am/backdrop.jpg</fanart>
+  </art>
+</artist>

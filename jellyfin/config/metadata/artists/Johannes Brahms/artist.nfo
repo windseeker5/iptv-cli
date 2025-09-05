@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:05:34</dateadded>
+  <title>Johannes Brahms</title>
+  <runtime>5</runtime>
+  <musicbrainzartistid>c70d12a2-24fe-4f83-a6e6-57d84f8efb51</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Johannes Brahms/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Johannes Brahms/backdrop.jpg</fanart>
+  </art>
+</artist>

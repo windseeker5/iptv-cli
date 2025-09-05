@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:06:29</dateadded>
+  <title>Tyga</title>
+  <runtime>5</runtime>
+  <musicbrainzartistid>ce09ea31-3d4a-4487-a797-e315175457a0</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Tyga/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Tyga/backdrop.jpg</fanart>
+  </art>
+</artist>

@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:05:04</dateadded>
+  <title>Felix Mendelssohn</title>
+  <runtime>11</runtime>
+  <musicbrainzartistid>0e85eb79-1c05-44ba-827c-7b259a3d941a</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Felix Mendelssohn/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Felix Mendelssohn/backdrop.jpg</fanart>
+  </art>
+</artist>

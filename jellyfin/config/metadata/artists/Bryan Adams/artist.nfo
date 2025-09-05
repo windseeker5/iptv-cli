@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:04:38</dateadded>
+  <title>Bryan Adams</title>
+  <runtime>8</runtime>
+  <musicbrainzartistid>4dbf5678-7a31-406a-abbe-232f8ac2cd63</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Bryan Adams/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Bryan Adams/backdrop.jpg</fanart>
+  </art>
+</artist>

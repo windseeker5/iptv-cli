@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:06:02</dateadded>
+  <title>Noel Gallagher</title>
+  <runtime>9</runtime>
+  <musicbrainzartistid>6493ed80-8b44-49fa-91de-e7b0a0b57d6d</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Noel Gallagher/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Noel Gallagher/backdrop.jpg</fanart>
+  </art>
+</artist>

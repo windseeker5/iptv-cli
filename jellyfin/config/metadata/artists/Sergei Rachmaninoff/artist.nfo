@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:06:15</dateadded>
+  <title>Sergei Rachmaninoff</title>
+  <runtime>7</runtime>
+  <musicbrainzartistid>44b16e44-da77-4580-b851-0d765904573e</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Sergei Rachmaninoff/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Sergei Rachmaninoff/backdrop.jpg</fanart>
+  </art>
+</artist>

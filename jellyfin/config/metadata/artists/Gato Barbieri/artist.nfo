@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:05:14</dateadded>
+  <title>Gato Barbieri</title>
+  <runtime>7</runtime>
+  <musicbrainzartistid>406160eb-24ad-4880-83e0-5f48f077004b</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Gato Barbieri/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Gato Barbieri/backdrop.jpg</fanart>
+  </art>
+</artist>
