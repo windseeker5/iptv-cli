@@ -1,0 +1,75 @@
+[2025-09-04 00:02:43.935 +00:00] [INF] [63] Emby.Server.Implementations.ScheduledTasks.TaskManager: "Audio Normalization" Completed after 47 minute(s) and 25 seconds
+[2025-09-04 02:00:00.107 +00:00] [INF] [319] Emby.Server.Implementations.MediaEncoder.EncodingManager: Skipping chapter image extraction for "L.A. Confidential" as the average chapter duration 0 was lower than the minimum threshold 10000000
+[2025-09-04 02:00:00.108 +00:00] [INF] [319] Emby.Server.Implementations.MediaEncoder.EncodingManager: Skipping chapter image extraction for "Mystify: Michael Hutchence" as the average chapter duration 0 was lower than the minimum threshold 10000000
+[2025-09-04 02:00:00.149 +00:00] [INF] [319] Emby.Server.Implementations.MediaEncoder.EncodingManager: Skipping chapter image extraction for "The Western Book of the Dead" as the average chapter duration 0 was lower than the minimum threshold 10000000
+[2025-09-04 02:00:00.154 +00:00] [INF] [319] Emby.Server.Implementations.MediaEncoder.EncodingManager: Skipping chapter image extraction for "Ruminations: Big and Little Bullys" as the average chapter duration 0 was lower than the minimum threshold 10000000
+[2025-09-04 02:00:00.155 +00:00] [INF] [319] Emby.Server.Implementations.MediaEncoder.EncodingManager: Skipping chapter image extraction for "Stand Still Like the Hummingbird" as the average chapter duration 0 was lower than the minimum threshold 10000000
+[2025-09-04 02:00:00.159 +00:00] [INF] [319] Emby.Server.Implementations.MediaEncoder.EncodingManager: Skipping chapter image extraction for "Trying to Get to Heaven Before They Close the Door" as the average chapter duration 0 was lower than the minimum threshold 10000000
+[2025-09-04 02:00:00.167 +00:00] [INF] [319] Emby.Server.Implementations.MediaEncoder.EncodingManager: Skipping chapter image extraction for "A Thousand Little Trees of Blood" as the average chapter duration 0 was lower than the minimum threshold 10000000
+[2025-09-04 02:00:00.186 +00:00] [INF] [319] Emby.Server.Implementations.MediaEncoder.EncodingManager: Skipping chapter image extraction for "Angel Muffin" as the average chapter duration 0 was lower than the minimum threshold 10000000
+[2025-09-04 02:00:00.187 +00:00] [INF] [319] Emby.Server.Implementations.MediaEncoder.EncodingManager: Skipping chapter image extraction for "The Mini Bar" as the average chapter duration 0 was lower than the minimum threshold 10000000
+[2025-09-04 02:00:00.188 +00:00] [INF] [319] Emby.Server.Implementations.MediaEncoder.EncodingManager: Skipping chapter image extraction for "Irma Kostroski" as the average chapter duration 0 was lower than the minimum threshold 10000000
+[2025-09-04 02:00:00.189 +00:00] [INF] [319] Emby.Server.Implementations.MediaEncoder.EncodingManager: Skipping chapter image extraction for "What Have I Done?" as the average chapter duration 0 was lower than the minimum threshold 10000000
+[2025-09-04 02:00:00.191 +00:00] [INF] [319] Emby.Server.Implementations.MediaEncoder.EncodingManager: Skipping chapter image extraction for "IRASSHAIMASE!" as the average chapter duration 0 was lower than the minimum threshold 10000000
+[2025-09-04 02:00:00.192 +00:00] [INF] [319] Emby.Server.Implementations.MediaEncoder.EncodingManager: Skipping chapter image extraction for "Igor, Gregor, & Timor" as the average chapter duration 0 was lower than the minimum threshold 10000000
+[2025-09-04 02:00:00.192 +00:00] [INF] [319] Emby.Server.Implementations.MediaEncoder.EncodingManager: Skipping chapter image extraction for "The Watermelon" as the average chapter duration 0 was lower than the minimum threshold 10000000
+[2025-09-04 02:00:00.193 +00:00] [INF] [319] Emby.Server.Implementations.MediaEncoder.EncodingManager: Skipping chapter image extraction for "Man Fights Tiny Woman" as the average chapter duration 0 was lower than the minimum threshold 10000000
+[2025-09-04 02:00:00.193 +00:00] [INF] [319] Emby.Server.Implementations.MediaEncoder.EncodingManager: Skipping chapter image extraction for "The Mormon Advantage" as the average chapter duration 0 was lower than the minimum threshold 10000000
+[2025-09-04 02:00:00.194 +00:00] [INF] [319] Emby.Server.Implementations.MediaEncoder.EncodingManager: Skipping chapter image extraction for "The Five-Foot Fence" as the average chapter duration 0 was lower than the minimum threshold 10000000
+[2025-09-04 02:00:00.219 +00:00] [INF] [319] Emby.Server.Implementations.ScheduledTasks.TaskManager: "Extract Chapter Images" Completed after 0 minute(s) and 0 seconds
+[2025-09-04 02:00:01.000 +00:00] [INF] [199] Emby.Server.Implementations.ScheduledTasks.TaskManager: Daily trigger for "Extract Chapter Images" set to fire at 2025-09-05 02:00:00.000 +00:00, which is 23:59:58.9995686 from now.
+[2025-09-04 03:00:00.236 +00:00] [INF] [25] Emby.Server.Implementations.ScheduledTasks.TaskManager: "Generate Trickplay Images" Completed after 0 minute(s) and 0 seconds
+[2025-09-04 03:00:01.000 +00:00] [INF] [261] Emby.Server.Implementations.ScheduledTasks.TaskManager: Daily trigger for "Generate Trickplay Images" set to fire at 2025-09-05 03:00:00.000 +00:00, which is 23:59:58.9999560 from now.
+[2025-09-04 11:17:20.040 +00:00] [INF] [281] Emby.Server.Implementations.IO.LibraryMonitor: Stopping directory watching for path "/media/movies/TvShow"
+[2025-09-04 11:17:20.040 +00:00] [INF] [281] Emby.Server.Implementations.IO.LibraryMonitor: Stopping directory watching for path "/media/photos"
+[2025-09-04 11:17:20.041 +00:00] [INF] [281] Emby.Server.Implementations.IO.LibraryMonitor: Stopping directory watching for path "/media/movies/Enfants"
+[2025-09-04 11:17:20.041 +00:00] [INF] [281] Emby.Server.Implementations.IO.LibraryMonitor: Stopping directory watching for path "/media/music"
+[2025-09-04 11:17:20.043 +00:00] [INF] [281] Emby.Server.Implementations.IO.LibraryMonitor: Stopping directory watching for path "/media/movies/Famille"
+[2025-09-04 11:17:20.043 +00:00] [INF] [281] Emby.Server.Implementations.IO.LibraryMonitor: Stopping directory watching for path "/media/movies/Adultes"
+[2025-09-04 11:17:20.043 +00:00] [INF] [281] Emby.Server.Implementations.Library.LibraryManager: Validating media library
+[2025-09-04 11:17:20.076 +00:00] [WRN] [281] MediaBrowser.Controller.Entities.BaseItem: Library folder "/config/data/playlists" is inaccessible or empty, skipping
+[2025-09-04 11:17:20.140 +00:00] [WRN] [281] MediaBrowser.Controller.Entities.BaseItem: Library folder "/config/data/playlists" is inaccessible or empty, skipping
+[2025-09-04 11:17:21.164 +00:00] [INF] [282] Emby.Server.Implementations.ScheduledTasks.TaskManager: "Media Segment Scan" Completed after 0 minute(s) and 1 seconds
+[2025-09-04 11:17:28.141 +00:00] [INF] [67] Emby.Server.Implementations.ScheduledTasks.TaskManager: "Scan Media Library" Completed after 0 minute(s) and 8 seconds
+[2025-09-04 11:17:28.202 +00:00] [INF] [19] Emby.Server.Implementations.IO.LibraryMonitor: Watching directory "/media/movies/Famille"
+[2025-09-04 11:17:28.203 +00:00] [INF] [55] Emby.Server.Implementations.IO.LibraryMonitor: Watching directory "/media/movies/Adultes"
+[2025-09-04 11:17:28.203 +00:00] [INF] [97] Emby.Server.Implementations.IO.LibraryMonitor: Watching directory "/media/movies/Enfants"
+[2025-09-04 11:17:28.212 +00:00] [INF] [266] Emby.Server.Implementations.IO.LibraryMonitor: Watching directory "/media/photos"
+[2025-09-04 11:17:28.221 +00:00] [INF] [42] Emby.Server.Implementations.IO.LibraryMonitor: Watching directory "/media/movies/TvShow"
+[2025-09-04 11:17:28.243 +00:00] [INF] [115] Emby.Server.Implementations.IO.LibraryMonitor: Watching directory "/media/music"
+[2025-09-04 23:16:19.031 +00:00] [INF] [240] Emby.Server.Implementations.ScheduledTasks.TaskManager: "Download missing subtitles" Completed after 0 minute(s) and 0 seconds
+[2025-09-04 23:16:19.109 +00:00] [INF] [240] Emby.Server.Implementations.ScheduledTasks.TaskManager: "Clean Log Directory" Completed after 0 minute(s) and 0 seconds
+[2025-09-04 23:16:19.109 +00:00] [INF] [151] Emby.Server.Implementations.ScheduledTasks.TaskManager: "Clean Transcode Directory" Completed after 0 minute(s) and 0 seconds
+[2025-09-04 23:16:19.109 +00:00] [INF] [236] Emby.Server.Implementations.ScheduledTasks.Tasks.OptimizeDatabaseTask: Optimizing and vacuuming jellyfin.db...
+[2025-09-04 23:16:19.249 +00:00] [INF] [240] Emby.Server.Implementations.ScheduledTasks.TaskManager: "TasksRefreshChannels" Completed after 0 minute(s) and 0 seconds
+[2025-09-04 23:16:19.316 +00:00] [INF] [236] Emby.Server.Implementations.ScheduledTasks.Tasks.OptimizeDatabaseTask: jellyfin.db optimized successfully!
+[2025-09-04 23:16:19.316 +00:00] [INF] [236] Emby.Server.Implementations.ScheduledTasks.TaskManager: "Optimize database" Completed after 0 minute(s) and 0 seconds
+[2025-09-04 23:16:19.673 +00:00] [INF] [175] Emby.Server.Implementations.ScheduledTasks.TaskManager: "Clean Cache Directory" Completed after 0 minute(s) and 0 seconds
+[2025-09-04 23:16:19.882 +00:00] [INF] [259] Emby.Server.Implementations.ScheduledTasks.TaskManager: "Update Plugins" Completed after 0 minute(s) and 0 seconds
+[2025-09-04 23:16:20.389 +00:00] [INF] [245] Emby.Server.Implementations.ScheduledTasks.TaskManager: "Download missing lyrics" Completed after 0 minute(s) and 1 seconds
+[2025-09-04 23:16:21.017 +00:00] [INF] [23] Emby.Server.Implementations.ScheduledTasks.TaskManager: "Audio Normalization" Completed after 0 minute(s) and 1 seconds
+[2025-09-04 23:16:22.249 +00:00] [INF] [236] Jellyfin.LiveTv.Guide.GuideManager: Refreshing guide with 7 days of guide data
+[2025-09-04 23:16:22.249 +00:00] [INF] [236] Emby.Server.Implementations.ScheduledTasks.TaskManager: "Refresh Guide" Completed after 0 minute(s) and 3 seconds
+[2025-09-04 23:18:21.048 +00:00] [INF] [187] Emby.Server.Implementations.IO.LibraryMonitor: Stopping directory watching for path "/media/movies/TvShow"
+[2025-09-04 23:18:21.048 +00:00] [INF] [187] Emby.Server.Implementations.IO.LibraryMonitor: Stopping directory watching for path "/media/photos"
+[2025-09-04 23:18:21.049 +00:00] [INF] [187] Emby.Server.Implementations.IO.LibraryMonitor: Stopping directory watching for path "/media/movies/Enfants"
+[2025-09-04 23:18:21.049 +00:00] [INF] [187] Emby.Server.Implementations.IO.LibraryMonitor: Stopping directory watching for path "/media/music"
+[2025-09-04 23:18:21.051 +00:00] [INF] [187] Emby.Server.Implementations.IO.LibraryMonitor: Stopping directory watching for path "/media/movies/Famille"
+[2025-09-04 23:18:21.051 +00:00] [INF] [187] Emby.Server.Implementations.IO.LibraryMonitor: Stopping directory watching for path "/media/movies/Adultes"
+[2025-09-04 23:18:21.051 +00:00] [INF] [187] Emby.Server.Implementations.Library.LibraryManager: Validating media library
+[2025-09-04 23:18:21.090 +00:00] [WRN] [187] MediaBrowser.Controller.Entities.BaseItem: Library folder "/config/data/playlists" is inaccessible or empty, skipping
+[2025-09-04 23:18:21.158 +00:00] [WRN] [167] MediaBrowser.Controller.Entities.BaseItem: Library folder "/config/data/playlists" is inaccessible or empty, skipping
+[2025-09-04 23:18:21.802 +00:00] [INF] [193] Emby.Server.Implementations.ScheduledTasks.TaskManager: "Media Segment Scan" Completed after 0 minute(s) and 0 seconds
+[2025-09-04 23:18:22.195 +00:00] [INF] [193] MediaBrowser.MediaEncoding.Encoder.MediaEncoder: Starting "/usr/lib/jellyfin-ffmpeg/ffprobe" with args "-analyzeduration 200M -probesize 1G -i file:\"/media/movies/Adultes/From Dusk Till Dawn (1996).mp4\" -threads 0 -v warning -print_format json -show_streams -show_chapters -show_format"
+[2025-09-04 23:18:22.281 +00:00] [INF] [196] MediaBrowser.MediaEncoding.Encoder.MediaEncoder: Starting "/usr/lib/jellyfin-ffmpeg/ffprobe" with args "-analyzeduration 200M -probesize 1G -i file:\"/media/movies/Adultes/From Dusk Till Dawn (1996).srt\" -threads 0 -v warning -print_format json -show_streams -show_format"
+[2025-09-04 23:18:22.323 +00:00] [WRN] [187] MediaBrowser.XbmcMetadata.Providers.MovieNfoProvider: Trailer URL uses a deprecated format : "plugin://plugin.video.youtube/?action=play_video&videoid=cQhtYo-pzI4". Using "plugin://plugin.video.youtube/play/?video_id=cQhtYo-pzI4" instead is advised.
+[2025-09-04 23:18:22.323 +00:00] [WRN] [187] MediaBrowser.XbmcMetadata.Providers.MovieNfoProvider: Trailer URL uses a deprecated format : "plugin://plugin.video.youtube/?action=play_video&videoid=M0RGile69e0". Using "plugin://plugin.video.youtube/play/?video_id=M0RGile69e0" instead is advised.
+[2025-09-04 23:18:22.323 +00:00] [WRN] [187] MediaBrowser.XbmcMetadata.Providers.MovieNfoProvider: Trailer URL uses a deprecated format : "plugin://plugin.video.youtube/?action=play_video&videoid=y-J9bBvO5dk". Using "plugin://plugin.video.youtube/play/?video_id=y-J9bBvO5dk" instead is advised.
+[2025-09-04 23:18:22.323 +00:00] [WRN] [187] MediaBrowser.XbmcMetadata.Providers.MovieNfoProvider: Trailer URL uses a deprecated format : "plugin://plugin.video.youtube/?action=play_video&videoid=jNuIn4T-CLk". Using "plugin://plugin.video.youtube/play/?video_id=jNuIn4T-CLk" instead is advised.
+[2025-09-04 23:18:28.258 +00:00] [INF] [308] Emby.Server.Implementations.ScheduledTasks.TaskManager: "Scan Media Library" Completed after 0 minute(s) and 7 seconds
+[2025-09-04 23:18:28.318 +00:00] [INF] [187] Emby.Server.Implementations.IO.LibraryMonitor: Watching directory "/media/movies/Famille"
+[2025-09-04 23:18:28.319 +00:00] [INF] [251] Emby.Server.Implementations.IO.LibraryMonitor: Watching directory "/media/movies/Adultes"
+[2025-09-04 23:18:28.319 +00:00] [INF] [168] Emby.Server.Implementations.IO.LibraryMonitor: Watching directory "/media/movies/Enfants"
+[2025-09-04 23:18:28.327 +00:00] [INF] [196] Emby.Server.Implementations.IO.LibraryMonitor: Watching directory "/media/photos"
+[2025-09-04 23:18:28.331 +00:00] [INF] [233] Emby.Server.Implementations.IO.LibraryMonitor: Watching directory "/media/movies/TvShow"
+[2025-09-04 23:18:28.357 +00:00] [INF] [198] Emby.Server.Implementations.IO.LibraryMonitor: Watching directory "/media/music"

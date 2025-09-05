@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:04:27</dateadded>
+  <title>Antonio Vivaldi</title>
+  <runtime>40</runtime>
+  <musicbrainzartistid>ad79836d-9849-44df-8789-180bbc823f3c</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Antonio Vivaldi/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Antonio Vivaldi/backdrop.jpg</fanart>
+  </art>
+</artist>

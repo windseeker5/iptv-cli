@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:05:49</dateadded>
+  <title>Marilyn Manson</title>
+  <runtime>10</runtime>
+  <musicbrainzartistid>5dfdca28-9ddc-4853-933c-8bc97d87beec</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Marilyn Manson/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Marilyn Manson/backdrop.jpg</fanart>
+  </art>
+</artist>

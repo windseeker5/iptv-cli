@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Samba Network Shares - IPTV Infrastructure</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --warning-gradient: linear-gradient(135deg, #ffc107 0%, #ff9800 100%);
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            padding-bottom: 50px;
+        }
+        
+        .header {
+            background: var(--warning-gradient);
+            color: white;
+            padding: 30px 0;
+            margin-bottom: 40px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+        
+        .breadcrumb-nav {
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        
+        .share-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
+        }
+        
+        .share-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+            transition: all 0.3s ease;
+            border-left: 5px solid #ffc107;
+        }
+        
+        .share-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+        }
+        
+        .share-card h3 {
+            font-size: 1.4rem;
+            margin-bottom: 15px;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .share-card h3 i {
+            font-size: 1.8rem;
+            color: #ff9800;
+        }
+        
+        .share-info {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+        }
+        
+        .access-method {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        
+        .access-method h5 {
+            color: #856404;
+            margin-bottom: 10px;
+            font-size: 1rem;
+        }
+        
+        .copy-btn {
+            background: var(--warning-gradient);
+            color: white;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.9rem;
+        }
+        
+        .copy-btn:hover {
+            transform: scale(1.05);
+        }
+        
+        .connection-help {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+            margin-bottom: 40px;
+        }
+        
+        .connection-help h2 {
+            color: #333;
+            margin-bottom: 25px;
+            font-size: 1.6rem;
+            border-bottom: 3px solid #ffc107;
+            padding-bottom: 10px;
+        }
+        
+        .os-tabs {
+            margin-top: 20px;
+        }
+        
+        .nav-tabs .nav-link {
+            color: #666;
+            border: none;
+            background: #f8f9fa;
+            margin-right: 10px;
+            border-radius: 10px 10px 0 0;
+        }
+        
+        .nav-tabs .nav-link.active {
+            background: var(--warning-gradient);
+            color: white;
+        }
+        
+        .tab-content {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 0 10px 10px 10px;
+            padding: 20px;
+        }
+        
+        .credential-box {
+            background: #e7f3ff;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: #d63384;
+        }
+        
+        .footer {
+            text-align: center;
+            padding: 30px 0;
+            color: #666;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="container">
+            <h1><i class="bi bi-hdd-network"></i> Samba Network Shares</h1>
+            <p>Access your IPTV recordings, media, and downloads over the network</p>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Breadcrumb -->
+        <div class="breadcrumb-nav">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb mb-0">
+                    <li class="breadcrumb-item"><a href="/">Dashboard</a></li>
+                    <li class="breadcrumb-item active">Samba Shares</li>
+                </ol>
+            </nav>
+        </div>
+
+        <!-- Share Cards -->
+        <div class="share-grid">
+            <!-- Recordings Share -->
+            <div class="share-card">
+                <h3><i class="bi bi-record-circle"></i> Recordings</h3>
+                <p>IPTV stream recordings and captured content</p>
+                <div class="share-info">
+                    Share: recordings<br>
+                    Path: /recordings<br>
+                    Access: Read/Write
+                </div>
+                <div class="access-method">
+                    <h5>Network Path:</h5>
+                    <div class="d-flex align-items-center gap-2">
+                        <code id="recordings-path">\\localhost\recordings</code>
+                        <button class="copy-btn" onclick="copyPath('recordings')">
+                            <i class="bi bi-clipboard"></i> Copy
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Media Share -->
+            <div class="share-card">
+                <h3><i class="bi bi-collection-play"></i> Media Library</h3>
+                <p>Movies, TV shows, and personal media collection</p>
+                <div class="share-info">
+                    Share: media<br>
+                    Path: /media<br>
+                    Access: Read/Write
+                </div>
+                <div class="access-method">
+                    <h5>Network Path:</h5>
+                    <div class="d-flex align-items-center gap-2">
+                        <code id="media-path">\\localhost\media</code>
+                        <button class="copy-btn" onclick="copyPath('media')">
+                            <i class="bi bi-clipboard"></i> Copy
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Downloads Share -->
+            <div class="share-card">
+                <h3><i class="bi bi-download"></i> Downloads</h3>
+                <p>Downloaded VOD content and temporary files</p>
+                <div class="share-info">
+                    Share: downloads<br>
+                    Path: /downloads<br>
+                    Access: Read/Write
+                </div>
+                <div class="access-method">
+                    <h5>Network Path:</h5>
+                    <div class="d-flex align-items-center gap-2">
+                        <code id="downloads-path">\\localhost\downloads</code>
+                        <button class="copy-btn" onclick="copyPath('downloads')">
+                            <i class="bi bi-clipboard"></i> Copy
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Connection Help -->
+        <div class="connection-help">
+            <h2><i class="bi bi-plug"></i> How to Connect</h2>
+            
+            <div class="credential-box">
+                <h5><i class="bi bi-key"></i> Default Credentials</h5>
+                <p class="mb-1"><strong>Username:</strong> <code>iptv</code></p>
+                <p class="mb-0"><strong>Password:</strong> <code>iptv123</code></p>
+            </div>
+
+            <!-- OS-specific instructions -->
+            <div class="os-tabs">
+                <ul class="nav nav-tabs" role="tablist">
+                    <li class="nav-item">
+                        <a class="nav-link active" data-bs-toggle="tab" href="#windows">
+                            <i class="bi bi-windows"></i> Windows
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#macos">
+                            <i class="bi bi-apple"></i> macOS
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#linux">
+                            <i class="bi bi-ubuntu"></i> Linux
+                        </a>
+                    </li>
+                </ul>
+
+                <div class="tab-content">
+                    <!-- Windows Tab -->
+                    <div id="windows" class="tab-pane fade show active">
+                        <h5 class="mt-3">Method 1: File Explorer</h5>
+                        <ol>
+                            <li>Open File Explorer (Win + E)</li>
+                            <li>In the address bar, type: <code>\\localhost</code></li>
+                            <li>Press Enter</li>
+                            <li>Enter username <code>iptv</code> and password <code>iptv123</code></li>
+                            <li>Check "Remember my credentials" for convenience</li>
+                        </ol>
+                        
+                        <h5>Method 2: Map Network Drive</h5>
+                        <ol>
+                            <li>Right-click "This PC" → "Map network drive"</li>
+                            <li>Choose a drive letter (e.g., Z:)</li>
+                            <li>Folder: <code>\\localhost\recordings</code></li>
+                            <li>Check "Connect using different credentials"</li>
+                            <li>Enter the credentials when prompted</li>
+                        </ol>
+                    </div>
+
+                    <!-- macOS Tab -->
+                    <div id="macos" class="tab-pane fade">
+                        <h5 class="mt-3">Method 1: Finder</h5>
+                        <ol>
+                            <li>Open Finder</li>
+                            <li>Press Cmd + K (or Go → Connect to Server)</li>
+                            <li>Enter: <code>smb://localhost</code></li>
+                            <li>Click Connect</li>
+                            <li>Select "Registered User"</li>
+                            <li>Username: <code>iptv</code>, Password: <code>iptv123</code></li>
+                            <li>Select the shares you want to mount</li>
+                        </ol>
+                        
+                        <h5>Method 2: Direct Share Access</h5>
+                        <ol>
+                            <li>In Finder, press Cmd + K</li>
+                            <li>Enter: <code>smb://localhost/recordings</code></li>
+                            <li>Authenticate with the credentials</li>
+                            <li>The share will appear in Finder sidebar</li>
+                        </ol>
+                    </div>
+
+                    <!-- Linux Tab -->
+                    <div id="linux" class="tab-pane fade">
+                        <h5 class="mt-3">Method 1: File Manager (GUI)</h5>
+                        <ol>
+                            <li>Open your file manager (Nautilus, Dolphin, etc.)</li>
+                            <li>Press Ctrl + L to open location bar</li>
+                            <li>Enter: <code>smb://localhost/</code></li>
+                            <li>Enter credentials when prompted</li>
+                            <li>Bookmark for easy access</li>
+                        </ol>
+                        
+                        <h5>Method 2: Command Line Mount</h5>
+                        <pre class="bg-dark text-light p-3 rounded">
+# Install cifs-utils if needed
+sudo apt install cifs-utils
+
+# Create mount point
+sudo mkdir -p /mnt/iptv-recordings
+
+# Mount the share
+sudo mount -t cifs //localhost/recordings /mnt/iptv-recordings \
+  -o username=iptv,password=iptv123,uid=$(id -u),gid=$(id -g)
+
+# For permanent mount, add to /etc/fstab:
+//localhost/recordings /mnt/iptv-recordings cifs username=iptv,password=iptv123,uid=1000,gid=1000 0 0</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="connection-help">
+            <h2><i class="bi bi-lightning"></i> Quick Actions</h2>
+            <div class="row mt-4">
+                <div class="col-md-4">
+                    <button class="btn btn-warning w-100 mb-3" onclick="testConnection()">
+                        <i class="bi bi-wifi"></i> Test Connection
+                    </button>
+                </div>
+                <div class="col-md-4">
+                    <button class="btn btn-warning w-100 mb-3" onclick="openAllShares()">
+                        <i class="bi bi-folder2-open"></i> Open All Shares
+                    </button>
+                </div>
+                <div class="col-md-4">
+                    <button class="btn btn-warning w-100 mb-3" onclick="showTroubleshooting()">
+                        <i class="bi bi-wrench"></i> Troubleshooting
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+        <p>
+            <a href="/">← Back to Dashboard</a> | 
+            Samba Share Service | 
+            Port 445 (SMB) | 
+            <a href="/docs.html#samba">Documentation</a>
+        </p>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        // Detect OS and update paths
+        function detectOS() {
+            const platform = navigator.platform.toLowerCase();
+            const userAgent = navigator.userAgent.toLowerCase();
+            
+            if (platform.includes('win')) {
+                return 'windows';
+            } else if (platform.includes('mac') || userAgent.includes('mac')) {
+                return 'macos';
+            } else {
+                return 'linux';
+            }
+        }
+
+        // Update paths based on OS
+        function updatePaths() {
+            const os = detectOS();
+            const shares = ['recordings', 'media', 'downloads'];
+            
+            shares.forEach(share => {
+                const element = document.getElementById(`${share}-path`);
+                if (os === 'windows') {
+                    element.textContent = `\\\\localhost\\${share}`;
+                } else {
+                    element.textContent = `smb://localhost/${share}`;
+                }
+            });
+        }
+
+        // Copy path to clipboard
+        function copyPath(share) {
+            const element = document.getElementById(`${share}-path`);
+            const text = element.textContent;
+            
+            navigator.clipboard.writeText(text).then(() => {
+                // Change button text temporarily
+                const btn = event.target.closest('button');
+                const originalHTML = btn.innerHTML;
+                btn.innerHTML = '<i class="bi bi-check"></i> Copied!';
+                setTimeout(() => {
+                    btn.innerHTML = originalHTML;
+                }, 2000);
+            }).catch(() => {
+                alert('Path: ' + text);
+            });
+        }
+
+        // Test connection
+        function testConnection() {
+            alert('Testing Samba Connection\n\n' +
+                  'To test the connection:\n' +
+                  '1. Try accessing \\\\localhost (Windows) or smb://localhost (Mac/Linux)\n' +
+                  '2. Verify Docker container is running\n' +
+                  '3. Check firewall settings for port 445\n\n' +
+                  'Use the CLI to check container status:\n' +
+                  'Streaming Infrastructure → Container Status & URLs');
+        }
+
+        // Open all shares
+        function openAllShares() {
+            const os = detectOS();
+            const url = os === 'windows' ? 'file:////localhost' : 'smb://localhost';
+            
+            alert('Opening Network Location\n\n' +
+                  'Your file manager should open with:\n' +
+                  url + '\n\n' +
+                  'If it doesn\'t work, copy this path and paste it in your file manager\'s address bar.');
+            
+            // Try to open (may not work due to browser security)
+            window.open(url, '_blank');
+        }
+
+        // Show troubleshooting
+        function showTroubleshooting() {
+            alert('Samba Troubleshooting\n\n' +
+                  'Common Issues:\n\n' +
+                  '1. Connection Refused\n' +
+                  '   • Check if Samba container is running\n' +
+                  '   • Verify port 445 is not blocked\n' +
+                  '   • Try: docker restart iptv-samba\n\n' +
+                  '2. Authentication Failed\n' +
+                  '   • Username: iptv\n' +
+                  '   • Password: iptv123\n' +
+                  '   • Case sensitive!\n\n' +
+                  '3. Shares Not Visible\n' +
+                  '   • Restart Samba container\n' +
+                  '   • Check folder permissions\n' +
+                  '   • Verify volume mounts in docker-compose.yml');
+        }
+
+        // Initialize
+        updatePaths();
+    </script>
+</body>
+</html>

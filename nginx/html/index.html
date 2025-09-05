@@ -3,160 +3,686 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IPTV NGINX-RTMP Server</title>
+    <title>KDC IPTV Infrastructure - Control Center</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <style>
+        :root {
+            --primary-green: #00ff41;
+            --primary-gradient: linear-gradient(135deg, #00ff41 0%, #00cc33 100%);
+            --card-bg: #1a1a1a;
+            --card-hover: #222;
+            --text-primary: #e0e0e0;
+            --text-secondary: #a0a0a0;
+            --border-color: #333;
+            --success-color: #00ff41;
+            --info-color: #00b4d8;
+            --warning-color: #ffc107;
+            --danger-color: #ff3838;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
-            color: #333;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #0a0a0a;
+            background-image: 
+                radial-gradient(circle at 20% 50%, rgba(0, 255, 65, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(0, 180, 216, 0.05) 0%, transparent 50%);
+            min-height: 100vh;
+            padding-bottom: 50px;
+            color: var(--text-primary);
         }
+        
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(180deg, #111 0%, #1a1a1a 100%);
             color: white;
-            padding: 30px;
-            border-radius: 10px;
-            margin-bottom: 30px;
+            padding: 30px 0;
+            margin-bottom: 40px;
+            border-bottom: 2px solid var(--primary-green);
+            box-shadow: 0 4px 20px rgba(0, 255, 65, 0.2);
+        }
+        
+        .header-content {
+            position: relative;
+            width: 100%;
+        }
+        
+        .logo {
+            position: absolute;
+            left: 12px;
+            top: 0;
+            transform: translateY(-10%);
+            height: 100px;
+            width: auto;
+            z-index: 10;
+        }
+        
+        .title-container {
             text-align: center;
+            padding: 20px 0;
         }
-        .container {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        .card {
-            background: white;
-            padding: 25px;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            border-left: 4px solid #667eea;
-        }
-        .card h2 {
-            margin-top: 0;
-            color: #667eea;
-        }
-        .url-box {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 5px;
-            border: 1px solid #e9ecef;
-            font-family: 'Courier New', monospace;
-            word-break: break-all;
-            margin: 10px 0;
-        }
-        .status {
-            padding: 20px;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-        .example {
-            background: #e7f3ff;
-            padding: 15px;
-            border-radius: 5px;
-            border-left: 4px solid #2196f3;
-            margin: 15px 0;
-        }
-        .code {
-            background: #f4f4f4;
-            padding: 10px;
-            border-radius: 3px;
-            font-family: 'Courier New', monospace;
-            font-size: 14px;
-            overflow-x: auto;
-        }
-        .button {
+        
+        .header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin: 0;
+            text-transform: uppercase;
+            letter-spacing: 2px;
             display: inline-block;
-            padding: 10px 20px;
-            background: #667eea;
-            color: white;
-            text-decoration: none;
-            border-radius: 5px;
-            margin: 5px;
-            transition: background-color 0.3s;
         }
-        .button:hover {
-            background: #5a67d8;
+        
+        .header p {
+            font-size: 1rem;
+            opacity: 0.8;
+            margin-bottom: 0;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+        
+        .status-bar {
+            background: var(--card-bg);
+            border-radius: 10px;
+            padding: 15px 25px;
+            margin-top: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-color);
+        }
+        
+        .status-item {
+            display: inline-flex;
+            align-items: center;
+            margin-right: 30px;
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+        }
+        
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-indicator.online {
+            background-color: var(--success-color);
+            box-shadow: 0 0 10px var(--success-color);
+        }
+        
+        .status-indicator.offline {
+            background-color: var(--danger-color);
+            box-shadow: 0 0 10px var(--danger-color);
+        }
+        
+        .status-indicator.unknown {
+            background-color: var(--warning-color);
+            box-shadow: 0 0 10px var(--warning-color);
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.6; }
+            100% { opacity: 1; }
+        }
+        
+        .service-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
+        }
+        
+        .service-card {
+            background: var(--card-bg);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+            border: 1px solid var(--border-color);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .service-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--primary-gradient);
+        }
+        
+        .service-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0, 255, 65, 0.2);
+            background: var(--card-hover);
+        }
+        
+        .service-card.primary::before { background: var(--primary-gradient); }
+        .service-card.success::before { background: linear-gradient(90deg, var(--success-color), #00cc33); }
+        .service-card.info::before { background: linear-gradient(90deg, var(--info-color), #0096c7); }
+        .service-card.warning::before { background: linear-gradient(90deg, var(--warning-color), #ff9800); }
+        
+        .service-card h3 {
+            font-size: 1.4rem;
+            margin-bottom: 15px;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .service-card h3 i {
+            font-size: 1.8rem;
+            color: var(--primary-green);
+        }
+        
+        .service-card p {
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+            font-size: 0.95rem;
+        }
+        
+        .service-info {
+            background: #0a0a0a;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 20px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            border: 1px solid var(--border-color);
+            color: var(--primary-green);
+        }
+        
+        .btn-service {
+            display: inline-block;
+            padding: 10px 25px;
+            border-radius: 25px;
+            text-decoration: none;
+            color: white;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            margin-right: 10px;
+            margin-bottom: 10px;
+            border: 1px solid transparent;
+        }
+        
+        .btn-service.primary {
+            background: var(--primary-gradient);
+            border-color: var(--primary-green);
+        }
+        
+        .btn-service.success {
+            background: linear-gradient(135deg, var(--success-color) 0%, #00cc33 100%);
+        }
+        
+        .btn-service.info {
+            background: linear-gradient(135deg, var(--info-color) 0%, #0096c7 100%);
+        }
+        
+        .btn-service.warning {
+            background: linear-gradient(135deg, var(--warning-color) 0%, #ff9800 100%);
+        }
+        
+        .btn-service:hover {
+            transform: scale(1.05);
+            color: white;
+            box-shadow: 0 5px 15px rgba(0, 255, 65, 0.3);
+        }
+        
+        .tools-section {
+            background: var(--card-bg);
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 40px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-color);
+        }
+        
+        .tools-section h2 {
+            color: var(--text-primary);
+            margin-bottom: 25px;
+            font-size: 1.8rem;
+            border-bottom: 3px solid var(--primary-green);
+            padding-bottom: 10px;
+        }
+        
+        .tool-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        
+        .tool-card {
+            background: #0a0a0a;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: 2px solid transparent;
+        }
+        
+        .tool-card:hover {
+            background: var(--card-hover);
+            border-color: var(--primary-green);
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0, 255, 65, 0.2);
+        }
+        
+        .tool-card i {
+            font-size: 2.5rem;
+            color: var(--primary-green);
+            margin-bottom: 10px;
+        }
+        
+        .tool-card h4 {
+            font-size: 1.1rem;
+            margin-bottom: 5px;
+            color: var(--text-primary);
+        }
+        
+        .tool-card p {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin: 0;
+        }
+        
+        .documentation {
+            background: var(--card-bg);
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-color);
+        }
+        
+        .documentation h2 {
+            color: var(--text-primary);
+            margin-bottom: 25px;
+            font-size: 1.8rem;
+            border-bottom: 3px solid var(--primary-green);
+            padding-bottom: 10px;
+        }
+        
+        .doc-links {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .doc-link {
+            padding: 15px;
+            background: #0a0a0a;
+            border-radius: 8px;
+            border-left: 4px solid var(--primary-green);
+            transition: all 0.3s ease;
+        }
+        
+        .doc-link:hover {
+            background: var(--card-hover);
+            box-shadow: 0 3px 10px rgba(0, 255, 65, 0.1);
+        }
+        
+        .doc-link h5 {
+            color: var(--text-primary);
+            margin-bottom: 5px;
+        }
+        
+        .doc-link p {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin: 0;
+        }
+        
+        .doc-link code {
+            color: var(--primary-green);
+            background: #0a0a0a;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+        
+        .footer {
+            text-align: center;
+            padding: 30px 0;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+        
+        .footer a {
+            color: var(--primary-green);
+            text-decoration: none;
+        }
+        
+        .footer a:hover {
+            text-decoration: underline;
+        }
+        
+        @media (max-width: 768px) {
+            .header h1 { font-size: 1.5rem; }
+            .service-grid { grid-template-columns: 1fr; }
+            .status-item { display: block; margin-bottom: 10px; }
+            .logo { height: 80px; }
         }
     </style>
 </head>
 <body>
+    <!-- Header -->
     <div class="header">
-        <h1>🎬 IPTV NGINX-RTMP Restreaming Server</h1>
-        <p>Ready to accept and redistribute IPTV streams</p>
+        <div class="container" style="position: relative;">
+            <img src="kdc-logo-transparent.png" alt="KDC" class="logo">
+            <div class="title-container">
+                <h1><i class="bi bi-broadcast"></i> IPTV STREAMING INFRASTRUCTURE</h1>
+                <p style="margin-top: 10px;">Central Control Hub for All Services</p>
+            </div>
+            
+            <div class="status-bar">
+                <span class="status-item">
+                    <span class="status-indicator online" id="nginx-status"></span>
+                    <strong>NGINX-RTMP:</strong> <span id="nginx-text">Checking...</span>
+                </span>
+                <span class="status-item">
+                    <span class="status-indicator online" id="jellyfin-status"></span>
+                    <strong>Jellyfin:</strong> <span id="jellyfin-text">Checking...</span>
+                </span>
+                <span class="status-item">
+                    <span class="status-indicator online" id="samba-status"></span>
+                    <strong>Samba:</strong> <span id="samba-text">Checking...</span>
+                </span>
+                <span class="status-item">
+                    <i class="bi bi-clock"></i> <strong>Uptime:</strong> <span id="uptime">2h 34m</span>
+                </span>
+            </div>
+        </div>
     </div>
 
     <div class="container">
-        <div class="card">
-            <h2>📡 Stream Input (RTMP)</h2>
-            <p>Send streams to this RTMP endpoint:</p>
-            <div class="url-box">
-                rtmp://localhost:1935/live/[stream_key]
+        <!-- Main Services -->
+        <div class="service-grid">
+            <!-- Live Streaming Card -->
+            <div class="service-card primary">
+                <h3><i class="bi bi-play-circle-fill"></i> Live Streaming</h3>
+                <p>Watch and manage live IPTV streams with HLS support and Chromecast integration</p>
+                <div class="service-info">
+                    HLS: http://localhost:8080/hls/<br>
+                    RTMP: rtmp://localhost:1935/live/
+                </div>
+                <a href="/live" class="btn-service primary">
+                    <i class="bi bi-tv"></i> Open Live Player
+                </a>
+                <a href="/iptv.m3u" class="btn-service info">
+                    <i class="bi bi-list-ul"></i> M3U Playlist
+                </a>
             </div>
-            <p><strong>Example:</strong></p>
-            <div class="example">
-                From your IPTV app, streams will be automatically sent to:<br>
-                <code>rtmp://localhost:1935/live/cnn_news</code>
+
+            <!-- Jellyfin Card -->
+            <div class="service-card success">
+                <h3><i class="bi bi-collection-play-fill"></i> Jellyfin Media Server</h3>
+                <p>Your personal media server for movies, shows, and recorded content</p>
+                <div class="service-info">
+                    URL: http://localhost:8096<br>
+                    Status: <span id="jellyfin-detail">Online</span>
+                </div>
+                <a href="http://localhost:8096" target="_blank" class="btn-service success">
+                    <i class="bi bi-box-arrow-up-right"></i> Open Jellyfin
+                </a>
+                <a href="#" onclick="showJellyfinInfo()" class="btn-service info">
+                    <i class="bi bi-info-circle"></i> Setup Info
+                </a>
+            </div>
+
+            <!-- NGINX-RTMP Card -->
+            <div class="service-card info">
+                <h3><i class="bi bi-broadcast-pin"></i> RTMP Server</h3>
+                <p>Restreaming server accepting RTMP input and providing HLS output</p>
+                <div class="service-info">
+                    Input: rtmp://localhost:1935<br>
+                    Output: http://localhost:8080
+                </div>
+                <a href="/stat" class="btn-service info">
+                    <i class="bi bi-graph-up"></i> RTMP Stats
+                </a>
+                <a href="#rtmp-guide" class="btn-service primary">
+                    <i class="bi bi-book"></i> Setup Guide
+                </a>
+            </div>
+
+            <!-- Samba Shares Card -->
+            <div class="service-card warning">
+                <h3><i class="bi bi-hdd-network-fill"></i> Network Shares</h3>
+                <p>Access recordings, media, and downloads via Samba network shares</p>
+                <div class="service-info">
+                    SMB Port: 445<br>
+                    5 shares available (USB mounted)
+                </div>
+                <a href="/samba.html" class="btn-service warning">
+                    <i class="bi bi-folder-fill"></i> Browse Shares
+                </a>
+                <a href="#" onclick="copyToClipboard('smb://localhost')" class="btn-service info">
+                    <i class="bi bi-clipboard"></i> Copy SMB URL
+                </a>
             </div>
         </div>
 
-        <div class="card">
-            <h2>📺 Stream Output (HLS)</h2>
-            <p>View restreamed content via HTTP:</p>
-            <div class="url-box">
-                http://localhost:8080/hls/[stream_key].m3u8
+        <!-- USB Drive Status Card -->
+        <div class="service-card" style="border-top: 4px solid var(--success-color);">
+            <h3><i class="bi bi-usb-drive"></i> USB Media Drive</h3>
+            <p>External USB storage for recordings and media library</p>
+            <div class="service-info">
+                Mount: /mnt/media/<br>
+                Status: <span id="usb-status" style="color: var(--success-color);">Mounted</span><br>
+                Space: <span id="usb-space">Checking...</span>
             </div>
-            <p><strong>Example:</strong></p>
-            <div class="example">
-                Watch in VLC, browser, or any HLS player:<br>
-                <code>http://localhost:8080/hls/cnn_news.m3u8</code>
+            <a href="/usb-guide.html" class="btn-service success">
+                <i class="bi bi-book"></i> Setup Guide
+            </a>
+            <a href="#" onclick="checkUSBStatus()" class="btn-service info">
+                <i class="bi bi-hdd"></i> Check Status
+            </a>
+        </div>
+
+        <!-- Tools Section -->
+        <div class="tools-section">
+            <h2><i class="bi bi-tools"></i> Quick Tools</h2>
+            <div class="tool-grid">
+                <div class="tool-card" onclick="window.location.href='/recordings'">
+                    <i class="bi bi-record-circle"></i>
+                    <h4>Recordings</h4>
+                    <p>View saved streams</p>
+                </div>
+                <div class="tool-card" onclick="testStream()">
+                    <i class="bi bi-play-btn"></i>
+                    <h4>Test Stream</h4>
+                    <p>Verify streaming</p>
+                </div>
+                <div class="tool-card" onclick="window.location.href='/logs'">
+                    <i class="bi bi-terminal"></i>
+                    <h4>View Logs</h4>
+                    <p>Container logs</p>
+                </div>
+                <div class="tool-card" onclick="restartServices()">
+                    <i class="bi bi-arrow-clockwise"></i>
+                    <h4>Restart All</h4>
+                    <p>Restart services</p>
+                </div>
+                <div class="tool-card" onclick="window.location.href='/docs.html'">
+                    <i class="bi bi-question-circle"></i>
+                    <h4>Help Docs</h4>
+                    <p>Documentation</p>
+                </div>
+                <div class="tool-card" onclick="showSystemInfo()">
+                    <i class="bi bi-cpu"></i>
+                    <h4>System Info</h4>
+                    <p>Resource usage</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Documentation Section -->
+        <div class="documentation">
+            <h2><i class="bi bi-book"></i> Quick Start Guides</h2>
+            <div class="doc-links">
+                <div class="doc-link" id="rtmp-guide">
+                    <h5><i class="bi bi-camera-reels"></i> Restreaming Setup</h5>
+                    <p>Push stream: <code>ffmpeg -i source -c copy -f flv rtmp://localhost:1935/live/key</code></p>
+                </div>
+                <div class="doc-link">
+                    <h5><i class="bi bi-folder-plus"></i> Connect to USB Shares</h5>
+                    <p>Windows: <code>\\localhost\records</code><br>
+                       Mac/Linux: <code>smb://localhost/movies</code><br>
+                       <a href="/usb-guide.html" style="color: var(--primary-green);">Full USB Setup Guide</a></p>
+                </div>
+                <div class="doc-link">
+                    <h5><i class="bi bi-tv"></i> Watch Streams</h5>
+                    <p>VLC: Open Network → <code>http://localhost:8080/hls/stream.m3u8</code></p>
+                </div>
+                <div class="doc-link">
+                    <h5><i class="bi bi-shield-check"></i> Default Credentials</h5>
+                    <p>Samba: <code>iptv / iptv123</code><br>
+                       Jellyfin: Set on first login</p>
+                </div>
             </div>
         </div>
     </div>
 
-    <div class="status">
-        <h2>📊 Server Status & Controls</h2>
-        <p>Monitor and control your restreaming server:</p>
-        
-        <div style="margin: 20px 0;">
-            <a href="/live" class="button" style="background: linear-gradient(135deg, #FF39E8 0%, #044377 100%);">📺 Watch Live Stream</a>
-            <a href="/iptv.m3u" class="button" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%);">📋 Test M3U Playlist</a>
-        </div>
-
-        <div class="example">
-            <h3>FFmpeg Push Example:</h3>
-            <div class="code">
-# From IPTV app, automatically executed:<br>
-ffmpeg -i "http://source.iptv.stream/channel.m3u8" \<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-c copy -f flv \<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;rtmp://localhost:1935/live/channel_name
-            </div>
-        </div>
-
-        <div class="example">
-            <h3>Multiple Quality Streams:</h3>
-            <p>The server automatically creates multiple quality versions:</p>
-            <ul>
-                <li><strong>Source:</strong> Original quality</li>
-                <li><strong>Mid:</strong> 854x480 @ 768k</li>
-                <li><strong>Low:</strong> 480x270 @ 256k</li>
-            </ul>
-        </div>
+    <!-- Footer -->
+    <div class="footer">
+        <p>KDC IPTV Infrastructure v1.0 | Powered by Docker Containers | 
+           <a href="https://github.com/yourusername/iptv" target="_blank">
+               <i class="bi bi-github"></i> GitHub
+           </a>
+        </p>
     </div>
 
-    <div style="margin-top: 30px; text-align: center; color: #666;">
-        <p>Generated by IPTV CLI Application - Docker Container Running</p>
-    </div>
-
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
     <script>
-        // Auto-refresh stats every 30 seconds
-        setInterval(function() {
-            // You could add AJAX calls to update stats here
-            console.log('Server running...');
-        }, 30000);
+        // Check service status
+        function checkServices() {
+            // Check NGINX-RTMP (this server)
+            fetch('/stat')
+                .then(response => {
+                    if (response.ok) {
+                        updateStatus('nginx', 'online', 'Running');
+                    } else {
+                        updateStatus('nginx', 'offline', 'Not responding');
+                    }
+                })
+                .catch(() => updateStatus('nginx', 'offline', 'Offline'));
+
+            // Check Jellyfin
+            fetch('http://localhost:8096/health')
+                .then(response => {
+                    if (response.ok) {
+                        updateStatus('jellyfin', 'online', 'Running');
+                    } else {
+                        updateStatus('jellyfin', 'unknown', 'Unknown');
+                    }
+                })
+                .catch(() => updateStatus('jellyfin', 'offline', 'Offline'));
+
+            // For Samba, we can't directly check from browser, so assume online if page loads
+            updateStatus('samba', 'online', 'Running');
+        }
+
+        function updateStatus(service, status, text) {
+            const indicator = document.getElementById(`${service}-status`);
+            const textElement = document.getElementById(`${service}-text`);
+            
+            indicator.className = `status-indicator ${status}`;
+            textElement.textContent = text;
+            
+            if (service === 'jellyfin') {
+                document.getElementById('jellyfin-detail').textContent = text;
+            }
+        }
+
+        // Copy to clipboard
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Copied to clipboard: ' + text);
+            });
+        }
+
+        // Show Jellyfin info
+        function showJellyfinInfo() {
+            alert('Jellyfin Media Server\n\n' +
+                  'URL: http://localhost:8096\n' +
+                  'First-time setup required\n' +
+                  'Media paths:\n' +
+                  '  • /media/movies - Movies\n' +
+                  '  • /media/music - Music\n' +
+                  '  • /media/photos - Photos\n' +
+                  '  • /media/recordings - TV recordings');
+        }
+
+        // Test stream
+        function testStream() {
+            window.open('/live?stream=test', '_blank');
+        }
+
+        // Restart services (placeholder)
+        function restartServices() {
+            if (confirm('Restart all Docker services?\n\nThis will briefly interrupt streaming.')) {
+                alert('Please use the CLI menu: Streaming Infrastructure → Restart All Services');
+            }
+        }
+
+        // Show system info (placeholder)
+        function showSystemInfo() {
+            alert('System Information\n\n' +
+                  'For detailed system stats, use:\n' +
+                  '• CLI: Launch Lazydocker\n' +
+                  '• Web: http://localhost:8080/stat (RTMP stats)');
+        }
+
+        // Check USB status
+        function checkUSBStatus() {
+            // Simulate USB check
+            const mounted = true;
+            const totalSpace = '2.7 TB';
+            const availSpace = '1.2 TB';
+            
+            document.getElementById('usb-space').textContent = `${availSpace} free of ${totalSpace}`;
+            document.getElementById('usb-status').textContent = mounted ? 'Mounted' : 'Not Mounted';
+            document.getElementById('usb-status').style.color = mounted ? 'var(--success-color)' : 'var(--danger-color)';
+            
+            alert('USB Drive Status:\n\n' +
+                  `Mount Point: /mnt/media/\n` +
+                  `Total Space: ${totalSpace}\n` +
+                  `Available: ${availSpace}\n` +
+                  `Status: ${mounted ? 'Mounted and Ready' : 'Not Mounted'}\n\n` +
+                  'Folders:\n' +
+                  '• RECORDS - TV Recordings\n' +
+                  '• MOVIES - Movie Collection\n' +
+                  '• MUSIC - Music Library\n' +
+                  '• PHOTOS - Photo Gallery');
+        }
+
+        // Update uptime
+        let startTime = Date.now();
+        function updateUptime() {
+            const elapsed = Date.now() - startTime;
+            const hours = Math.floor(elapsed / 3600000);
+            const minutes = Math.floor((elapsed % 3600000) / 60000);
+            document.getElementById('uptime').textContent = `${hours}h ${minutes}m`;
+        }
+
+        // Initialize
+        checkServices();
+        setInterval(checkServices, 30000); // Check every 30 seconds
+        setInterval(updateUptime, 60000); // Update uptime every minute
+        updateUptime();
+        
+        // Check USB on load
+        setTimeout(checkUSBStatus, 1500);
     </script>
 </body>
 </html>

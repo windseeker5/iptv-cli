@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:05:03</dateadded>
+  <title>Erik Satie</title>
+  <runtime>13</runtime>
+  <musicbrainzartistid>e1d521ea-5b97-4981-987c-ba988b2a87d7</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Erik Satie/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Erik Satie/backdrop.jpg</fanart>
+  </art>
+</artist>

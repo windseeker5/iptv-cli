@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentation - IPTV Streaming Infrastructure</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --info-gradient: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+        }
+        
+        .header {
+            background: var(--info-gradient);
+            color: white;
+            padding: 30px 0;
+            margin-bottom: 40px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        
+        .sidebar {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+            position: sticky;
+            top: 20px;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+        }
+        
+        .sidebar h5 {
+            color: #333;
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #17a2b8;
+        }
+        
+        .sidebar .nav-link {
+            color: #666;
+            padding: 8px 15px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            margin-bottom: 5px;
+        }
+        
+        .sidebar .nav-link:hover {
+            background: #f8f9fa;
+            color: #17a2b8;
+            transform: translateX(5px);
+        }
+        
+        .sidebar .nav-link.active {
+            background: var(--info-gradient);
+            color: white;
+        }
+        
+        .content-section {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+        }
+        
+        .content-section h2 {
+            color: #333;
+            font-size: 1.8rem;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #17a2b8;
+        }
+        
+        .content-section h3 {
+            color: #444;
+            font-size: 1.3rem;
+            margin-top: 25px;
+            margin-bottom: 15px;
+        }
+        
+        .code-block {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 15px 0;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+        }
+        
+        .command {
+            background: #f4f4f4;
+            padding: 3px 8px;
+            border-radius: 4px;
+            color: #d63384;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+        }
+        
+        .info-box {
+            background: #e7f3ff;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        
+        .warning-box {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        
+        .success-box {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        
+        table {
+            width: 100%;
+            margin: 20px 0;
+        }
+        
+        table th {
+            background: #f8f9fa;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+        }
+        
+        table td {
+            padding: 10px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        .breadcrumb-nav {
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        
+        .footer {
+            text-align: center;
+            padding: 30px 0;
+            color: #666;
+            font-size: 0.9rem;
+            margin-top: 50px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="container">
+            <h1><i class="bi bi-book"></i> Documentation</h1>
+            <p>Complete guide to your IPTV Streaming Infrastructure</p>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Breadcrumb -->
+        <div class="breadcrumb-nav">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb mb-0">
+                    <li class="breadcrumb-item"><a href="/">Dashboard</a></li>
+                    <li class="breadcrumb-item active">Documentation</li>
+                </ol>
+            </nav>
+        </div>
+
+        <div class="row">
+            <!-- Sidebar Navigation -->
+            <div class="col-md-3">
+                <div class="sidebar">
+                    <h5>Quick Start</h5>
+                    <nav class="nav flex-column">
+                        <a class="nav-link active" href="#getting-started">Getting Started</a>
+                        <a class="nav-link" href="#first-setup">First Time Setup</a>
+                        <a class="nav-link" href="#basic-usage">Basic Usage</a>
+                    </nav>
+                    
+                    <h5 class="mt-4">Services</h5>
+                    <nav class="nav flex-column">
+                        <a class="nav-link" href="#live-streaming">Live Streaming</a>
+                        <a class="nav-link" href="#jellyfin">Jellyfin Media Server</a>
+                        <a class="nav-link" href="#rtmp-server">RTMP Server</a>
+                        <a class="nav-link" href="#samba">Samba Shares</a>
+                    </nav>
+                    
+                    <h5 class="mt-4">Advanced</h5>
+                    <nav class="nav flex-column">
+                        <a class="nav-link" href="#restreaming">Restreaming Setup</a>
+                        <a class="nav-link" href="#recording">Recording Streams</a>
+                        <a class="nav-link" href="#docker">Docker Management</a>
+                        <a class="nav-link" href="#troubleshooting">Troubleshooting</a>
+                    </nav>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="col-md-9">
+                <!-- Getting Started -->
+                <div class="content-section" id="getting-started">
+                    <h2>Getting Started</h2>
+                    <p>Welcome to your IPTV Streaming Infrastructure! This system provides a complete solution for managing, streaming, and recording IPTV content.</p>
+                    
+                    <h3>System Requirements</h3>
+                    <ul>
+                        <li>Docker and Docker Compose installed</li>
+                        <li>At least 4GB RAM (8GB recommended)</li>
+                        <li>20GB+ free disk space for recordings</li>
+                        <li>Ports available: 1935, 8080, 8096, 445</li>
+                    </ul>
+                    
+                    <h3>Quick Commands</h3>
+                    <div class="code-block">
+# Start the IPTV CLI
+python3 iptv.py
+
+# Navigate to Streaming Infrastructure menu
+# Select option 4 from main menu
+
+# Start all services
+docker-compose up -d
+
+# Check service status
+docker ps
+                    </div>
+                </div>
+
+                <!-- First Time Setup -->
+                <div class="content-section" id="first-setup">
+                    <h2>First Time Setup</h2>
+                    
+                    <div class="info-box">
+                        <i class="bi bi-info-circle"></i> <strong>Important:</strong> 
+                        Complete these steps in order for the best experience.
+                    </div>
+                    
+                    <h3>1. Environment Configuration</h3>
+                    <p>Create your <span class="command">.env</span> file with IPTV credentials:</p>
+                    <div class="code-block">
+cp .env.example .env
+nano .env
+
+# Add your credentials:
+IPTV_SERVER_URL=http://your-iptv-server.com:8080
+IPTV_USERNAME=your_username
+IPTV_PASSWORD=your_password
+                    </div>
+                    
+                    <h3>2. Download IPTV Database</h3>
+                    <ol>
+                        <li>Run <span class="command">python3 iptv.py</span></li>
+                        <li>Select "Update IPTV db"</li>
+                        <li>Choose "Download Fresh Data (Full Update)"</li>
+                        <li>Wait for download to complete (may take 5-10 minutes)</li>
+                    </ol>
+                    
+                    <h3>3. Start Docker Services</h3>
+                    <ol>
+                        <li>Go to "Streaming Infrastructure" menu</li>
+                        <li>Select "Review/Edit docker-compose.yml" to verify configuration</li>
+                        <li>Select "Start All Services"</li>
+                        <li>Check "Container Status & URLs" to verify all services are running</li>
+                    </ol>
+                    
+                    <h3>4. Configure Jellyfin</h3>
+                    <ol>
+                        <li>Open <a href="http://localhost:8096" target="_blank">http://localhost:8096</a></li>
+                        <li>Complete the setup wizard</li>
+                        <li>Add media libraries:
+                            <ul>
+                                <li><span class="command">/media/library</span> for your media</li>
+                                <li><span class="command">/media/recordings</span> for IPTV recordings</li>
+                            </ul>
+                        </li>
+                    </ol>
+                </div>
+
+                <!-- Basic Usage -->
+                <div class="content-section" id="basic-usage">
+                    <h2>Basic Usage</h2>
+                    
+                    <h3>Searching for Content</h3>
+                    <p>Use the CLI to search for channels and VOD content:</p>
+                    <ol>
+                        <li>From main menu, select "Search IPTV"</li>
+                        <li>Enter your search term</li>
+                        <li>Use arrow keys to navigate results</li>
+                        <li>Press <kbd>p</kbd> to play, <kbd>s</kbd> to save to favorites</li>
+                    </ol>
+                    
+                    <h3>Playing Streams</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Method</th>
+                                <th>How to Use</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>CLI Player</td>
+                                <td>Select stream and press <kbd>p</kbd> or choose "Watch Stream"</td>
+                            </tr>
+                            <tr>
+                                <td>Web Player</td>
+                                <td>Open <a href="/live">/live</a> in your browser</td>
+                            </tr>
+                            <tr>
+                                <td>VLC</td>
+                                <td>Open Network Stream: <span class="command">http://localhost:8080/hls/stream.m3u8</span></td>
+                            </tr>
+                            <tr>
+                                <td>M3U Playlist</td>
+                                <td>Load <span class="command">http://localhost:8080/iptv.m3u</span> in any IPTV player</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Live Streaming -->
+                <div class="content-section" id="live-streaming">
+                    <h2>Live Streaming</h2>
+                    
+                    <h3>Web Player Features</h3>
+                    <ul>
+                        <li>HLS adaptive streaming</li>
+                        <li>Chromecast support</li>
+                        <li>Mobile responsive design</li>
+                        <li>Keyboard shortcuts (space to play/pause, f for fullscreen)</li>
+                    </ul>
+                    
+                    <h3>Stream URLs</h3>
+                    <div class="code-block">
+# HLS Stream (for players)
+http://localhost:8080/hls/[stream_key].m3u8
+
+# Live player page
+http://localhost:8080/live
+
+# M3U playlist
+http://localhost:8080/iptv.m3u
+                    </div>
+                    
+                    <div class="warning-box">
+                        <i class="bi bi-exclamation-triangle"></i> <strong>Note:</strong> 
+                        Streams must be restreamed through the RTMP server first. See the Restreaming section.
+                    </div>
+                </div>
+
+                <!-- Jellyfin -->
+                <div class="content-section" id="jellyfin">
+                    <h2>Jellyfin Media Server</h2>
+                    
+                    <h3>Access</h3>
+                    <p>URL: <a href="http://localhost:8096" target="_blank">http://localhost:8096</a></p>
+                    
+                    <h3>Media Folders</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Container Path</th>
+                                <th>Local Path</th>
+                                <th>Purpose</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>/media/library</td>
+                                <td>./media</td>
+                                <td>Your personal media collection</td>
+                            </tr>
+                            <tr>
+                                <td>/media/recordings</td>
+                                <td>./nginx/recordings</td>
+                                <td>IPTV recorded streams</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    
+                    <h3>First Time Setup</h3>
+                    <ol>
+                        <li>Create admin account</li>
+                        <li>Add media libraries (Movies, TV Shows, etc.)</li>
+                        <li>Enable hardware acceleration if available</li>
+                        <li>Configure remote access if needed</li>
+                    </ol>
+                </div>
+
+                <!-- RTMP Server -->
+                <div class="content-section" id="rtmp-server">
+                    <h2>RTMP Server Configuration</h2>
+                    
+                    <h3>Server Endpoints</h3>
+                    <div class="code-block">
+# RTMP Input
+rtmp://localhost:1935/live/[stream_key]
+
+# HLS Output
+http://localhost:8080/hls/[stream_key].m3u8
+
+# Statistics
+http://localhost:8080/stat
+                    </div>
+                    
+                    <h3>Quality Variants</h3>
+                    <p>The server automatically creates three quality levels:</p>
+                    <ul>
+                        <li><strong>Source:</strong> Original quality (passthrough)</li>
+                        <li><strong>Medium:</strong> 854x480 @ 768kbps</li>
+                        <li><strong>Low:</strong> 480x270 @ 256kbps</li>
+                    </ul>
+                </div>
+
+                <!-- Samba Shares -->
+                <div class="content-section" id="samba">
+                    <h2>Samba Network Shares</h2>
+                    
+                    <h3>Available Shares</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Share Name</th>
+                                <th>Path</th>
+                                <th>Purpose</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>recordings</td>
+                                <td>\\localhost\recordings</td>
+                                <td>IPTV stream recordings</td>
+                            </tr>
+                            <tr>
+                                <td>media</td>
+                                <td>\\localhost\media</td>
+                                <td>Media library</td>
+                            </tr>
+                            <tr>
+                                <td>downloads</td>
+                                <td>\\localhost\downloads</td>
+                                <td>Downloaded VOD content</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    
+                    <h3>Default Credentials</h3>
+                    <div class="info-box">
+                        <strong>Username:</strong> <span class="command">iptv</span><br>
+                        <strong>Password:</strong> <span class="command">iptv123</span>
+                    </div>
+                </div>
+
+                <!-- Restreaming -->
+                <div class="content-section" id="restreaming">
+                    <h2>Restreaming Setup</h2>
+                    
+                    <h3>From CLI</h3>
+                    <ol>
+                        <li>Search for a channel</li>
+                        <li>Select it and press <kbd>r</kbd> for restream</li>
+                        <li>Choose "Start Restream" or "Start with Transcoding"</li>
+                        <li>Note the stream key generated</li>
+                        <li>Access stream at <span class="command">http://localhost:8080/hls/[stream_key].m3u8</span></li>
+                    </ol>
+                    
+                    <h3>Manual FFmpeg Command</h3>
+                    <div class="code-block">
+# Basic restream (copy codecs)
+ffmpeg -i "http://iptv-source/stream.m3u8" \
+       -c copy -f flv \
+       rtmp://localhost:1935/live/my_stream
+
+# With transcoding
+ffmpeg -i "http://iptv-source/stream.m3u8" \
+       -c:v libx264 -preset fast -b:v 1M \
+       -c:a aac -b:a 128k \
+       -f flv rtmp://localhost:1935/live/my_stream
+                    </div>
+                </div>
+
+                <!-- Recording -->
+                <div class="content-section" id="recording">
+                    <h2>Recording Streams</h2>
+                    
+                    <h3>From CLI</h3>
+                    <p>Press <kbd>c</kbd> when viewing a stream to start recording (download).</p>
+                    
+                    <h3>Manual Recording</h3>
+                    <div class="code-block">
+# Record live stream
+ffmpeg -i "http://localhost:8080/hls/stream.m3u8" \
+       -c copy -t 3600 \
+       ./nginx/recordings/recording_$(date +%Y%m%d_%H%M%S).ts
+
+# Record with time limit (1 hour)
+timeout 3600 ffmpeg -i "source_url" -c copy output.ts
+                    </div>
+                    
+                    <div class="success-box">
+                        <i class="bi bi-lightbulb"></i> <strong>Tip:</strong> 
+                        Recordings are automatically saved to the <span class="command">./nginx/recordings</span> folder 
+                        and are accessible via Samba and Jellyfin.
+                    </div>
+                </div>
+
+                <!-- Docker Management -->
+                <div class="content-section" id="docker">
+                    <h2>Docker Management</h2>
+                    
+                    <h3>Essential Commands</h3>
+                    <div class="code-block">
+# Start all services
+docker-compose up -d
+
+# Stop all services
+docker-compose down
+
+# Restart a specific service
+docker-compose restart nginx-rtmp
+
+# View logs
+docker-compose logs -f --tail=50
+
+# Check container status
+docker ps
+
+# Enter container shell
+docker exec -it iptv-nginx-rtmp /bin/sh
+                    </div>
+                    
+                    <h3>Container Names</h3>
+                    <ul>
+                        <li><span class="command">iptv-nginx-rtmp</span> - RTMP/HLS server</li>
+                        <li><span class="command">iptv-jellyfin</span> - Media server</li>
+                        <li><span class="command">iptv-samba</span> - Network shares</li>
+                    </ul>
+                </div>
+
+                <!-- Troubleshooting -->
+                <div class="content-section" id="troubleshooting">
+                    <h2>Troubleshooting</h2>
+                    
+                    <h3>Common Issues</h3>
+                    
+                    <div class="warning-box">
+                        <h5>Containers Not Starting</h5>
+                        <ul>
+                            <li>Check ports: <span class="command">sudo netstat -tulpn | grep -E '1935|8080|8096|445'</span></li>
+                            <li>Verify Docker: <span class="command">docker --version</span></li>
+                            <li>Check logs: <span class="command">docker-compose logs</span></li>
+                        </ul>
+                    </div>
+                    
+                    <div class="warning-box">
+                        <h5>Can't Access Web Interface</h5>
+                        <ul>
+                            <li>Verify NGINX is running: <span class="command">docker ps | grep nginx</span></li>
+                            <li>Check firewall settings</li>
+                            <li>Try: <span class="command">curl http://localhost:8080</span></li>
+                        </ul>
+                    </div>
+                    
+                    <div class="warning-box">
+                        <h5>Samba Connection Failed</h5>
+                        <ul>
+                            <li>Verify container: <span class="command">docker ps | grep samba</span></li>
+                            <li>Check credentials (case sensitive)</li>
+                            <li>On Windows, clear cached credentials: <span class="command">net use * /delete</span></li>
+                        </ul>
+                    </div>
+                    
+                    <div class="warning-box">
+                        <h5>Stream Not Playing</h5>
+                        <ul>
+                            <li>Verify source stream is active</li>
+                            <li>Check RTMP stats: <a href="/stat">/stat</a></li>
+                            <li>Look for FFmpeg errors in logs</li>
+                            <li>Try transcoding mode instead of copy mode</li>
+                        </ul>
+                    </div>
+                    
+                    <h3>Reset Everything</h3>
+                    <div class="code-block">
+# Stop and remove all containers
+docker-compose down
+
+# Remove volumes (WARNING: deletes data)
+docker-compose down -v
+
+# Rebuild and start fresh
+docker-compose up -d --build
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+        <p>
+            <a href="/">← Back to Dashboard</a> | 
+            IPTV Streaming Infrastructure Documentation | 
+            <a href="https://github.com/yourusername/iptv" target="_blank">
+                <i class="bi bi-github"></i> GitHub
+            </a>
+        </p>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        // Smooth scrolling for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                    
+                    // Update active nav link
+                    document.querySelectorAll('.sidebar .nav-link').forEach(link => {
+                        link.classList.remove('active');
+                    });
+                    this.classList.add('active');
+                }
+            });
+        });
+        
+        // Highlight current section on scroll
+        window.addEventListener('scroll', () => {
+            let current = '';
+            const sections = document.querySelectorAll('.content-section');
+            
+            sections.forEach(section => {
+                const sectionTop = section.offsetTop;
+                const sectionHeight = section.clientHeight;
+                if (scrollY >= (sectionTop - 200)) {
+                    current = section.getAttribute('id');
+                }
+            });
+            
+            document.querySelectorAll('.sidebar .nav-link').forEach(link => {
+                link.classList.remove('active');
+                if (link.getAttribute('href') === '#' + current) {
+                    link.classList.add('active');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

@@ -25,8 +25,6 @@ http://cf.its-cdn.me/live/1498fb9676b4/d808eed40f/414056.ts
 http://cf.its-cdn.me/live/1498fb9676b4/d808eed40f/414057.ts
 #EXTINF:-1 group-title="CA| CINEMA FR ᴴᴰ/ᴿᴬᵂ ⁶⁰ᶠᵖˢ",CA FR: TVA MONTREAL HD
 http://cf.its-cdn.me/live/1498fb9676b4/d808eed40f/412909.ts
-#EXTINF:-1 group-title="CA| CANADA ᴴᴰ/ᴿᴬᵂ ⁶⁰ᶠᵖˢ",CA: TVA SPORTS 2 HD
-http://cf.its-cdn.me/live/1498fb9676b4/d808eed40f/1044084.ts
 #EXTINF:-1 group-title="CA| SPORTS FR ᴴᴰ/ᴿᴬᵂ ⁶⁰ᶠᵖˢ",CA FR: TVA SPORTS 2 HD
 http://cf.its-cdn.me/live/1498fb9676b4/d808eed40f/412908.ts
 #EXTINF:-1 group-title="CA| SPORTS FR ᴴᴰ/ᴿᴬᵂ ⁶⁰ᶠᵖˢ",CA FR: TVA SPORTS HD
@@ -45,3 +43,5 @@ http://cf.its-cdn.me/live/1498fb9676b4/d808eed40f/498782.ts
 http://cf.its-cdn.me/live/1498fb9676b4/d808eed40f/498781.ts
 #EXTINF:-1 group-title="FR - NETFLIX 2025",FR - Au-delà des vagues (2025)
 http://cf.its-cdn.me/movie/1498fb9676b4/d808eed40f/1295348.mkv
+#EXTINF:-1 group-title="CA| CANADA ᴴᴰ/ᴿᴬᵂ ⁶⁰ᶠᵖˢ",CA: TVA SPORTS 2 HD
+http://cf.its-cdn.me/live/1498fb9676b4/d808eed40f/1044084.ts

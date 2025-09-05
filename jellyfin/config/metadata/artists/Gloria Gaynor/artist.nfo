@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:05:22</dateadded>
+  <title>Gloria Gaynor</title>
+  <runtime>7</runtime>
+  <musicbrainzartistid>d5c51c36-ac67-4727-91ed-ee9f0df81a2d</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Gloria Gaynor/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Gloria Gaynor/backdrop.jpg</fanart>
+  </art>
+</artist>

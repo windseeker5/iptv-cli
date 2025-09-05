@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:06:25</dateadded>
+  <title>Thievery Corporation</title>
+  <runtime>9</runtime>
+  <musicbrainzartistid>a505bb48-ad65-4af4-ae47-29149715bff9</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Thievery Corporation/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Thievery Corporation/backdrop.jpg</fanart>
+  </art>
+</artist>

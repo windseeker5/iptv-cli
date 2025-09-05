@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:04:45</dateadded>
+  <title>Collective Soul</title>
+  <runtime>10</runtime>
+  <musicbrainzartistid>aa266ac7-d919-4132-982e-76cbd95591a7</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Collective Soul/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Collective Soul/backdrop.jpg</fanart>
+  </art>
+</artist>

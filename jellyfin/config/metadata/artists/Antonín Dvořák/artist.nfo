@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:04:26</dateadded>
+  <title>Antonín Dvořák</title>
+  <runtime>5</runtime>
+  <musicbrainzartistid>819eaeb2-8dd8-48a5-ad07-0bcd137985ef</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Antonín Dvořák/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Antonín Dvořák/backdrop.jpg</fanart>
+  </art>
+</artist>

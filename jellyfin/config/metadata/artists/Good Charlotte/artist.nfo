@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:05:24</dateadded>
+  <title>Good Charlotte</title>
+  <runtime>8</runtime>
+  <musicbrainzartistid>b267ca80-034e-4dc1-9ed4-ec45f1fed41d</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Good Charlotte/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Good Charlotte/backdrop.jpg</fanart>
+  </art>
+</artist>

@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:04:33</dateadded>
+  <title>Bad Meets Evil</title>
+  <runtime>9</runtime>
+  <musicbrainzartistid>87f27b14-cbd0-44ea-93a3-6fead5cb45e7</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Bad Meets Evil/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Bad Meets Evil/backdrop.jpg</fanart>
+  </art>
+</artist>

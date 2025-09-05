@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:05:31</dateadded>
+  <title>Johann Pachelbel</title>
+  <runtime>9</runtime>
+  <musicbrainzartistid>2251b277-2dfb-4cf1-83f3-27e29f902440</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Johann Pachelbel/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Johann Pachelbel/backdrop.jpg</fanart>
+  </art>
+</artist>

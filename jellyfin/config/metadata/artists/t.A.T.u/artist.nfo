@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:06:20</dateadded>
+  <title>t.A.T.u.</title>
+  <runtime>7</runtime>
+  <musicbrainzartistid>7c20f558-d664-42bd-b6f1-81acf9dbb72d</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/t.A.T.u/folder.jpg</poster>
+    <fanart>/config/metadata/artists/t.A.T.u/backdrop.jpg</fanart>
+  </art>
+</artist>

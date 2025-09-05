@@ -50,7 +50,11 @@ load_dotenv()
 
 class IPTVMenuManager:
     def __init__(self):
-        self.db_path = "iptv.db"
+        # Create data directory if it doesn't exist
+        self.data_dir = "data"
+        os.makedirs(self.data_dir, exist_ok=True)
+        
+        self.db_path = os.path.join(self.data_dir, "iptv.db")
         
         # Load credentials from environment variables
         self.server = os.getenv('IPTV_SERVER_URL')
@@ -70,6 +74,9 @@ class IPTVMenuManager:
             console.print("Copy .env.example to .env and add your credentials.")
             sys.exit(1)
         
+        # Check database age and auto-update if needed
+        self.auto_update_database_if_needed()
+        
     def wait_for_escape(self):
         """Wait for escape key instead of enter"""
         import termios, sys, tty
@@ -85,6 +92,75 @@ class IPTVMenuManager:
         except:
             # Fallback for environments where termios doesn't work
             input()
+    
+    def check_database_age(self):
+        """Check if database is older than 14 days"""
+        if not os.path.exists(self.db_path):
+            return True  # Database doesn't exist, needs creation
+        
+        try:
+            # Get file modification time
+            file_modified_time = os.path.getmtime(self.db_path)
+            current_time = datetime.now().timestamp()
+            
+            # Calculate age in days
+            age_in_seconds = current_time - file_modified_time
+            age_in_days = age_in_seconds / (24 * 60 * 60)
+            
+            return age_in_days > 14
+        except Exception as e:
+            console.print(f"[yellow]Warning: Could not check database age: {e}[/yellow]")
+            return False
+    
+    def get_database_age_days(self):
+        """Get database age in days"""
+        if not os.path.exists(self.db_path):
+            return None
+        
+        try:
+            file_modified_time = os.path.getmtime(self.db_path)
+            current_time = datetime.now().timestamp()
+            age_in_seconds = current_time - file_modified_time
+            age_in_days = age_in_seconds / (24 * 60 * 60)
+            return age_in_days
+        except:
+            return None
+    
+    def auto_update_database_if_needed(self):
+        """Automatically update database if it's older than 14 days"""
+        if not self.check_database_age():
+            return  # Database is fresh, no update needed
+        
+        console.clear()
+        console.print(Panel.fit("Database Auto-Update", style="bright_yellow"))
+        
+        age_days = self.get_database_age_days()
+        if age_days is None:
+            console.print("[yellow]⚠ Database not found. Creating new database...[/yellow]")
+        else:
+            console.print(f"[yellow]⚠ Database is {age_days:.1f} days old (>14 days).[/yellow]")
+        
+        console.print("[bright_cyan]Starting automatic database update...[/bright_cyan]")
+        console.print("This may take a few minutes depending on your connection.")
+        console.print()
+        
+        # Perform full database download
+        success = self._download_and_create_db([
+            "account_info", "live_categories", "live_streams", 
+            "vod_categories", "vod_streams", "series_categories"
+        ])
+        
+        if success:
+            console.print()
+            console.print("[green]✓ Database updated successfully![/green]")
+            console.print("[dim white]Press ESC to continue...[/dim white]")
+            self.wait_for_escape()
+        else:
+            console.print()
+            console.print("[red]✗ Database update failed![/red]")
+            console.print("You can try updating manually from the menu.")
+            console.print("[dim white]Press ESC to continue...[/dim white]")
+            self.wait_for_escape()
         
     def main_menu(self):
         """Main menu with arrow key navigation"""
@@ -97,18 +173,15 @@ class IPTVMenuManager:
             figlet = Figlet(font='isometric1')
             title = figlet.renderText('IPTV')
             console.print(f"[cyan]{title}[/cyan]")
-            console.print()
             
             # Show database status
             self.show_status()
             
             options = [
                 "Search IPTV",
-                "Browse Categories",
-                "Smart VOD Picks",
-                "Database Statistics",
+                "Discovery Hub",
                 "Update IPTV db",
-                "Install & Manage Tools"
+                "Streaming Infrastructure"
             ]
             
             terminal_menu = TerminalMenu(
@@ -126,16 +199,12 @@ class IPTVMenuManager:
                 break
             elif choice == 0:  # Search IPTV
                 self.unified_search_menu()
-            elif choice == 1:  # Browse Categories
+            elif choice == 1:  # Discovery Hub
                 self.browse_categories_menu()
-            elif choice == 2:  # Smart VOD Picks
-                self.smart_vod_picks_menu()
-            elif choice == 3:  # Statistics
-                self.show_statistics()
-            elif choice == 4:  # Update IPTV db
+            elif choice == 2:  # Update IPTV db
                 self.download_menu()
-            elif choice == 5:  # Install & Manage Tools
-                self.container_management_menu()
+            elif choice == 3:  # Streaming Infrastructure
+                self.streaming_infrastructure_menu()
     
     def show_status(self):
         """Show current database status"""
@@ -145,9 +214,49 @@ class IPTVMenuManager:
                 cursor = conn.cursor()
                 live_count = cursor.execute("SELECT COUNT(*) FROM live_streams").fetchone()[0]
                 vod_count = cursor.execute("SELECT COUNT(*) FROM vod_streams").fetchone()[0]
+                
+                # Get account info
+                try:
+                    account = cursor.execute("SELECT * FROM account_info LIMIT 1").fetchone()
+                except:
+                    account = None
+                
                 conn.close()
                 
-                status = f"[green]●[/green] Database: Ready | Live: {live_count:,} | VOD: {vod_count:,}"
+                # Build status lines
+                status_lines = []
+                
+                # Get database age
+                age_days = self.get_database_age_days()
+                if age_days is not None:
+                    if age_days < 1:
+                        age_str = "[bright_cyan bold]Updated today[/bright_cyan bold]"
+                    elif age_days < 2:
+                        age_str = "[bright_cyan bold]1 day old[/bright_cyan bold]"
+                    elif age_days <= 7:
+                        age_str = f"[bright_cyan bold]{age_days:.0f} days old[/bright_cyan bold]"
+                    else:
+                        # Use yellow for old databases
+                        age_str = f"[bright_yellow bold]{age_days:.0f} days old[/bright_yellow bold]"
+                    
+                    status_lines.append(f"[green]●[/green] [bright_cyan bold]Database: Ready[/bright_cyan bold] | {age_str}")
+                else:
+                    status_lines.append(f"[green]●[/green] [bright_cyan bold]Database: Ready[/bright_cyan bold]")
+                
+                # Add statistics
+                status_lines.append(f"  Live Channels: {live_count:,}")
+                status_lines.append(f"  VOD Content: {vod_count:,}")
+                status_lines.append(f"  Total Content: {live_count + vod_count:,}")
+                
+                # Add account info if available
+                if account:
+                    exp_date = datetime.fromtimestamp(int(account[2])).strftime('%Y-%m-%d')
+                    status_lines.append(f"  Account Status: {account[1]}")
+                    status_lines.append(f"  Expires: {exp_date}")
+                    status_lines.append(f"  Max Connections: {account[3]}")
+                
+                # Join all lines and display in panel
+                status = "\n".join(status_lines)
                 console.print(Panel(status, style="dim white"))
             except:
                 console.print(Panel("[dim white]●[/dim white] Database: Error reading", style="dim white"))
@@ -227,7 +336,7 @@ class IPTVMenuManager:
             # Keep options shorter to prevent truncation in terminal menu
             for result in live_results:
                 is_fav = (result.get('stream_id'), 'live') in favorites_set
-                fav_indicator = "⭐ " if is_fav else "  "
+                fav_indicator = "⭐ " if is_fav else "   "
                 # Shorter format without category and ID to prevent truncation
                 option = f"{fav_indicator}[LIVE] {result['name']}"
                 options.append(option)
@@ -245,7 +354,7 @@ class IPTVMenuManager:
                     year = result.get('year') or 'N/A'
                     display_name = result['name']
                     
-                rating = f"⭐{result['rating']:.1f}" if result['rating'] else '⭐N/A'
+                rating = f"{result['rating']:.1f}" if result['rating'] else 'N/A'
                 
                 # Use category_name as genre if available
                 if result.get('category_name'):
@@ -261,7 +370,7 @@ class IPTVMenuManager:
                     result['category_name'] = f"VOD/{genre}"
                     
                 is_fav = (result.get('stream_id'), 'vod') in favorites_set
-                fav_indicator = "⭐ " if is_fav else "  "
+                fav_indicator = "⭐ " if is_fav else "   "
                 # Compact format for unified search
                 option = f"{fav_indicator}[VOD] {rating} {year:<4} {display_name[:20]}"
                 options.append(option)
@@ -416,7 +525,7 @@ class IPTVMenuManager:
             for result in page_results:
                 category = result['category_name'] or 'Unknown'
                 is_fav = (result.get('stream_id'), 'live') in favorites_set
-                fav_indicator = "⭐ " if is_fav else "  "
+                fav_indicator = "⭐ " if is_fav else "   "
                 option = f"{fav_indicator}{result['name'][:48]} | {category[:15]} | ID: {result['stream_id']}"
                 options.append(option)
             
@@ -719,7 +828,7 @@ class IPTVMenuManager:
                     result['category_name'] = f"VOD/{genre}"
                     
                 is_fav = (result.get('stream_id'), 'vod') in favorites_set
-                fav_indicator = "⭐ " if is_fav else "  "
+                fav_indicator = "⭐ " if is_fav else "   "
                 
                 # Ultra-compact format to avoid truncation
                 # Remove prefixes like "EN -", "FR -", "NF -" from display
@@ -816,16 +925,20 @@ class IPTVMenuManager:
                     self.play_with_mpv({'name': selected['name'], 'stream_url': selected['stream_url']})
     
     def browse_categories_menu(self):
-        """Browse categories menu"""
+        """Discovery Hub - Browse and explore content"""
         if not self.check_database():
             return
         
         console.clear()
-        console.print(Panel.fit("Browse Categories", style="dim white"))
+        console.print(Panel.fit("🔍 Discovery Hub", style="bright_cyan"))
+        console.print()
+        console.print("[dim]Explore your IPTV content universe[/dim]")
+        console.print()
         
         options = [
-            "Live TV Categories",
-            "VOD Categories"
+            "📺 Live TV Categories",
+            "🎬 VOD Categories",
+            "🎯 Smart VOD Picks"
         ]
         
         terminal_menu = TerminalMenu(
@@ -840,6 +953,8 @@ class IPTVMenuManager:
             self.show_live_categories()
         elif choice == 1:
             self.show_vod_categories()
+        elif choice == 2:
+            self.smart_vod_picks_menu()
     
     def smart_vod_picks_menu(self):
         """Smart VOD recommendations menu"""
@@ -1921,121 +2036,93 @@ class IPTVMenuManager:
             conn.close()
             return []
     
-    def show_statistics(self):
-        """Show database statistics"""
-        if not self.check_database():
-            return
-        
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            live_count = cursor.execute("SELECT COUNT(*) FROM live_streams").fetchone()[0]
-            vod_count = cursor.execute("SELECT COUNT(*) FROM vod_streams").fetchone()[0]
-            
-            # Get account info if available
-            try:
-                account = cursor.execute("SELECT * FROM account_info").fetchone()
-            except:
-                account = None
-            
-            conn.close()
-            
-            console.clear()
-            console.print(Panel.fit("Database Statistics", style="dim white"))
-            
-            table = Table(show_header=True, header_style="dim white")
-            table.add_column("Metric", style="dim white")
-            table.add_column("Value", style="dim white")
-            
-            table.add_row("Live Channels", f"{live_count:,}")
-            table.add_row("VOD Content", f"{vod_count:,}")
-            table.add_row("Total Content", f"{live_count + vod_count:,}")
-            
-            if account:
-                exp_date = datetime.fromtimestamp(int(account[2])).strftime('%Y-%m-%d')
-                table.add_row("Account Status", account[1])
-                table.add_row("Expires", exp_date)
-                table.add_row("Max Connections", account[3])
-            
-            console.print(table)
-            
-        except Exception as e:
-            console.print(f"Error reading statistics: {e}")
-        
-        self.wait_for_escape()
-    
-    def container_management_menu(self):
-        """Container management selection menu"""
+    def streaming_infrastructure_menu(self):
+        """Streaming Infrastructure menu - manage Docker services"""
         while True:
             console.clear()
-            console.print(Panel.fit("Install & Manage Tools", style="dim white"))
+            console.print(Panel.fit("Streaming Infrastructure\n[dim white]Dashboard: http://localhost:8080[/dim white]", style="bright_cyan"))
             
-            # Show status of all containers and Docker
-            docker_status = self.check_docker_status()
-            nginx_status = self.check_container_status()
-            jellyfin_status = self.check_jellyfin_status()
-            samba_status = self.check_samba_status()
+            # Check installation status
+            docker_installed = self.is_docker_installed()
+            lazydocker_installed = self.is_lazydocker_installed()
+            compose_exists = os.path.exists('docker-compose.yml')
             
-            console.print(f"Docker: {docker_status}")
-            console.print(f"NGINX-RTMP: {nginx_status}")
-            console.print(f"Jellyfin: {jellyfin_status}")
-            console.print(f"Samba Share: {samba_status}")
-            console.print()
+            # Build menu options with status indicators
+            options = []
             
-            # Build dynamic options based on what's installed
-            options = ["Install Docker", "Install Lazydocker"]
+            # Installation options with status
+            if docker_installed:
+                options.append("Install Docker [Installed]")
+            else:
+                options.append("Install Docker [Required]")
+                
+            if lazydocker_installed:
+                options.append("Install Lazydocker [Installed]")
+            else:
+                options.append("Install Lazydocker")
             
-            # Check if lazydocker is installed to show launch option
-            try:
-                subprocess.run(['which', 'lazydocker'], capture_output=True, check=True)
-                options.append("Launch Lazydocker")
-                lazydocker_installed = True
-            except:
-                lazydocker_installed = False
-            
-            # Add remaining options
-            options.extend([
-                "Container Status & URLs",
-                "Build & Start All Containers",
-                "── SAMBA NETWORK SHARE ──",
-                "Build & Start Samba Container",
-                "Configure Samba Users",
-                "Samba Container Status",
-                "Stop Samba Container"
-            ])
+            # Only show these if Docker is installed
+            if docker_installed:
+                if lazydocker_installed:
+                    options.append("Launch Lazydocker")
+                
+                if compose_exists:
+                    options.append("Review/Edit docker-compose.yml")
+                else:
+                    options.append("Create docker-compose.yml")
+                    
+                options.append("Start All Services")
+                options.append("Stop All Services")
+                options.append("Restart All Services")
+                
+                # Get running container count for inline status
+                running_count = self.get_running_container_count()
+                total_count = 3  # NGINX-RTMP, Jellyfin, Samba
+                options.append(f"Container Status & URLs [{running_count}/{total_count} Running]")
+                
+                options.append("View Logs (last 50 lines)")
+                options.append("Update Container Images")
             
             terminal_menu = TerminalMenu(
                 options,
                 title="",
-                menu_cursor="> "
+                menu_cursor="> ",
+                cycle_cursor=True,
+                clear_screen=False
             )
             
             choice = terminal_menu.show()
             
             if choice is None:  # ESC pressed
                 break
-            elif choice == 0:  # Install Docker
+                
+            selected_option = options[choice]
+            
+            # Handle selections based on option text
+            if "Install Docker" in selected_option and not docker_installed:
                 self.install_docker()
-            elif choice == 1:  # Install Lazydocker
+            elif "Install Lazydocker" in selected_option and not lazydocker_installed:
                 self.install_lazydocker()
-            elif lazydocker_installed and choice == 2:  # Launch Lazydocker
+            elif "Launch Lazydocker" in selected_option:
                 self.launch_lazydocker()
-            elif (lazydocker_installed and choice == 3) or (not lazydocker_installed and choice == 2):  # Status & URLs
+            elif "Review/Edit docker-compose.yml" in selected_option or "Create docker-compose.yml" in selected_option:
+                self.edit_docker_compose()
+            elif "Start All Services" in selected_option:
+                self.start_all_services()
+            elif "Stop All Services" in selected_option:
+                self.stop_all_services()
+            elif "Restart All Services" in selected_option:
+                self.restart_all_services()
+            elif "Container Status & URLs" in selected_option:
                 self.show_container_status_and_urls()
-            elif (lazydocker_installed and choice == 4) or (not lazydocker_installed and choice == 3):  # Build & Start All
-                self.build_and_start_all_containers()
-            # Samba options (adjust indices based on lazydocker presence)
-            elif (lazydocker_installed and choice == 5) or (not lazydocker_installed and choice == 4):  # Separator - do nothing
-                pass
-            elif (lazydocker_installed and choice == 6) or (not lazydocker_installed and choice == 5):  # Build & Start Samba
-                self.build_and_start_samba_container()
-            elif (lazydocker_installed and choice == 7) or (not lazydocker_installed and choice == 6):  # Configure Samba Users
-                self.configure_samba_users()
-            elif (lazydocker_installed and choice == 8) or (not lazydocker_installed and choice == 7):  # Samba Status
-                self.show_samba_container_status()
-            elif (lazydocker_installed and choice == 9) or (not lazydocker_installed and choice == 8):  # Stop Samba
-                self.stop_samba_container()
+            elif "View Logs" in selected_option:
+                self.view_container_logs()
+            elif "Update Container Images" in selected_option:
+                self.update_container_images()
+    
+    def container_management_menu(self):
+        """Legacy redirect to new menu"""
+        self.streaming_infrastructure_menu()
     
     def show_container_status_and_urls(self):
         """Show combined container status and URLs for both NGINX and Jellyfin"""
@@ -2199,6 +2286,349 @@ class IPTVMenuManager:
             return "[green]✓ Available[/green]"
         except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
             return "[red]✗ Not available[/red]"
+    
+    def is_docker_installed(self):
+        """Check if Docker is installed (returns boolean)"""
+        try:
+            subprocess.run(['docker', '--version'], capture_output=True, check=True, timeout=5)
+            return True
+        except:
+            return False
+    
+    def is_lazydocker_installed(self):
+        """Check if lazydocker is installed (returns boolean)"""
+        try:
+            subprocess.run(['which', 'lazydocker'], capture_output=True, check=True, timeout=5)
+            return True
+        except:
+            return False
+    
+    def get_running_container_count(self):
+        """Get count of running containers (NGINX, Jellyfin, Samba)"""
+        count = 0
+        containers = ['iptv-nginx-rtmp', 'iptv-jellyfin', 'iptv-samba']
+        
+        for container in containers:
+            try:
+                result = subprocess.run(['docker', 'ps', '--filter', f'name={container}', '--format', '{{.Status}}'],
+                                      capture_output=True, check=True, timeout=5)
+                if 'Up' in result.stdout.decode():
+                    count += 1
+            except:
+                pass
+        
+        return count
+    
+    def edit_docker_compose(self):
+        """Edit or create docker-compose.yml file"""
+        console.clear()
+        console.print(Panel.fit("Edit docker-compose.yml", style="dim white"))
+        
+        compose_file = "docker-compose.yml"
+        
+        # Check if file exists
+        if not os.path.exists(compose_file):
+            console.print("[yellow]⚠[/yellow] docker-compose.yml not found")
+            console.print("Would you like to create a default one? (y/n): ", end="")
+            
+            try:
+                response = input().strip().lower()
+                if response == 'y':
+                    self.create_default_docker_compose()
+                else:
+                    console.print("Cancelled")
+                    self.wait_for_escape()
+                    return
+            except KeyboardInterrupt:
+                return
+        
+        # Open in nano editor
+        console.print(f"Opening {compose_file} in nano editor...")
+        console.print("[dim]Press Ctrl+X to exit, Y to save changes[/dim]")
+        console.print()
+        
+        try:
+            # Check for preferred editor
+            editor = os.environ.get('EDITOR', 'nano')
+            subprocess.run([editor, compose_file])
+            
+            console.print()
+            console.print("[green]✓[/green] Editor closed")
+            
+            # Validate docker-compose file
+            console.print("Validating docker-compose.yml...")
+            result = subprocess.run(['docker-compose', 'config', '-q'], 
+                                  capture_output=True, timeout=10)
+            
+            if result.returncode == 0:
+                console.print("[green]✓[/green] docker-compose.yml is valid")
+                console.print()
+                console.print("Would you like to restart services now? (y/n): ", end="")
+                
+                try:
+                    response = input().strip().lower()
+                    if response == 'y':
+                        self.restart_all_services()
+                    else:
+                        console.print("Services not restarted. You can restart them manually from the menu.")
+                except KeyboardInterrupt:
+                    pass
+            else:
+                console.print("[red]✗[/red] docker-compose.yml has errors:")
+                console.print(result.stderr.decode())
+                
+        except FileNotFoundError:
+            console.print(f"[red]✗[/red] Editor '{editor}' not found. Install nano or set EDITOR environment variable.")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Error editing file: {e}")
+        
+        self.wait_for_escape()
+    
+    def start_all_services(self):
+        """Start all Docker services using docker-compose"""
+        console.clear()
+        console.print(Panel.fit("Starting All Services", style="dim white"))
+        
+        if not os.path.exists('docker-compose.yml'):
+            console.print("[red]✗[/red] docker-compose.yml not found")
+            console.print("Please create or review the docker-compose.yml first")
+            self.wait_for_escape()
+            return
+        
+        console.print("Starting all services...")
+        
+        try:
+            result = subprocess.run(['docker-compose', 'up', '-d'], 
+                                  capture_output=True, check=True, timeout=120)
+            
+            console.print("[green]✓[/green] All services started successfully!")
+            console.print()
+            console.print("Output:")
+            console.print(result.stdout.decode())
+            
+            if result.stderr.decode():
+                console.print(f"[dim]Stderr:[/dim] {result.stderr.decode()}")
+                
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]✗[/red] Failed to start services: {e}")
+            if e.stdout:
+                console.print(f"Output: {e.stdout.decode()}")
+            if e.stderr:
+                console.print(f"Error: {e.stderr.decode()}")
+        except FileNotFoundError:
+            console.print("[red]✗[/red] docker-compose not found. Please install Docker Compose.")
+        except subprocess.TimeoutExpired:
+            console.print("[yellow]⚠[/yellow] Operation timed out. Services may still be starting.")
+        
+        self.wait_for_escape()
+    
+    def stop_all_services(self):
+        """Stop all Docker services using docker-compose"""
+        console.clear()
+        console.print(Panel.fit("Stopping All Services", style="dim white"))
+        
+        console.print("Stopping all services...")
+        
+        try:
+            result = subprocess.run(['docker-compose', 'down'], 
+                                  capture_output=True, check=True, timeout=60)
+            
+            console.print("[green]✓[/green] All services stopped successfully!")
+            console.print()
+            console.print("Output:")
+            console.print(result.stdout.decode())
+            
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]✗[/red] Failed to stop services: {e}")
+            if e.stdout:
+                console.print(f"Output: {e.stdout.decode()}")
+            if e.stderr:
+                console.print(f"Error: {e.stderr.decode()}")
+        except FileNotFoundError:
+            console.print("[red]✗[/red] docker-compose not found")
+        except subprocess.TimeoutExpired:
+            console.print("[yellow]⚠[/yellow] Operation timed out")
+        
+        self.wait_for_escape()
+    
+    def restart_all_services(self):
+        """Restart all Docker services"""
+        console.clear()
+        console.print(Panel.fit("Restarting All Services", style="dim white"))
+        
+        console.print("Restarting all services...")
+        console.print("This will stop and start all containers...")
+        console.print()
+        
+        try:
+            # Stop services
+            console.print("Stopping services...")
+            result = subprocess.run(['docker-compose', 'down'], 
+                                  capture_output=True, check=True, timeout=60)
+            console.print("[green]✓[/green] Services stopped")
+            
+            # Start services
+            console.print("Starting services...")
+            result = subprocess.run(['docker-compose', 'up', '-d'], 
+                                  capture_output=True, check=True, timeout=120)
+            
+            console.print("[green]✓[/green] All services restarted successfully!")
+            console.print()
+            console.print("Output:")
+            console.print(result.stdout.decode())
+            
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]✗[/red] Failed to restart services: {e}")
+            if e.stdout:
+                console.print(f"Output: {e.stdout.decode()}")
+            if e.stderr:
+                console.print(f"Error: {e.stderr.decode()}")
+        except FileNotFoundError:
+            console.print("[red]✗[/red] docker-compose not found")
+        except subprocess.TimeoutExpired:
+            console.print("[yellow]⚠[/yellow] Operation timed out")
+        
+        self.wait_for_escape()
+    
+    def view_container_logs(self):
+        """View last 50 lines of container logs"""
+        console.clear()
+        console.print(Panel.fit("Container Logs", style="dim white"))
+        
+        try:
+            console.print("Fetching logs from all containers...")
+            console.print()
+            
+            # Get logs from docker-compose
+            result = subprocess.run(['docker-compose', 'logs', '--tail=50'], 
+                                  capture_output=True, check=True, timeout=10)
+            
+            output = result.stdout.decode()
+            if output:
+                console.print(output)
+            else:
+                console.print("[dim]No logs available[/dim]")
+                
+            if result.stderr.decode():
+                console.print(f"[dim]Stderr:[/dim] {result.stderr.decode()}")
+                
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]✗[/red] Failed to fetch logs: {e}")
+        except FileNotFoundError:
+            console.print("[red]✗[/red] docker-compose not found")
+        except subprocess.TimeoutExpired:
+            console.print("[yellow]⚠[/yellow] Operation timed out")
+        
+        self.wait_for_escape()
+    
+    def update_container_images(self):
+        """Update/pull latest container images"""
+        console.clear()
+        console.print(Panel.fit("Update Container Images", style="dim white"))
+        
+        console.print("Pulling latest container images...")
+        console.print("This may take several minutes depending on your connection...")
+        console.print()
+        
+        try:
+            # Pull latest images
+            result = subprocess.run(['docker-compose', 'pull'], 
+                                  capture_output=True, check=False, timeout=300)
+            
+            console.print("Output:")
+            console.print(result.stdout.decode())
+            
+            if result.returncode == 0:
+                console.print()
+                console.print("[green]✓[/green] Images updated successfully!")
+                console.print()
+                console.print("Would you like to restart services with new images? (y/n): ", end="")
+                
+                try:
+                    response = input().strip().lower()
+                    if response == 'y':
+                        self.restart_all_services()
+                except KeyboardInterrupt:
+                    pass
+            else:
+                console.print("[yellow]⚠[/yellow] Some images may have failed to update")
+                if result.stderr.decode():
+                    console.print(f"Error: {result.stderr.decode()}")
+                    
+        except FileNotFoundError:
+            console.print("[red]✗[/red] docker-compose not found")
+        except subprocess.TimeoutExpired:
+            console.print("[yellow]⚠[/yellow] Operation timed out. Pull may still be running.")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Error updating images: {e}")
+        
+        self.wait_for_escape()
+    
+    def create_default_docker_compose(self):
+        """Create a default docker-compose.yml file"""
+        default_compose = """version: '3.8'
+
+services:
+  nginx-rtmp:
+    container_name: iptv-nginx-rtmp
+    build: ./nginx
+    ports:
+      - "1935:1935"
+      - "8080:8080"
+      - "8081:8081"
+    volumes:
+      - ./nginx/recordings:/recordings
+      - ./nginx/hls:/tmp/hls
+    restart: unless-stopped
+
+  jellyfin:
+    container_name: iptv-jellyfin
+    image: jellyfin/jellyfin:latest
+    ports:
+      - "8096:8096"
+    volumes:
+      - ./jellyfin/config:/config
+      - ./jellyfin/cache:/cache
+      - ./media:/media/library
+      - ./nginx/recordings:/media/recordings
+    restart: unless-stopped
+    environment:
+      - JELLYFIN_PublishedServerUrl=http://localhost:8096
+
+  samba:
+    container_name: iptv-samba
+    image: dperson/samba:latest
+    ports:
+      - "137:137/udp"
+      - "138:138/udp"
+      - "139:139"
+      - "445:445"
+    volumes:
+      - ./nginx/recordings:/recordings
+      - ./media:/media
+      - ./data:/downloads
+    environment:
+      - USERID=1000
+      - GROUPID=1000
+    command: >
+      -s "recordings;/recordings;yes;no;yes;all"
+      -s "media;/media;yes;no;yes;all"
+      -s "downloads;/downloads;yes;no;yes;all"
+      -u "iptv;iptv123"
+      -p
+    restart: unless-stopped
+
+networks:
+  default:
+    name: iptv-network
+"""
+        
+        try:
+            with open('docker-compose.yml', 'w') as f:
+                f.write(default_compose)
+            console.print("[green]✓[/green] Created default docker-compose.yml")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Failed to create docker-compose.yml: {e}")
     
     def check_container_status(self):
         """Check NGINX container status"""
@@ -2508,7 +2938,7 @@ class IPTVMenuManager:
             response = requests.get(url, headers=headers, timeout=30)
             if response.status_code == 200:
                 data = response.json()
-                with open("account_info.json", "w") as f:
+                with open(os.path.join(self.data_dir, "account_info.json"), "w") as f:
                     json.dump(data, f, indent=2)
                 return True
             else:
@@ -2531,7 +2961,7 @@ class IPTVMenuManager:
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
             response = requests.get(url, headers=headers, timeout=30)
             if response.status_code == 200:
-                with open("live_categories.json", "w") as f:
+                with open(os.path.join(self.data_dir, "live_categories.json"), "w") as f:
                     json.dump(response.json(), f, indent=2)
                 return True
         except:
@@ -2545,7 +2975,7 @@ class IPTVMenuManager:
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
             response = requests.get(url, headers=headers, timeout=120)
             if response.status_code == 200:
-                with open("live_streams.json", "w") as f:
+                with open(os.path.join(self.data_dir, "live_streams.json"), "w") as f:
                     json.dump(response.json(), f, indent=2)
                 return True
         except:
@@ -2559,7 +2989,7 @@ class IPTVMenuManager:
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
             response = requests.get(url, headers=headers, timeout=30)
             if response.status_code == 200:
-                with open("vod_categories.json", "w") as f:
+                with open(os.path.join(self.data_dir, "vod_categories.json"), "w") as f:
                     json.dump(response.json(), f, indent=2)
                 return True
         except:
@@ -2573,7 +3003,7 @@ class IPTVMenuManager:
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
             response = requests.get(url, headers=headers, timeout=120)
             if response.status_code == 200:
-                with open("vod_streams.json", "w") as f:
+                with open(os.path.join(self.data_dir, "vod_streams.json"), "w") as f:
                     json.dump(response.json(), f, indent=2)
                 return True
         except:
@@ -2587,7 +3017,7 @@ class IPTVMenuManager:
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
             response = requests.get(url, headers=headers, timeout=30)
             if response.status_code == 200:
-                with open("series_categories.json", "w") as f:
+                with open(os.path.join(self.data_dir, "series_categories.json"), "w") as f:
                     json.dump(response.json(), f, indent=2)
                 return True
         except:
@@ -2665,8 +3095,9 @@ class IPTVMenuManager:
     def _load_data_from_json(self, cursor):
         """Load data from JSON files into database"""
         # Load account info
-        if os.path.exists("account_info.json"):
-            with open("account_info.json") as f:
+        account_info_path = os.path.join(self.data_dir, "account_info.json")
+        if os.path.exists(account_info_path):
+            with open(account_info_path) as f:
                 data = json.load(f)
                 user_info = data.get('user_info', {})
                 cursor.execute('''
@@ -2675,8 +3106,9 @@ class IPTVMenuManager:
                      user_info.get('exp_date'), user_info.get('max_connections')))
         
         # Load VOD categories
-        if os.path.exists("vod_categories.json"):
-            with open("vod_categories.json") as f:
+        vod_categories_path = os.path.join(self.data_dir, "vod_categories.json")
+        if os.path.exists(vod_categories_path):
+            with open(vod_categories_path) as f:
                 vod_cats = json.load(f)
                 for cat in vod_cats:
                     cursor.execute('''
@@ -2685,15 +3117,17 @@ class IPTVMenuManager:
         
         # Load live categories map
         categories = {}
-        if os.path.exists("live_categories.json"):
-            with open("live_categories.json") as f:
+        live_categories_path = os.path.join(self.data_dir, "live_categories.json")
+        if os.path.exists(live_categories_path):
+            with open(live_categories_path) as f:
                 cats = json.load(f)
                 for cat in cats:
                     categories[cat.get('category_id')] = cat.get('category_name')
         
         # Load live streams
-        if os.path.exists("live_streams.json"):
-            with open("live_streams.json") as f:
+        live_streams_path = os.path.join(self.data_dir, "live_streams.json")
+        if os.path.exists(live_streams_path):
+            with open(live_streams_path) as f:
                 streams = json.load(f)
                 for stream in streams:
                     stream_url = f"{self.server}/live/{self.username}/{self.password}/{stream.get('stream_id')}.ts"
@@ -2706,8 +3140,9 @@ class IPTVMenuManager:
                          stream.get('epg_channel_id', '')))
         
         # Load VOD streams
-        if os.path.exists("vod_streams.json"):
-            with open("vod_streams.json") as f:
+        vod_streams_path = os.path.join(self.data_dir, "vod_streams.json")
+        if os.path.exists(vod_streams_path):
+            with open(vod_streams_path) as f:
                 streams = json.load(f)
                 for stream in streams:
                     container_ext = stream.get('container_extension', 'mp4')

@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:05:12</dateadded>
+  <title>Garbage</title>
+  <runtime>17</runtime>
+  <musicbrainzartistid>f9ef7a22-4262-4596-a2a8-1d19345b8e50</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Garbage/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Garbage/backdrop.jpg</fanart>
+  </art>
+</artist>

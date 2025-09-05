@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:06:26</dateadded>
+  <title>Tom Petty and the Heartbreakers</title>
+  <runtime>17</runtime>
+  <musicbrainzartistid>f93dbc64-6f08-4033-bcc7-8a0bb4689849</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Tom Petty and the Heartbreakers/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Tom Petty and the Heartbreakers/backdrop.jpg</fanart>
+  </art>
+</artist>

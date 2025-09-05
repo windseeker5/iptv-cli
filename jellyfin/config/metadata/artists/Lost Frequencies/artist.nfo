@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:05:46</dateadded>
+  <title>Lost Frequencies</title>
+  <runtime>5</runtime>
+  <musicbrainzartistid>ea7260de-e1b1-43f1-bb11-f78274a36308</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Lost Frequencies/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Lost Frequencies/backdrop.jpg</fanart>
+  </art>
+</artist>

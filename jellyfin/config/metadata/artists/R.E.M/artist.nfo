@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-02 23:36:27</dateadded>
+  <title>R.E.M.</title>
+  <runtime>68</runtime>
+  <musicbrainzartistid>ea4dfa26-f633-4da6-a52a-f49ea4897b58</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/R.E.M/folder.jpg</poster>
+    <fanart>/config/metadata/artists/R.E.M/backdrop.jpg</fanart>
+  </art>
+</artist>

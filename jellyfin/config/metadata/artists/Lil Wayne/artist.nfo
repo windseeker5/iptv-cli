@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:05:44</dateadded>
+  <title>Lil Wayne</title>
+  <runtime>17</runtime>
+  <musicbrainzartistid>ac9a487a-d9d2-4f27-bb23-0f4686488345</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Lil Wayne/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Lil Wayne/backdrop.jpg</fanart>
+  </art>
+</artist>

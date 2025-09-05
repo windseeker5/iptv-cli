@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:06:16</dateadded>
+  <title>Sir Arnold Bax</title>
+  <runtime>22</runtime>
+  <musicbrainzartistid>9138c4da-1959-445c-8ac8-ba917ec84b3a</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Sir Arnold Bax/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Sir Arnold Bax/backdrop.jpg</fanart>
+  </art>
+</artist>

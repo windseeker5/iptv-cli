@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<artist>
+  <biography />
+  <outline />
+  <lockdata>false</lockdata>
+  <dateadded>2025-09-03 00:06:42</dateadded>
+  <title>Y.G.</title>
+  <runtime>8</runtime>
+  <musicbrainzartistid>6b1cf581-17a9-42c3-927b-d1e2797b1695</musicbrainzartistid>
+  <art>
+    <poster>/config/metadata/artists/Y.G/folder.jpg</poster>
+    <fanart>/config/metadata/artists/Y.G/backdrop.jpg</fanart>
+  </art>
+</artist>
