@@ -3946,7 +3946,7 @@ networks:
         """Generate M3U playlist from favorites"""
         try:
             # Ensure directories exist
-            os.makedirs('data', exist_ok=True)
+            os.makedirs(self.data_dir, exist_ok=True)
             os.makedirs('nginx/html', exist_ok=True)
             
             favs = self.load_favorites()
@@ -3965,7 +3965,7 @@ networks:
             with open('nginx/html/iptv.m3u', 'w', encoding='utf-8') as f:
                 f.write(m3u_content)
             
-            with open('data/iptv.m3u', 'w', encoding='utf-8') as f:
+            with open(os.path.join(self.data_dir, 'iptv.m3u'), 'w', encoding='utf-8') as f:
                 f.write(m3u_content)
                 
             return True

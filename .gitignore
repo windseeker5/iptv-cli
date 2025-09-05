@@ -39,7 +39,7 @@ env/
 ENV/
 
 jellyfin/
-
+data/
 
 # IDE
 .vscode/
