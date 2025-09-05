@@ -1802,7 +1802,8 @@ class IPTVMenuManager:
             console.print("Check 'Container Status & URLs' for monitoring.")
             
             # Save process info for later stopping
-            with open(f".restream_{stream_key}.pid", "w") as f:
+            pid_file = os.path.join(self.data_dir, f".restream_{stream_key}.pid")
+            with open(pid_file, "w") as f:
                 f.write(str(process.pid))
                 
         except Exception as e:
@@ -1834,7 +1835,7 @@ class IPTVMenuManager:
         console.clear()
         console.print(Panel.fit("Stop Restream", style="dim white"))
         
-        pid_files = glob.glob(".restream_*.pid")
+        pid_files = glob.glob(os.path.join(self.data_dir, ".restream_*.pid"))
         
         if not pid_files:
             console.print("No active restreams found")
@@ -3880,17 +3881,18 @@ networks:
     def load_favorites(self):
         """Load favorites from JSON file"""
         try:
-            # Check new location first
-            if os.path.exists('data/favorites.json'):
-                with open('data/favorites.json', 'r') as f:
+            # Check data folder location
+            favorites_path = os.path.join(self.data_dir, 'favorites.json')
+            if os.path.exists(favorites_path):
+                with open(favorites_path, 'r') as f:
                     return json.load(f)
             # Fall back to old location for backward compatibility
             elif os.path.exists('favorites.json'):
                 with open('favorites.json', 'r') as f:
                     favs = json.load(f)
                 # Migrate to new location
-                os.makedirs('data', exist_ok=True)
-                with open('data/favorites.json', 'w') as f:
+                os.makedirs(self.data_dir, exist_ok=True)
+                with open(favorites_path, 'w') as f:
                     json.dump(favs, f, indent=2)
                 # Remove old file
                 os.remove('favorites.json')
@@ -3903,7 +3905,7 @@ networks:
         """Add item to favorites JSON"""
         try:
             # Ensure data directory exists
-            os.makedirs('data', exist_ok=True)
+            os.makedirs(self.data_dir, exist_ok=True)
             
             favs = self.load_favorites()
             
@@ -3927,7 +3929,8 @@ networks:
             favs.append(favorite_item)
             
             # Save to file in data folder
-            with open('data/favorites.json', 'w') as f:
+            favorites_path = os.path.join(self.data_dir, 'favorites.json')
+            with open(favorites_path, 'w') as f:
                 json.dump(favs, f, indent=2)
             
             # Auto-generate M3U playlist
@@ -3997,7 +4000,8 @@ networks:
             
             if len(favs) < original_count:
                 # Save updated favorites to data folder
-                with open('data/favorites.json', 'w') as f:
+                favorites_path = os.path.join(self.data_dir, 'favorites.json')
+                with open(favorites_path, 'w') as f:
                     json.dump(favs, f, indent=2)
                 
                 # Regenerate M3U playlist
@@ -4073,7 +4077,7 @@ networks:
             
             # Strategy 3: Try to find a matching stream with similar name from database
             try:
-                conn = sqlite3.connect('iptv.db')
+                conn = sqlite3.connect(self.db_path)
                 cursor = conn.cursor()
                 
                 # Look for channels with similar base names

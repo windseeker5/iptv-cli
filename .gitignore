@@ -38,6 +38,9 @@ venv/
 env/
 ENV/
 
+jellyfin/
+
+
 # IDE
 .vscode/
 .idea/
