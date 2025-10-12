@@ -1,1 +1,1 @@
-{"StartTimeUtc":"2025-09-14T11:31:18.5480633Z","EndTimeUtc":"2025-09-14T11:31:19.3741185Z","Status":"Completed","Name":"Media Segment Scan","Key":"TaskExtractMediaSegments","Id":"f861734dd71b37f9482b52a820e39013"}
+{"StartTimeUtc":"2025-10-02T20:47:54.1354115Z","EndTimeUtc":"2025-10-02T20:47:54.474876Z","Status":"Completed","Name":"Media Segment Scan","Key":"TaskExtractMediaSegments","Id":"f861734dd71b37f9482b52a820e39013"}
