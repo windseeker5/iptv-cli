@@ -13,8 +13,9 @@ This is a comprehensive IPTV management and streaming infrastructure built in Py
 **iptv.py** - The central application featuring:
 - Menu-driven CLI interface using `simple-term-menu` for arrow key navigation
 - `IPTVMenuManager` class handling all core functionality
-- SQLite database operations for content management  
+- SQLite database operations for content management
 - IPTV API integration for live streams and VOD content
+- YouTube Tool for searching, playing, and downloading YouTube videos
 - Favorites system with M3U playlist generation
 - Container orchestration for streaming infrastructure
 
@@ -25,6 +26,7 @@ This is a comprehensive IPTV management and streaming infrastructure built in Py
 
 **Data Organization**:
 - `data/` folder: All application data (database, JSON files, favorites, playlists)
+- `data/youtube/` folder: Downloaded YouTube videos and audio files
 - `nginx/html/` folder: Web interface and served content (dual M3U playlist location)
 - Auto-migration from old file locations to `data/` folder
 
@@ -34,6 +36,31 @@ This is a comprehensive IPTV management and streaming infrastructure built in Py
 2. **Playlist Generation**: Creates M3U files in both `data/` and `nginx/html/` for serving
 3. **Container Communication**: Python app orchestrates Docker services via docker-compose
 4. **Stream Processing**: FFmpeg integration for restreaming and transcoding
+5. **YouTube Integration**: yt-dlp library for video search, streaming, and downloading
+
+### YouTube Tool Features
+
+The YouTube Tool provides comprehensive YouTube video management:
+
+**Search & Browse**:
+- Search YouTube videos with keyword queries
+- Display up to 20 results with title, uploader, and duration
+- Navigate results with arrow keys
+
+**Video Actions**:
+- **Play (P)**: Stream videos directly with MPV player (up to 1080p)
+- **Info (I)**: View detailed information including description, views, likes, upload date
+- **Download (D)**: Save videos with format options:
+  - Best Quality (1080p Video + Audio as MP4)
+  - Audio Only (extracted as MP3)
+  - 720p Video (optimized quality)
+
+**Technical Details**:
+- Uses `yt-dlp` for reliable YouTube access
+- Downloads saved to `data/youtube/` directory
+- Real-time download progress with speed and ETA
+- Automatic format merging for video+audio streams
+- FFmpeg required for audio extraction and format conversion
 
 ## Development Commands
 
