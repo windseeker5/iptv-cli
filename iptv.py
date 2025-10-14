@@ -42,6 +42,7 @@ from pyfiglet import Figlet
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.table import Table
+import yt_dlp
 
 console = Console()
 
@@ -180,6 +181,7 @@ class IPTVMenuManager:
             options = [
                 "Search IPTV",
                 "Discovery Hub",
+                "YouTube Tool",
                 "Update IPTV db",
                 "Streaming Infrastructure"
             ]
@@ -201,9 +203,11 @@ class IPTVMenuManager:
                 self.unified_search_menu()
             elif choice == 1:  # Discovery Hub
                 self.browse_categories_menu()
-            elif choice == 2:  # Update IPTV db
+            elif choice == 2:  # YouTube Tool
+                self.youtube_tool_menu()
+            elif choice == 3:  # Update IPTV db
                 self.download_menu()
-            elif choice == 3:  # Streaming Infrastructure
+            elif choice == 4:  # Streaming Infrastructure
                 self.streaming_infrastructure_menu()
     
     def show_status(self):
@@ -4108,6 +4112,364 @@ networks:
                 pass
         
         return []
+
+    # ========================
+    # YouTube Tool Methods
+    # ========================
+
+    def youtube_tool_menu(self):
+        """Main YouTube Tool interface with search"""
+        while True:
+            console.clear()
+            console.print(Panel.fit("YouTube Video Search & Download Tool", style="dim white"))
+            console.print()
+
+            options = [
+                "Search YouTube Videos",
+                "Back to Main Menu"
+            ]
+
+            terminal_menu = TerminalMenu(
+                options,
+                title="",
+                menu_cursor="> ",
+                cycle_cursor=True,
+                clear_screen=False
+            )
+
+            choice = terminal_menu.show()
+
+            if choice is None or choice == 1:  # ESC or Back
+                break
+            elif choice == 0:  # Search
+                console.clear()
+                console.print(Panel.fit("YouTube Search", style="dim white"))
+                console.print()
+                query = input("Enter search query (or press Enter to cancel): ").strip()
+
+                if query:
+                    self.youtube_search_results_menu(query)
+
+    def search_youtube(self, query, max_results=20):
+        """Search YouTube videos using yt-dlp"""
+        try:
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'extract_flat': True,
+                'force_generic_extractor': False,
+            }
+
+            search_query = f"ytsearch{max_results}:{query}"
+
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                console.print(f"[cyan]Searching YouTube for: {query}...[/cyan]")
+                result = ydl.extract_info(search_query, download=False)
+
+                if result and 'entries' in result:
+                    videos = []
+                    for entry in result['entries']:
+                        if entry:
+                            videos.append({
+                                'id': entry.get('id'),
+                                'title': entry.get('title', 'Unknown Title'),
+                                'uploader': entry.get('uploader', 'Unknown Uploader'),
+                                'duration': entry.get('duration', 0),
+                                'url': f"https://www.youtube.com/watch?v={entry.get('id')}"
+                            })
+                    return videos
+                return []
+
+        except Exception as e:
+            console.print(f"[red]Error searching YouTube: {str(e)}[/red]")
+            return []
+
+    def youtube_search_results_menu(self, query):
+        """Display YouTube search results with navigation"""
+        videos = self.search_youtube(query)
+
+        if not videos:
+            console.print("[yellow]No videos found![/yellow]")
+            self.wait_for_escape()
+            return
+
+        while True:
+            console.clear()
+            console.print(Panel.fit(f"Search Results: {query}", style="dim white"))
+            console.print(f"Found {len(videos)} videos\n")
+
+            # Format video options for menu
+            options = []
+            for video in videos:
+                if video['duration']:
+                    duration = int(video['duration'])
+                    duration_str = f"{duration//60}:{duration%60:02d}"
+                else:
+                    duration_str = "Live"
+                title_truncated = video['title'][:70] + "..." if len(video['title']) > 70 else video['title']
+                uploader_truncated = video['uploader'][:25] + "..." if len(video['uploader']) > 25 else video['uploader']
+                options.append(f"{title_truncated} | {uploader_truncated} | [{duration_str}]")
+
+            options.append("Back to Search")
+
+            terminal_menu = TerminalMenu(
+                options,
+                title="",
+                menu_cursor="> ",
+                cycle_cursor=True,
+                clear_screen=False
+            )
+
+            choice = terminal_menu.show()
+
+            if choice is None or choice == len(videos):  # ESC or Back
+                break
+            else:
+                # Open video action menu
+                self.youtube_video_action_menu(videos[choice])
+
+    def youtube_video_action_menu(self, video):
+        """Action menu for selected YouTube video"""
+        while True:
+            console.clear()
+
+            # Fetch full video info for better details
+            full_info = self.get_youtube_video_info(video['url'])
+            if full_info:
+                video.update(full_info)
+
+            # Display video info
+            console.print(Panel.fit(f"Video: {video['title']}", style="dim white"))
+            console.print(f"Uploader: {video.get('uploader', 'Unknown')}")
+            if video.get('duration'):
+                duration = int(video['duration'])
+                duration_str = f"{duration//60}:{duration%60:02d}"
+                console.print(f"Duration: {duration_str}")
+            if video.get('view_count'):
+                console.print(f"Views: {video['view_count']:,}")
+            console.print()
+
+            options = [
+                "Play Video (P)",
+                "Show Info (I)",
+                "Download Video (D)",
+                "Back to Results"
+            ]
+
+            terminal_menu = TerminalMenu(
+                options,
+                title="",
+                menu_cursor="> ",
+                cycle_cursor=True,
+                clear_screen=False
+            )
+
+            choice = terminal_menu.show()
+
+            if choice is None or choice == 3:  # ESC or Back
+                break
+            elif choice == 0:  # Play
+                self.play_youtube_video(video)
+            elif choice == 1:  # Info
+                self.show_youtube_video_info(video)
+            elif choice == 2:  # Download
+                self.download_youtube_video(video)
+
+    def get_youtube_video_info(self, url):
+        """Get detailed video information"""
+        try:
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+            }
+
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                return {
+                    'id': info.get('id'),
+                    'title': info.get('title'),
+                    'description': info.get('description'),
+                    'uploader': info.get('uploader'),
+                    'duration': info.get('duration'),
+                    'view_count': info.get('view_count'),
+                    'like_count': info.get('like_count'),
+                    'upload_date': info.get('upload_date'),
+                    'url': url
+                }
+        except Exception as e:
+            console.print(f"[red]Error fetching video info: {str(e)}[/red]")
+            return None
+
+    def show_youtube_video_info(self, video):
+        """Display detailed video information"""
+        console.clear()
+
+        # Create info panel
+        info_lines = []
+        info_lines.append(f"[bold]Title:[/bold] {video.get('title', 'Unknown')}")
+        info_lines.append(f"[bold]Uploader:[/bold] {video.get('uploader', 'Unknown')}")
+
+        if video.get('duration'):
+            duration = int(video['duration'])
+            duration_str = f"{duration//60}:{duration%60:02d}"
+            info_lines.append(f"[bold]Duration:[/bold] {duration_str}")
+
+        if video.get('view_count'):
+            info_lines.append(f"[bold]Views:[/bold] {video['view_count']:,}")
+
+        if video.get('like_count'):
+            info_lines.append(f"[bold]Likes:[/bold] {video['like_count']:,}")
+
+        if video.get('upload_date'):
+            date_str = video['upload_date']
+            formatted_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+            info_lines.append(f"[bold]Upload Date:[/bold] {formatted_date}")
+
+        info_lines.append(f"[bold]URL:[/bold] {video.get('url', 'Unknown')}")
+        info_lines.append("")
+        info_lines.append("[bold]Description:[/bold]")
+
+        description = video.get('description', 'No description available')
+        # Limit description length
+        if len(description) > 500:
+            description = description[:500] + "..."
+        info_lines.append(description)
+
+        console.print(Panel("\n".join(info_lines), title="Video Information", style="cyan"))
+        self.wait_for_escape()
+
+    def play_youtube_video(self, video):
+        """Play YouTube video with MPV"""
+        console.clear()
+        console.print(Panel.fit(f"Playing: {video['title']}", style="dim white"))
+
+        try:
+            # Test MPV availability
+            result = subprocess.run(['mpv', '--version'], capture_output=True, check=True, timeout=5)
+            console.print("[green]✓[/green] MPV is available")
+
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            console.print("[red]✗[/red] MPV not found. Install MPV to play videos.")
+            console.print("\nInstall instructions:")
+            console.print("Ubuntu/Debian: sudo apt install mpv")
+            console.print("macOS: brew install mpv")
+            console.print(f"\nVideo URL: {video['url']}")
+            self.wait_for_escape()
+            return
+        except subprocess.TimeoutExpired:
+            console.print("[yellow]⚠[/yellow] MPV check timed out, trying to play anyway...")
+
+        console.print(f"Video URL: {video['url']}")
+        console.print()
+
+        try:
+            console.print("Starting MPV player...")
+            console.print("Press 'q' in MPV to stop playback")
+            console.print()
+
+            # Use yt-dlp with MPV for best quality
+            mpv_cmd = [
+                'mpv',
+                '--ytdl-format=bestvideo[height<=1080]+bestaudio/best',
+                video['url']
+            ]
+
+            # Run MPV
+            subprocess.run(mpv_cmd)
+
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Playback interrupted[/yellow]")
+        except Exception as e:
+            console.print(f"[red]Error playing video: {str(e)}[/red]")
+            self.wait_for_escape()
+
+    def download_youtube_video(self, video):
+        """Download YouTube video"""
+        console.clear()
+        console.print(Panel.fit(f"Download: {video['title']}", style="dim white"))
+        console.print()
+
+        # Create youtube download directory
+        youtube_dir = os.path.join(self.data_dir, "youtube")
+        os.makedirs(youtube_dir, exist_ok=True)
+
+        # Ask for format preference
+        console.print("Select download format:")
+        format_options = [
+            "Best Quality (1080p MOV - DaVinci Resolve Compatible)",
+            "Audio Only (MP3)",
+            "720p Video (MOV - DaVinci Resolve Compatible)",
+            "Cancel"
+        ]
+
+        terminal_menu = TerminalMenu(
+            format_options,
+            title="",
+            menu_cursor="> "
+        )
+
+        format_choice = terminal_menu.show()
+
+        if format_choice is None or format_choice == 3:  # Cancel
+            return
+
+        # Set yt-dlp options based on choice
+        if format_choice == 0:  # Best quality
+            ydl_opts = {
+                'format': 'bestvideo[height<=1080]+bestaudio/best',
+                'outtmpl': os.path.join(youtube_dir, '%(title)s.%(ext)s'),
+                'merge_output_format': 'mp4',
+                'postprocessors': [{
+                    'key': 'FFmpegVideoConvertor',
+                    'preferedformat': 'mov',
+                }],
+            }
+        elif format_choice == 1:  # Audio only
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'outtmpl': os.path.join(youtube_dir, '%(title)s.%(ext)s'),
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }],
+            }
+        else:  # 720p
+            ydl_opts = {
+                'format': 'bestvideo[height<=720]+bestaudio/best',
+                'outtmpl': os.path.join(youtube_dir, '%(title)s.%(ext)s'),
+                'merge_output_format': 'mp4',
+                'postprocessors': [{
+                    'key': 'FFmpegVideoConvertor',
+                    'preferedformat': 'mov',
+                }],
+            }
+
+        # Add progress hook
+        def progress_hook(d):
+            if d['status'] == 'downloading':
+                percent = d.get('_percent_str', 'N/A')
+                speed = d.get('_speed_str', 'N/A')
+                eta = d.get('_eta_str', 'N/A')
+                console.print(f"\r[cyan]Downloading:[/cyan] {percent} | Speed: {speed} | ETA: {eta}", end='')
+            elif d['status'] == 'finished':
+                console.print(f"\n[green]✓[/green] Download complete! Processing...")
+
+        ydl_opts['progress_hooks'] = [progress_hook]
+
+        try:
+            console.print(f"[cyan]Starting download...[/cyan]\n")
+
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([video['url']])
+
+            console.print(f"\n[green]✓[/green] Video downloaded successfully to: {youtube_dir}")
+            console.print(f"[dim]File saved in: {youtube_dir}[/dim]")
+
+        except Exception as e:
+            console.print(f"\n[red]Error downloading video: {str(e)}[/red]")
+
+        self.wait_for_escape()
 
 def main():
     """Main entry point"""

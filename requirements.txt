@@ -15,8 +15,11 @@ prompt_toolkit
 # Modern TUI framework for beautiful interfaces
 textual
 
-# Database and HTTP requests  
+# Database and HTTP requests
 requests
+
+# YouTube video handling
+yt-dlp
 
 # Environment variable management
 python-dotenv
