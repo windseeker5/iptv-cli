@@ -1217,12 +1217,15 @@ class IPTVMenuManager:
         
         try:
             console.print("Starting MPV player...")
-            
-            # Create MPV command with simple buffering for stable streaming
+            console.print("[dim]Press 'q' in MPV window to stop playback[/dim]")
+            console.print()
+
+            # Create MPV command with enhanced buffering and reliability settings
             mpv_cmd = [
                 'mpv',
                 # Cache settings for smooth playback
                 '--cache=yes',                           # Enable cache
+                '--cache-secs=10',                       # Cache 10 seconds of content
                 '--demuxer-max-bytes=50M',               # Cache up to 50MB
                 '--demuxer-max-back-bytes=25M',          # Backward cache of 25MB
                 # Network settings for reliability
@@ -1232,45 +1235,40 @@ class IPTVMenuManager:
                 '--osd-level=1',                         # Show OSD messages
                 channel['stream_url']
             ]
-            
-            # Debug: Print exact command being executed
-            console.print(f"[dim white]Debug - Exact command: {' '.join(mpv_cmd)}[/dim white]")
-            console.print(f"[dim white]Debug - Command length: {len(mpv_cmd)}[/dim white]")
-            console.print(f"[dim white]Debug - Each arg: {mpv_cmd}[/dim white]")
-            
-            # Start MPV process
+
+            # Start MPV process - fully detached to prevent pipe deadlock
+            # Using DEVNULL prevents pipe buffer from filling up and causing freeze
             process = subprocess.Popen(
                 mpv_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                stdin=subprocess.DEVNULL,      # MPV can't interfere with our stdin
+                stdout=subprocess.DEVNULL,     # Discard output (no pipe = no deadlock)
+                stderr=subprocess.DEVNULL,     # Discard errors (no pipe = no deadlock)
+                start_new_session=True         # Complete process separation
             )
-            
+
             console.print(f"[green]✓[/green] MPV started with PID: {process.pid}")
             console.print()
-            console.print("If MPV doesn't start or fails:")
-            console.print("1. Check your internet connection")
-            console.print("2. Verify the stream URL is accessible")
-            console.print("3. Try the URL directly in a browser")
+            console.print("[bold]MPV Keyboard Controls:[/bold]")
+            console.print("  q - Quit playback")
+            console.print("  f - Toggle fullscreen")
+            console.print("  Space - Pause/Resume")
+            console.print("  → / ← - Seek forward/backward 5 seconds")
+            console.print("  ↑ / ↓ - Seek forward/backward 60 seconds")
+            console.print("  [ / ] - Decrease/Increase playback speed")
             console.print()
-            console.print(f"Manual command: mpv '{channel['stream_url']}'")
-            
-            # Wait a moment to see if process starts successfully
-            import time
-            time.sleep(2)
-            
-            # Check if process is still running
-            if process.poll() is None:
-                console.print("[green]✓[/green] MPV process is running")
-            else:
-                # Process ended, get error output
-                stdout, stderr = process.communicate()
-                console.print(f"[red]✗[/red] MPV exited with code: {process.returncode}")
-                if stderr:
-                    console.print(f"Error: {stderr.decode().strip()}")
-                if stdout:
-                    console.print(f"Output: {stdout.decode().strip()}")
-            
+            console.print("[yellow]Press ESC in this terminal to return to menu[/yellow]")
+            console.print("[dim](MPV will continue playing in the background)[/dim]")
+            console.print()
+
             self.wait_for_escape()
+
+            # Check if MPV is still running after user pressed ESC
+            if process.poll() is None:
+                console.print()
+                console.print("[dim]MPV is still playing in the background.[/dim]")
+                console.print("[dim]Close the MPV window or press 'q' in MPV to stop.[/dim]")
+                import time
+                time.sleep(1.5)
             
         except Exception as e:
             console.print(f"[red]✗[/red] Failed to start MPV: {e}")
