@@ -1218,9 +1218,18 @@ class IPTVMenuManager:
         try:
             console.print("Starting MPV player...")
             
-            # Create MPV command with better error handling - SIMPLIFIED VERSION
+            # Create MPV command with simple buffering for stable streaming
             mpv_cmd = [
                 'mpv',
+                # Cache settings for smooth playback
+                '--cache=yes',                           # Enable cache
+                '--demuxer-max-bytes=50M',               # Cache up to 50MB
+                '--demuxer-max-back-bytes=25M',          # Backward cache of 25MB
+                # Network settings for reliability
+                '--network-timeout=60',                  # 60 second network timeout
+                # User interface
+                '--keep-open=yes',                       # Keep window open after playback ends
+                '--osd-level=1',                         # Show OSD messages
                 channel['stream_url']
             ]
             
@@ -4367,10 +4376,20 @@ networks:
             console.print("Press 'q' in MPV to stop playback")
             console.print()
 
-            # Use yt-dlp with MPV for best quality
+            # Use yt-dlp with MPV for best quality with simple buffering
             mpv_cmd = [
                 'mpv',
+                # YouTube format selection
                 '--ytdl-format=bestvideo[height<=1080]+bestaudio/best',
+                # Cache settings for smooth playback
+                '--cache=yes',                           # Enable cache
+                '--demuxer-max-bytes=100M',              # Cache up to 100MB for YT
+                '--demuxer-max-back-bytes=50M',          # Backward cache of 50MB
+                # Network settings for reliability
+                '--network-timeout=60',                  # 60 second network timeout
+                # User interface
+                '--keep-open=yes',                       # Keep window open after playback ends
+                '--osd-level=1',                         # Show OSD messages
                 video['url']
             ]
 
