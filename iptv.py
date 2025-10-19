@@ -1223,6 +1223,8 @@ class IPTVMenuManager:
             # Create MPV command with enhanced buffering and reliability settings
             mpv_cmd = [
                 'mpv',
+                # Disable youtube-dl hook (not needed for direct IPTV streams)
+                '--no-ytdl',
                 # Cache settings for smooth playback
                 '--cache=yes',                           # Enable cache
                 '--cache-secs=10',                       # Cache 10 seconds of content
