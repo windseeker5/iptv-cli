@@ -37,6 +37,7 @@
   <InactiveSessionThreshold>0</InactiveSessionThreshold>
   <LibraryMonitorDelay>60</LibraryMonitorDelay>
   <LibraryUpdateDuration>30</LibraryUpdateDuration>
+  <CacheSize>1600</CacheSize>
   <ImageSavingConvention>Legacy</ImageSavingConvention>
   <MetadataOptions>
     <MetadataOptions>
@@ -136,7 +137,8 @@
   <ContentTypes />
   <RemoteClientBitrateLimit>0</RemoteClientBitrateLimit>
   <EnableFolderView>false</EnableFolderView>
-  <EnableGroupingIntoCollections>false</EnableGroupingIntoCollections>
+  <EnableGroupingMoviesIntoCollections>false</EnableGroupingMoviesIntoCollections>
+  <EnableGroupingShowsIntoCollections>false</EnableGroupingShowsIntoCollections>
   <DisplaySpecialsWithinSeasons>true</DisplaySpecialsWithinSeasons>
   <CodecsUsed />
   <PluginRepositories>
@@ -157,7 +159,6 @@
   <ActivityLogRetentionDays>30</ActivityLogRetentionDays>
   <LibraryScanFanoutConcurrency>0</LibraryScanFanoutConcurrency>
   <LibraryMetadataRefreshConcurrency>0</LibraryMetadataRefreshConcurrency>
-  <RemoveOldPlugins>true</RemoveOldPlugins>
   <AllowClientLogUpload>true</AllowClientLogUpload>
   <DummyChapterDuration>0</DummyChapterDuration>
   <ChapterImageResolution>MatchSource</ChapterImageResolution>
@@ -188,4 +189,5 @@
     <JpegQuality>90</JpegQuality>
     <ProcessThreads>1</ProcessThreads>
   </TrickplayOptions>
+  <EnableLegacyAuthorization>true</EnableLegacyAuthorization>
 </ServerConfiguration>
