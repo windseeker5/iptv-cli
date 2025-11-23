@@ -77,7 +77,37 @@ class IPTVMenuManager:
         
         # Check database age and auto-update if needed
         self.auto_update_database_if_needed()
-        
+
+        # Detect platform capabilities for hardware acceleration
+        self._is_raspberry_pi = None  # Cache detection result
+
+    def is_raspberry_pi(self):
+        """Detect if running on Raspberry Pi for hardware acceleration"""
+        if self._is_raspberry_pi is not None:
+            return self._is_raspberry_pi
+
+        try:
+            # Check /proc/device-tree/model for Raspberry Pi
+            if os.path.exists('/proc/device-tree/model'):
+                with open('/proc/device-tree/model', 'r') as f:
+                    model = f.read()
+                    if 'Raspberry Pi' in model:
+                        self._is_raspberry_pi = True
+                        return True
+
+            # Fallback: Check /proc/cpuinfo for BCM chip
+            if os.path.exists('/proc/cpuinfo'):
+                with open('/proc/cpuinfo', 'r') as f:
+                    cpuinfo = f.read()
+                    if 'BCM' in cpuinfo or 'Raspberry Pi' in cpuinfo:
+                        self._is_raspberry_pi = True
+                        return True
+        except Exception:
+            pass
+
+        self._is_raspberry_pi = False
+        return False
+
     def wait_for_escape(self):
         """Wait for escape key instead of enter"""
         import termios, sys, tty
@@ -1225,6 +1255,9 @@ class IPTVMenuManager:
                 'mpv',
                 # Disable youtube-dl hook (not needed for direct IPTV streams)
                 '--no-ytdl',
+                # Hardware acceleration for Raspberry Pi
+                '--hwdec=auto',                          # Auto hardware decoding (v4l2m2m on Pi)
+                '--vo=gpu',                              # GPU-accelerated video output
                 # Cache settings for smooth playback
                 '--cache=yes',                           # Enable cache
                 '--cache-secs=10',                       # Cache 10 seconds of content
@@ -1761,23 +1794,42 @@ class IPTVMenuManager:
         target_url = f"rtmp://localhost:1935/live/{stream_key}"
         
         if transcode:
-            # Transcode for lower bandwidth
-            ffmpeg_cmd = [
-                'ffmpeg',
-                '-i', source_url,
-                '-c:v', 'libx264',
-                '-preset', 'superfast',
-                '-tune', 'zerolatency',
-                '-b:v', '1M',
-                '-maxrate', '1M',
-                '-bufsize', '2M',
-                '-vf', 'scale=854:480',
-                '-c:a', 'aac',
-                '-b:a', '128k',
-                '-f', 'flv',
-                target_url
-            ]
-            console.print("Mode: Transcoding (Lower Bandwidth)")
+            # Auto-detect platform and use appropriate encoder
+            if self.is_raspberry_pi():
+                # Raspberry Pi: Use hardware acceleration
+                ffmpeg_cmd = [
+                    'ffmpeg',
+                    '-hwaccel', 'v4l2m2m',                   # Hardware decoding
+                    '-i', source_url,
+                    '-c:v', 'h264_v4l2m2m',                  # Hardware H264 encoding for Pi
+                    '-b:v', '1M',
+                    '-maxrate', '1M',
+                    '-bufsize', '2M',
+                    '-vf', 'scale=854:480',
+                    '-c:a', 'aac',
+                    '-b:a', '128k',
+                    '-f', 'flv',
+                    target_url
+                ]
+                console.print("Mode: Transcoding with Hardware Acceleration (Raspberry Pi)")
+            else:
+                # Other platforms: Use software encoding
+                ffmpeg_cmd = [
+                    'ffmpeg',
+                    '-i', source_url,
+                    '-c:v', 'libx264',
+                    '-preset', 'superfast',
+                    '-tune', 'zerolatency',
+                    '-b:v', '1M',
+                    '-maxrate', '1M',
+                    '-bufsize', '2M',
+                    '-vf', 'scale=854:480',
+                    '-c:a', 'aac',
+                    '-b:a', '128k',
+                    '-f', 'flv',
+                    target_url
+                ]
+                console.print("Mode: Transcoding (Software Encoding)")
         else:
             # Copy without transcoding for best quality
             ffmpeg_cmd = [
@@ -4381,6 +4433,9 @@ networks:
                 'mpv',
                 # YouTube format selection
                 '--ytdl-format=bestvideo[height<=1080]+bestaudio/best',
+                # Hardware acceleration for Raspberry Pi
+                '--hwdec=auto',                          # Auto hardware decoding (v4l2m2m on Pi)
+                '--vo=gpu',                              # GPU-accelerated video output
                 # Cache settings for smooth playback
                 '--cache=yes',                           # Enable cache
                 '--demuxer-max-bytes=100M',              # Cache up to 100MB for YT
