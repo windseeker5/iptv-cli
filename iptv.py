@@ -197,17 +197,8 @@ class IPTVMenuManager:
         """Main menu with arrow key navigation"""
         while True:
             console.clear()
-            console.print()
-            console.print("[bright_red] ✻[/bright_red] Welcome to")
-            
-            # Create figlet title
-            figlet = Figlet(font='isometric1')
-            title = figlet.renderText('IPTV')
-            console.print(f"[cyan]{title}[/cyan]")
-            
-            # Show database status
-            self.show_status()
-            
+            self.display_header(show_status=True)
+
             options = [
                 "Search IPTV",
                 "Discovery Hub",
@@ -296,7 +287,19 @@ class IPTVMenuManager:
                 console.print(Panel("[dim white]●[/dim white] Database: Error reading", style="dim white"))
         else:
             console.print(Panel("[dim white]●[/dim white] Database: Not found - Use 'Download/Update Database'", style="dim white"))
-    
+
+    def display_header(self, show_status=True):
+        """Display the welcome header with optional status panel"""
+        console.print()
+        console.print("[bright_red] ✻[/bright_red] Welcome to")
+
+        figlet = Figlet(font='isometric1')
+        title = figlet.renderText('IPTV')
+        console.print(f"[cyan]{title}[/cyan]")
+
+        if show_status:
+            self.show_status()
+
     def download_menu(self):
         """Download/Update menu"""
         while True:
@@ -330,8 +333,9 @@ class IPTVMenuManager:
         """Unified search menu for both live channels and VOD content"""
         if not self.check_database():
             return
-        
+
         console.clear()
+        self.display_header(show_status=False)
         console.print(Panel.fit("Enter your search term", style="dim white"))
         
         try:
@@ -355,131 +359,150 @@ class IPTVMenuManager:
     
     def show_unified_results(self, live_results, vod_results, search_term):
         """Show unified search results with live channels and VOD content"""
+        # Fetch EPG data for live channels before displaying results
+        epg_cache = {}
+        if live_results:
+            console.clear()
+            self.display_header(show_status=False)
+            console.print(Panel.fit(f"Loading EPG data for {len(live_results)} live channels...", style="dim white"))
+            for result in live_results:
+                console.print(f"[dim]Fetching: {result['name']}[/dim]")
+                epg_data = self.get_now_playing(result['stream_id'], result.get('name'))
+                epg_cache[str(result['stream_id'])] = epg_data
+
+        # Build results list
+        all_results = []
+        for result in live_results:
+            all_results.append(('live', result))
+        for result in vod_results:
+            all_results.append(('vod', result))
+
         while True:
             console.clear()
-            console.print(Panel.fit(f"Search Results: '{search_term}' ({len(live_results + vod_results)} found)", style="dim white"))
-            console.print("[dim white]# (s)ave | (d)elete | (i)nfo | (r)estream | (c)download | (p)lay[/dim white]\n")
-            
-            options = []
-            all_results = []
-            
-            # Get current favorites for checking
+            self.display_header(show_status=False)
+            panel_content = f"Search Results: '{search_term}' ({len(all_results)} found)\n[dim](p)lay  (s)ave  (d)elete  (r)estream  (c)download  |  ESC = back[/dim]"
+            console.print(Panel.fit(panel_content, style="dim white"))
+            console.print()
+
             favorites_set = self.get_favorites_set()
-            
-            # Add live channel results with [LIVE] prefix and favorite indicator
-            # Keep options shorter to prevent truncation in terminal menu
-            for result in live_results:
-                is_fav = (result.get('stream_id'), 'live') in favorites_set
-                fav_indicator = "⭐ " if is_fav else "   "
-                # Shorter format without category and ID to prevent truncation
-                option = f"{fav_indicator}[LIVE] {result['name']}"
-                options.append(option)
-                all_results.append(('live', result))
-            
-            # Add VOD results with [VOD] prefix and favorite indicator
-            for result in vod_results:
-                # Extract year from name if not in year field
-                year_match = re.search(r'\((\d{4})\)', result['name'])
-                if year_match:
-                    year = year_match.group(1)
-                    # Remove year from display name
-                    display_name = re.sub(r'\s*\(\d{4}\)\s*', '', result['name'])
+            options = []
+
+            # Build menu options with index as preview argument (using | separator)
+            for idx, (result_type, result) in enumerate(all_results):
+                is_fav = (result.get('stream_id'), result_type) in favorites_set
+                fav = "⭐ " if is_fav else "   "
+
+                if result_type == 'live':
+                    opt = f"{fav}{result['name']}|{idx}"
                 else:
+                    rating = f"{result['rating']:.1f}" if result.get('rating') else 'N/A'
                     year = result.get('year') or 'N/A'
-                    display_name = result['name']
-                    
-                rating = f"{result['rating']:.1f}" if result['rating'] else 'N/A'
-                
-                # Use category_name as genre if available
-                if result.get('category_name'):
-                    # Simplify category for display
-                    category = result['category_name']
-                    if ' - ' in category:
-                        parts = category.split(' - ', 1)
-                        genre = parts[0][:3] if len(parts) > 0 else 'VOD'
+                    opt = f"{fav}[VOD] {rating} {year} {result['name']}|{idx}"
+
+                options.append(opt)
+
+            # Add empty line for spacing at the end of results
+            options.append(" |spacer")
+
+            # Preview function to show EPG info in side panel
+            def preview_info(preview_arg):
+                if preview_arg == 'spacer':
+                    return ""
+                try:
+                    idx = int(preview_arg)
+                    result_type, result = all_results[idx]
+
+                    lines = []
+                    is_fav = (result.get('stream_id'), result_type) in favorites_set
+                    name = result.get('name', 'Unknown')
+
+                    # Channel name with favorite indicator
+                    if is_fav:
+                        lines.append(f"⭐ {name}")
                     else:
-                        genre = category[:8]
-                else:
-                    genre = result.get('genre', 'VOD')[:8] if result.get('genre') else 'VOD'
-                    result['category_name'] = f"VOD/{genre}"
-                    
-                is_fav = (result.get('stream_id'), 'vod') in favorites_set
-                fav_indicator = "⭐ " if is_fav else "   "
-                # Compact format for unified search
-                option = f"{fav_indicator}[VOD] {rating} {year:<4} {display_name[:20]}"
-                options.append(option)
-                all_results.append(('vod', result))
-            
-            options.append("Back to Search")
-            
+                        lines.append(name)
+                    lines.append("")
+                    lines.append("━" * 35)
+
+                    if result_type == 'live':
+                        epg = epg_cache.get(str(result['stream_id']))
+                        # Program title
+                        if epg and epg.get('title'):
+                            lines.append(epg['title'])
+                        else:
+                            lines.append("No program information")
+                        lines.append("━" * 35)
+                        lines.append("")
+                        # Full description
+                        if epg and epg.get('description'):
+                            lines.append(epg['description'])
+                    else:
+                        # VOD info
+                        lines.append(f"Rating: {result.get('rating', 'N/A')}")
+                        lines.append(f"Year: {result.get('year', 'N/A')}")
+                        if result.get('genre'):
+                            lines.append(f"Genre: {result['genre']}")
+                        lines.append("━" * 35)
+
+                    return "\n".join(lines)
+                except:
+                    return ""
+
             terminal_menu = TerminalMenu(
                 options,
                 title="",
                 menu_cursor="> ",
-                accept_keys=("enter", "s", "d", "p", "r", "c", "i"),
-                show_shortcut_hints=False
+                accept_keys=("enter", "p", "i", "s", "d", "r", "c"),
+                cycle_cursor=True,
+                clear_screen=False,
+                preview_command=preview_info,
+                preview_title="Channel Info",
+                preview_size=0.4,
             )
-            
+
             choice = terminal_menu.show()
-            chosen_key = terminal_menu.chosen_accept_key
-            
-            if choice is None or choice == len(all_results):  # Back
+            key = terminal_menu.chosen_accept_key
+
+            # ESC pressed - go back
+            if choice is None:
                 break
-            
+
+            # Skip if spacer selected
+            if choice == len(all_results):
+                continue
+
             if 0 <= choice < len(all_results):
                 result_type, selected = all_results[choice]
-                
-                # Handle shortcuts
-                if chosen_key == 'p':  # Play directly
+
+                # Execute action immediately - NO extra menu
+                if key == 'p' or key == 'enter':
                     self.play_with_mpv(selected)
-                    continue  # Stay in menu after playing
-                    
-                elif chosen_key == 'i':  # Show information screen
+                elif key == 'i':
                     if result_type == 'live':
                         self.show_live_stream_info(selected)
-                    else:  # VOD
+                    else:
                         self.show_vod_info(selected)
-                    continue  # Return to menu after viewing info
-                    
-                elif chosen_key == 'r':  # Restream directly
+                elif key == 's':
+                    res = self.save_to_favorites(selected, result_type)
+                    if res == -1:
+                        console.print("[yellow]Already in favorites[/yellow]")
+                    elif res > 0:
+                        console.print(f"[green]✓ Added to favorites[/green]")
+                    self.wait_for_escape()
+                elif key == 'd':
+                    res = self.remove_from_favorites(selected, result_type)
+                    if res > 0:
+                        console.print(f"[green]✓ Removed from favorites[/green]")
+                    else:
+                        console.print("[yellow]Not in favorites[/yellow]")
+                    self.wait_for_escape()
+                elif key == 'r':
                     self.restream_placeholder(selected)
-                    continue  # Stay in menu after restreaming
-                    
-                elif chosen_key == 'c':  # Download content
+                elif key == 'c':
                     if result_type == 'vod':
                         self.download_vod_to_data(selected)
                     else:
                         self.download_live_to_data(selected)
-                    continue  # Stay in menu after downloading
-                    
-                elif chosen_key == 's':  # Save to favorites
-                    result = self.save_to_favorites(selected, result_type)
-                    if result == -1:
-                        console.print("[yellow]⚠[/yellow] Already in favorites!")
-                        self.wait_for_escape()
-                    elif result > 0:
-                        console.print(f"[green]✓[/green] Added to favorites ({result} total)")
-                        self.wait_for_escape()
-                    else:
-                        console.print("[red]✗[/red] Failed to add to favorites")
-                        self.wait_for_escape()
-                    continue  # Refresh menu immediately
-                    
-                elif chosen_key == 'd':  # Delete from favorites
-                    result = self.remove_from_favorites(selected, result_type)
-                    if result > 0:
-                        console.print(f"[green]✓[/green] Removed from favorites ({result} remaining)")
-                        self.wait_for_escape()
-                    else:
-                        console.print("[yellow]⚠[/yellow] Not in favorites")
-                        self.wait_for_escape()
-                    continue  # Refresh menu immediately
-                    
-                else:  # Enter key - show action menu (fallback for backwards compatibility)
-                    if result_type == 'live':
-                        self.live_stream_action_menu(selected)
-                    else:  # VOD
-                        self.vod_action_menu(selected)
     
     def search_live_menu(self):
         """Search live channels menu"""
@@ -872,11 +895,11 @@ class IPTVMenuManager:
                     if len(parts[0]) <= 3:  # If prefix is short (EN, FR, NF, etc.)
                         clean_name = parts[1] if len(parts) > 1 else clean_name
                 
-                # Format: score year title (no star, compact rating)
+                # Format: score year title (full title)
                 if year != 'N/A':
-                    option = f"{fav_indicator}{rating:>3} {year} {clean_name[:25]}"
+                    option = f"{fav_indicator}{rating:>3} {year} {clean_name}"
                 else:
-                    option = f"{fav_indicator}{rating:>3} {clean_name[:30]}"
+                    option = f"{fav_indicator}{rating:>3} {clean_name}"
                 options.append(option)
             
             # Add Next Page option if not on last page
@@ -4173,6 +4196,31 @@ networks:
                 pass
         
         return []
+
+    def _decode_base64_if_needed(self, text):
+        """Decode base64 text if it appears to be encoded"""
+        if not text:
+            return None
+        try:
+            if all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=' for c in text.strip()):
+                return base64.b64decode(text).decode('utf-8', errors='ignore')
+        except:
+            pass
+        return text
+
+    def get_now_playing(self, stream_id, channel_name=None):
+        """Get currently playing program title and description for a channel"""
+        epg_data = self.get_epg_data(stream_id, channel_name=channel_name, limit=1)
+        if epg_data and len(epg_data) > 0:
+            program = epg_data[0]
+            title = self._decode_base64_if_needed(program.get('title', ''))
+            description = self._decode_base64_if_needed(program.get('description', ''))
+
+            return {
+                'title': title if title else None,
+                'description': description if description else None
+            }
+        return None
 
     # ========================
     # YouTube Tool Methods
