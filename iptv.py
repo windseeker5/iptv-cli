@@ -28,6 +28,8 @@ elif os.path.exists(os.path.join(script_dir, 'venv', 'bin', 'python')):
         os.execv(venv_python, [venv_python] + sys.argv)
 import sqlite3
 import requests
+import time
+import textwrap
 import json
 import subprocess
 import signal
@@ -330,45 +332,57 @@ class IPTVMenuManager:
                 self.download_vod_only()
     
     def unified_search_menu(self):
-        """Unified search menu for both live channels and VOD content"""
+        """Unified search menu for live channels, VOD, and series content"""
         if not self.check_database():
             return
 
         console.clear()
         self.display_header(show_status=False)
         console.print(Panel.fit("Enter your search term", style="dim white"))
-        
+
         try:
             search_term = input("\n > ").strip()
             if not search_term:
                 return
-            
-            # Search both live channels and VOD content
+
+            # Search live channels, VOD content, and series
             live_results = self.search_live_channels(search_term)
             vod_results = self.search_vod_content(search_term)
-            
-            if not live_results and not vod_results:
+            series_results = self.search_series_content(search_term)
+
+            if not live_results and not vod_results and not series_results:
                 console.print(f"\nNo content found for '{search_term}'")
                 self.wait_for_escape()
                 return
-            
-            self.show_unified_results(live_results, vod_results, search_term)
+
+            self.show_unified_results(live_results, vod_results, series_results, search_term)
             
         except KeyboardInterrupt:
             return
     
-    def show_unified_results(self, live_results, vod_results, search_term):
-        """Show unified search results with live channels and VOD content"""
-        # Fetch EPG data for live channels before displaying results
+    def show_unified_results(self, live_results, vod_results, series_results, search_term):
+        """Show unified search results with live channels, VOD, and series content"""
+        # Load EPG data - first check cache, then fetch missing from network
         epg_cache = {}
         if live_results:
-            console.clear()
-            self.display_header(show_status=False)
-            console.print(Panel.fit(f"Loading EPG data for {len(live_results)} live channels...", style="dim white"))
+            # First pass: check what's already cached (instant)
+            uncached_channels = []
             for result in live_results:
-                console.print(f"[dim]Fetching: {result['name']}[/dim]")
-                epg_data = self.get_now_playing(result['stream_id'], result.get('name'))
-                epg_cache[str(result['stream_id'])] = epg_data
+                epg_data = self.get_now_playing_local(result['stream_id'], fetch_if_missing=False)
+                if epg_data:
+                    epg_cache[str(result['stream_id'])] = epg_data
+                else:
+                    uncached_channels.append(result)
+
+            # Second pass: fetch uncached EPG from network (shows progress)
+            if uncached_channels:
+                console.clear()
+                self.display_header(show_status=False)
+                console.print(Panel.fit(f"Loading EPG for {len(uncached_channels)} channels (caching for next time)...", style="dim white"))
+                for result in uncached_channels:
+                    console.print(f"[dim]Fetching: {result['name']}[/dim]")
+                    epg_data = self.get_now_playing_local(result['stream_id'], result.get('name'), fetch_if_missing=True)
+                    epg_cache[str(result['stream_id'])] = epg_data
 
         # Build results list
         all_results = []
@@ -376,12 +390,35 @@ class IPTVMenuManager:
             all_results.append(('live', result))
         for result in vod_results:
             all_results.append(('vod', result))
+        for result in series_results:
+            all_results.append(('series', result))
 
         while True:
             console.clear()
             self.display_header(show_status=False)
-            panel_content = f"Search Results: '{search_term}' ({len(all_results)} found)\n[dim](p)lay  (s)ave  (d)elete  (r)estream  (c)download  |  ESC = back[/dim]"
-            console.print(Panel.fit(panel_content, style="dim white"))
+
+            # Build status panel matching database style (full width)
+            age_days = self.get_database_age_days()
+            if age_days is not None:
+                if age_days < 1:
+                    age_str = "[bright_cyan bold]Updated today[/bright_cyan bold]"
+                elif age_days < 2:
+                    age_str = "[bright_cyan bold]1 day old[/bright_cyan bold]"
+                elif age_days <= 7:
+                    age_str = f"[bright_cyan bold]{age_days:.0f} days old[/bright_cyan bold]"
+                else:
+                    age_str = f"[bright_yellow bold]{age_days:.0f} days old[/bright_yellow bold]"
+                db_line = f"[green]●[/green] [bright_cyan bold]Database[/bright_cyan bold] | {age_str}"
+            else:
+                db_line = "[green]●[/green] [bright_cyan bold]Database[/bright_cyan bold]"
+
+            panel_lines = [
+                db_line,
+                f"  Search Results: '{search_term}' ({len(all_results)} found)",
+                "",
+                f"  [dim](p)lay  (s)ave  (d)elete  (r)estream  (c)download  |  ESC = back[/dim]"
+            ]
+            console.print(Panel("\n".join(panel_lines), style="dim white"))
             console.print()
 
             favorites_set = self.get_favorites_set()
@@ -389,15 +426,23 @@ class IPTVMenuManager:
 
             # Build menu options with index as preview argument (using | separator)
             for idx, (result_type, result) in enumerate(all_results):
-                is_fav = (result.get('stream_id'), result_type) in favorites_set
+                # Get the right ID field based on result type
+                if result_type == 'series':
+                    item_id = result.get('series_id')
+                else:
+                    item_id = result.get('stream_id')
+                is_fav = (item_id, result_type) in favorites_set
                 fav = "⭐ " if is_fav else "   "
 
                 if result_type == 'live':
-                    opt = f"{fav}{result['name']}|{idx}"
-                else:
+                    opt = f"{fav}[LIVE] {result['name']}|{idx}"
+                elif result_type == 'vod':
                     rating = f"{result['rating']:.1f}" if result.get('rating') else 'N/A'
                     year = result.get('year') or 'N/A'
                     opt = f"{fav}[VOD] {rating} {year} {result['name']}|{idx}"
+                else:  # series
+                    rating = f"{result['rating']:.1f}" if result.get('rating') else 'N/A'
+                    opt = f"{fav}[SERIES] {rating} {result['name']}|{idx}"
 
                 options.append(opt)
 
@@ -413,36 +458,64 @@ class IPTVMenuManager:
                     result_type, result = all_results[idx]
 
                     lines = []
-                    is_fav = (result.get('stream_id'), result_type) in favorites_set
-                    name = result.get('name', 'Unknown')
-
-                    # Channel name with favorite indicator
-                    if is_fav:
-                        lines.append(f"⭐ {name}")
-                    else:
-                        lines.append(name)
-                    lines.append("")
-                    lines.append("━" * 35)
+                    # Wrap text to fit preview panel (use terminal width minus margins)
+                    try:
+                        term_width = os.get_terminal_size().columns
+                        wrap_width = max(40, term_width - 10)  # Leave some margin
+                    except:
+                        wrap_width = 100
 
                     if result_type == 'live':
-                        epg = epg_cache.get(str(result['stream_id']))
-                        # Program title
-                        if epg and epg.get('title'):
-                            lines.append(epg['title'])
+                        # Get EPG with upcoming info
+                        epg_full = self.get_epg_with_upcoming(result['stream_id'])
+                        now_playing = epg_full.get('now')
+                        upcoming = epg_full.get('next')
+
+                        # Now Playing section
+                        lines.append("━━━ Now Playing ━━━")
+                        if now_playing and now_playing.get('title'):
+                            lines.append(now_playing['title'])
+                            lines.append("")
+                            if now_playing.get('description'):
+                                wrapped = textwrap.fill(now_playing['description'], width=wrap_width)
+                                lines.append(wrapped)
                         else:
                             lines.append("No program information")
-                        lines.append("━" * 35)
+
+                        # Upcoming section
                         lines.append("")
-                        # Full description
-                        if epg and epg.get('description'):
-                            lines.append(epg['description'])
-                    else:
+                        if upcoming and upcoming.get('title'):
+                            # Format the start time
+                            from datetime import datetime
+                            start_dt = datetime.fromtimestamp(upcoming['start_time'])
+                            time_str = start_dt.strftime("%H:%M")
+                            lines.append(f"━━━ Upcoming at {time_str} ━━━")
+                            lines.append(upcoming['title'])
+                            lines.append("")
+                            if upcoming.get('description'):
+                                wrapped = textwrap.fill(upcoming['description'], width=wrap_width)
+                                lines.append(wrapped)
+                        else:
+                            lines.append("━━━ Upcoming ━━━")
+                            lines.append("No upcoming program information")
+
+                    elif result_type == 'vod':
                         # VOD info
                         lines.append(f"Rating: {result.get('rating', 'N/A')}")
                         lines.append(f"Year: {result.get('year', 'N/A')}")
                         if result.get('genre'):
                             lines.append(f"Genre: {result['genre']}")
-                        lines.append("━" * 35)
+                    else:
+                        # Series info
+                        lines.append(f"Rating: {result.get('rating', 'N/A')}")
+                        if result.get('genre'):
+                            lines.append(f"Genre: {result['genre']}")
+                        if result.get('category_name'):
+                            lines.append(f"Category: {result['category_name']}")
+                        lines.append("")
+                        if result.get('plot'):
+                            wrapped = textwrap.fill(result['plot'], width=wrap_width)
+                            lines.append(wrapped)
 
                     return "\n".join(lines)
                 except:
@@ -476,12 +549,17 @@ class IPTVMenuManager:
 
                 # Execute action immediately - NO extra menu
                 if key == 'p' or key == 'enter':
-                    self.play_with_mpv(selected)
+                    if result_type == 'series':
+                        self.show_series_info(selected)
+                    else:
+                        self.play_with_mpv(selected)
                 elif key == 'i':
                     if result_type == 'live':
                         self.show_live_stream_info(selected)
-                    else:
+                    elif result_type == 'vod':
                         self.show_vod_info(selected)
+                    else:
+                        self.show_series_info(selected)
                 elif key == 's':
                     res = self.save_to_favorites(selected, result_type)
                     if res == -1:
@@ -497,12 +575,19 @@ class IPTVMenuManager:
                         console.print("[yellow]Not in favorites[/yellow]")
                     self.wait_for_escape()
                 elif key == 'r':
-                    self.restream_placeholder(selected)
+                    if result_type != 'series':
+                        self.restream_placeholder(selected)
+                    else:
+                        console.print("[yellow]Restream not available for series[/yellow]")
+                        self.wait_for_escape()
                 elif key == 'c':
                     if result_type == 'vod':
                         self.download_vod_to_data(selected)
-                    else:
+                    elif result_type == 'live':
                         self.download_live_to_data(selected)
+                    else:
+                        console.print("[yellow]Download not available for series (select episodes from info)[/yellow]")
+                        self.wait_for_escape()
     
     def search_live_menu(self):
         """Search live channels menu"""
@@ -532,18 +617,28 @@ class IPTVMenuManager:
         """Search live channels in database"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
-        sql = """
+
+        # Tokenize search query for multi-word partial matching
+        tokens = query.split()
+        if not tokens:
+            conn.close()
+            return []
+
+        # Build WHERE clause with AND for each token
+        conditions = ' AND '.join(['name LIKE ?' for _ in tokens])
+        params = [f'%{token}%' for token in tokens]
+
+        sql = f"""
             SELECT name, category_name, stream_id, stream_url, epg_channel_id
-            FROM live_streams 
-            WHERE name LIKE ? 
-            ORDER BY name 
+            FROM live_streams
+            WHERE {conditions}
+            ORDER BY name
             LIMIT 50
         """
-        
-        results = cursor.execute(sql, (f'%{query}%',)).fetchall()
+
+        results = cursor.execute(sql, params).fetchall()
         conn.close()
-        
+
         return [dict(zip(['name', 'category_name', 'stream_id', 'stream_url', 'epg_channel_id'], row)) for row in results]
     
     def show_live_results(self, results, search_term):
@@ -798,20 +893,58 @@ class IPTVMenuManager:
         """Search VOD content in database"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
-        sql = """
+
+        # Tokenize search query for multi-word partial matching
+        tokens = query.split()
+        if not tokens:
+            conn.close()
+            return []
+
+        # Build WHERE clause with AND for each token
+        conditions = ' AND '.join(['name LIKE ?' for _ in tokens])
+        params = [f'%{token}%' for token in tokens]
+
+        sql = f"""
             SELECT stream_id, name, year, rating, genre, stream_url
-            FROM vod_streams 
-            WHERE name LIKE ? 
-            ORDER BY name 
+            FROM vod_streams
+            WHERE {conditions}
+            ORDER BY name
             LIMIT 50
         """
-        
-        results = cursor.execute(sql, (f'%{query}%',)).fetchall()
+
+        results = cursor.execute(sql, params).fetchall()
         conn.close()
-        
+
         return [dict(zip(['stream_id', 'name', 'year', 'rating', 'genre', 'stream_url'], row)) for row in results]
-    
+
+    def search_series_content(self, query):
+        """Search series (TV shows) in database"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        # Tokenize search query for multi-word partial matching
+        tokens = query.split()
+        if not tokens:
+            conn.close()
+            return []
+
+        # Build WHERE clause with AND for each token
+        conditions = ' AND '.join(['name LIKE ?' for _ in tokens])
+        params = [f'%{token}%' for token in tokens]
+
+        sql = f"""
+            SELECT series_id, name, genre, rating, plot, category_name
+            FROM series_streams
+            WHERE {conditions}
+            ORDER BY name
+            LIMIT 50
+        """
+
+        results = cursor.execute(sql, params).fetchall()
+        conn.close()
+
+        return [dict(zip(['series_id', 'name', 'genre', 'rating', 'plot', 'category_name'], row)) for row in results]
+
     def show_vod_results(self, results, search_term):
         """Show VOD results with arrow navigation and pagination"""
         page_size = 25
@@ -1458,8 +1591,34 @@ class IPTVMenuManager:
         console.print(table)
         console.print("\n[dim white]Additional metadata not available[/dim white]")
         self.wait_for_escape()
-    
-    
+
+    def show_series_info(self, series_item):
+        """Show detailed series information"""
+        console.clear()
+        console.print(Panel.fit("Series Information", style="dim white"))
+
+        table = Table(show_header=False, box=None)
+        table.add_column("Property", style="dim white")
+        table.add_column("Value", style="white")
+
+        table.add_row("Name", series_item['name'])
+        if series_item.get('rating'):
+            table.add_row("Rating", f"{series_item['rating']:.1f}/10")
+        if series_item.get('genre'):
+            table.add_row("Genre", series_item['genre'])
+        if series_item.get('category_name'):
+            table.add_row("Category", series_item['category_name'])
+        table.add_row("Series ID", str(series_item.get('series_id', 'N/A')))
+
+        console.print(table)
+
+        if series_item.get('plot'):
+            console.print("\n[dim white]Plot:[/dim white]")
+            console.print(series_item['plot'])
+
+        console.print("\n[dim yellow]Note: Episode browsing coming soon. Use your TV app to browse episodes.[/dim yellow]")
+        self.wait_for_escape()
+
     def download_live_to_data(self, live_item):
         """Download/Record live stream to data folder"""
         console.clear()
@@ -2934,8 +3093,8 @@ networks:
         """Download full database"""
         console.print("\nStarting full database download...")
         success = self._download_and_create_db([
-            "account_info", "live_categories", "live_streams", 
-            "vod_categories", "vod_streams", "series_categories"
+            "account_info", "live_categories", "live_streams",
+            "vod_categories", "vod_streams", "series_categories", "series_streams"
         ])
         
         if success:
@@ -2998,6 +3157,8 @@ networks:
                         success = self._download_vod_streams()
                     elif component == "series_categories":
                         success = self._download_series_categories()
+                    elif component == "series_streams":
+                        success = self._download_series_streams()
                     else:
                         success = False
                     
@@ -3012,8 +3173,9 @@ networks:
                 success = self._create_database()
                 progress.update(db_task, completed=1)
                 progress.advance(main_task)
-                
-                return success
+
+            # EPG is now lazy-loaded on demand, not during update
+            return success
                 
         except Exception as e:
             console.print(f"Download error: {e}")
@@ -3112,7 +3274,91 @@ networks:
         except:
             pass
         return False
-    
+
+    def _download_series_streams(self):
+        """Download series streams (TV shows)"""
+        try:
+            url = f"{self.server}/player_api.php?username={self.username}&password={self.password}&action=get_series"
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            response = requests.get(url, headers=headers, timeout=120)
+            if response.status_code == 200:
+                with open(os.path.join(self.data_dir, "series_streams.json"), "w") as f:
+                    json.dump(response.json(), f, indent=2)
+                return True
+        except:
+            pass
+        return False
+
+    def _download_epg(self):
+        """Download EPG data for all live channels and store in database"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            # Get all stream_ids from live_streams
+            cursor.execute("SELECT stream_id, name FROM live_streams")
+            channels = cursor.fetchall()
+
+            if not channels:
+                conn.close()
+                return True
+
+            console.print(f"\n[cyan]Downloading EPG for {len(channels)} channels...[/cyan]")
+
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            success_count = 0
+            error_count = 0
+
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                console=console
+            ) as progress:
+                task = progress.add_task("Downloading EPG", total=len(channels))
+
+                for stream_id, name in channels:
+                    try:
+                        url = f"{self.server}/player_api.php?username={self.username}&password={self.password}&action=get_short_epg&stream_id={stream_id}&limit=10"
+                        response = requests.get(url, headers=headers, timeout=5)
+
+                        if response.status_code == 200:
+                            epg_data = response.json()
+                            listings = epg_data.get('epg_listings', []) if isinstance(epg_data, dict) else []
+
+                            for listing in listings:
+                                try:
+                                    start_time = int(listing.get('start_timestamp', 0))
+                                    end_time = int(listing.get('stop_timestamp', 0))
+                                    title = self._decode_base64_if_needed(listing.get('title', '')) or listing.get('title', '')
+                                    description = self._decode_base64_if_needed(listing.get('description', '')) or listing.get('description', '')
+
+                                    if start_time and end_time:
+                                        cursor.execute('''
+                                            INSERT OR REPLACE INTO epg (stream_id, start_time, end_time, title, description)
+                                            VALUES (?, ?, ?, ?, ?)
+                                        ''', (stream_id, start_time, end_time, title, description))
+                                except:
+                                    pass
+
+                            if listings:
+                                success_count += 1
+                    except:
+                        error_count += 1
+
+                    progress.advance(task)
+
+            conn.commit()
+            conn.close()
+
+            console.print(f"[green]EPG downloaded: {success_count} channels with data, {error_count} errors[/green]")
+            return True
+
+        except Exception as e:
+            console.print(f"[red]EPG download error: {e}[/red]")
+            return False
+
     def _create_database(self):
         """Create/update SQLite database"""
         try:
@@ -3163,7 +3409,33 @@ networks:
                     max_connections TEXT
                 )
             ''')
-            
+
+            cursor.execute('''
+                CREATE TABLE epg (
+                    stream_id INTEGER,
+                    start_time INTEGER,
+                    end_time INTEGER,
+                    title TEXT,
+                    description TEXT,
+                    cached_at INTEGER,
+                    PRIMARY KEY (stream_id, start_time)
+                )
+            ''')
+
+            cursor.execute('''
+                CREATE TABLE series_streams (
+                    series_id INTEGER PRIMARY KEY,
+                    name TEXT,
+                    category_id INTEGER,
+                    cover TEXT,
+                    plot TEXT,
+                    cast TEXT,
+                    genre TEXT,
+                    rating REAL,
+                    category_name TEXT
+                )
+            ''')
+
             # Load data from JSON files
             self._load_data_from_json(cursor)
             
@@ -3171,6 +3443,9 @@ networks:
             cursor.execute("CREATE INDEX idx_live_name ON live_streams(name)")
             cursor.execute("CREATE INDEX idx_vod_name ON vod_streams(name)")
             cursor.execute("CREATE INDEX idx_vod_cat_name ON vod_categories(category_name)")
+            cursor.execute("CREATE INDEX idx_epg_stream ON epg(stream_id)")
+            cursor.execute("CREATE INDEX idx_epg_time ON epg(start_time, end_time)")
+            cursor.execute("CREATE INDEX idx_series_name ON series_streams(name)")
             
             conn.commit()
             conn.close()
@@ -3236,13 +3511,37 @@ networks:
                 for stream in streams:
                     container_ext = stream.get('container_extension', 'mp4')
                     stream_url = f"{self.server}/movie/{self.username}/{self.password}/{stream.get('stream_id')}.{container_ext}"
-                    
+
                     cursor.execute('''
                         INSERT INTO vod_streams VALUES (?, ?, ?, ?, ?, ?, ?)
                     ''', (stream.get('stream_id'), stream.get('name'),
                          stream.get('category_id'), stream_url,
                          stream.get('year'), stream.get('rating'), stream.get('genre')))
-    
+
+        # Load series categories map
+        series_categories = {}
+        series_categories_path = os.path.join(self.data_dir, "series_categories.json")
+        if os.path.exists(series_categories_path):
+            with open(series_categories_path) as f:
+                cats = json.load(f)
+                for cat in cats:
+                    series_categories[cat.get('category_id')] = cat.get('category_name')
+
+        # Load series streams (TV shows)
+        series_streams_path = os.path.join(self.data_dir, "series_streams.json")
+        if os.path.exists(series_streams_path):
+            with open(series_streams_path) as f:
+                series = json.load(f)
+                for show in series:
+                    cat_name = series_categories.get(str(show.get('category_id')), 'Unknown')
+
+                    cursor.execute('''
+                        INSERT INTO series_streams VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (show.get('series_id'), show.get('name'),
+                         show.get('category_id'), show.get('cover'),
+                         show.get('plot'), show.get('cast'),
+                         show.get('genre'), show.get('rating'), cat_name))
+
     def check_jellyfin_status(self):
         """Check Jellyfin container status"""
         try:
@@ -4221,6 +4520,139 @@ networks:
                 'description': description if description else None
             }
         return None
+
+    def get_now_playing_local(self, stream_id, channel_name=None, fetch_if_missing=False):
+        """Get currently playing program from local EPG cache, optionally fetch if missing"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            now = int(time.time())
+            cache_max_age = 6 * 3600  # 6 hours cache expiry
+
+            # Check for cached EPG data that's not expired
+            cursor.execute("""
+                SELECT title, description, cached_at FROM epg
+                WHERE stream_id = ? AND start_time <= ? AND end_time > ?
+                ORDER BY start_time DESC
+                LIMIT 1
+            """, (stream_id, now, now))
+
+            row = cursor.fetchone()
+
+            if row:
+                cached_at = row[2] or 0
+                # Return cached data if not expired
+                if (now - cached_at) < cache_max_age:
+                    conn.close()
+                    return {
+                        'title': row[0] if row[0] else None,
+                        'description': row[1] if row[1] else None
+                    }
+
+            conn.close()
+
+            # If fetch_if_missing is True, fetch from network and cache
+            if fetch_if_missing:
+                return self._fetch_and_cache_epg(stream_id, channel_name)
+
+        except:
+            pass
+        return None
+
+    def _fetch_and_cache_epg(self, stream_id, channel_name=None):
+        """Fetch EPG from network and cache in database"""
+        try:
+            # Fetch from network
+            epg_data = self.get_epg_data(stream_id, channel_name=channel_name, limit=10)
+
+            if epg_data:
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                now = int(time.time())
+
+                for listing in epg_data:
+                    try:
+                        start_time = int(listing.get('start_timestamp', 0))
+                        end_time = int(listing.get('stop_timestamp', 0))
+                        title = self._decode_base64_if_needed(listing.get('title', '')) or listing.get('title', '')
+                        description = self._decode_base64_if_needed(listing.get('description', '')) or listing.get('description', '')
+
+                        if start_time and end_time:
+                            cursor.execute('''
+                                INSERT OR REPLACE INTO epg (stream_id, start_time, end_time, title, description, cached_at)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                            ''', (stream_id, start_time, end_time, title, description, now))
+                    except:
+                        pass
+
+                conn.commit()
+                conn.close()
+
+                # Return the current program
+                for listing in epg_data:
+                    start_time = int(listing.get('start_timestamp', 0))
+                    end_time = int(listing.get('stop_timestamp', 0))
+                    if start_time <= now < end_time:
+                        title = self._decode_base64_if_needed(listing.get('title', '')) or listing.get('title', '')
+                        description = self._decode_base64_if_needed(listing.get('description', '')) or listing.get('description', '')
+                        return {
+                            'title': title if title else None,
+                            'description': description if description else None
+                        }
+        except:
+            pass
+        return None
+
+    def get_epg_with_upcoming(self, stream_id):
+        """Get current and next program from EPG cache"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            now = int(time.time())
+
+            # Get current program (now playing)
+            cursor.execute("""
+                SELECT title, description, start_time, end_time FROM epg
+                WHERE stream_id = ? AND start_time <= ? AND end_time > ?
+                ORDER BY start_time DESC
+                LIMIT 1
+            """, (stream_id, now, now))
+            current_row = cursor.fetchone()
+
+            # Get next program (upcoming)
+            cursor.execute("""
+                SELECT title, description, start_time, end_time FROM epg
+                WHERE stream_id = ? AND start_time > ?
+                ORDER BY start_time ASC
+                LIMIT 1
+            """, (stream_id, now))
+            next_row = cursor.fetchone()
+
+            conn.close()
+
+            result = {'now': None, 'next': None}
+
+            if current_row:
+                result['now'] = {
+                    'title': current_row[0] if current_row[0] else None,
+                    'description': current_row[1] if current_row[1] else None,
+                    'start_time': current_row[2],
+                    'end_time': current_row[3]
+                }
+
+            if next_row:
+                result['next'] = {
+                    'title': next_row[0] if next_row[0] else None,
+                    'description': next_row[1] if next_row[1] else None,
+                    'start_time': next_row[2],
+                    'end_time': next_row[3]
+                }
+
+            return result
+        except:
+            pass
+        return {'now': None, 'next': None}
 
     # ========================
     # YouTube Tool Methods
