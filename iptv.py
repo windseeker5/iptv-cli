@@ -425,6 +425,7 @@ class IPTVMenuManager:
             options = []
 
             # Build menu options with index as preview argument (using | separator)
+            # IMPORTANT: Replace | in channel names with - to avoid breaking preview separator
             for idx, (result_type, result) in enumerate(all_results):
                 # Get the right ID field based on result type
                 if result_type == 'series':
@@ -434,15 +435,18 @@ class IPTVMenuManager:
                 is_fav = (item_id, result_type) in favorites_set
                 fav = "⭐ " if is_fav else "   "
 
+                # Replace | with - in names to avoid breaking the preview separator
+                display_name = result['name'].replace('|', '-')
+
                 if result_type == 'live':
-                    opt = f"{fav}[LIVE] {result['name']}|{idx}"
+                    opt = f"{fav}[LIVE] {display_name}|{idx}"
                 elif result_type == 'vod':
                     rating = f"{result['rating']:.1f}" if result.get('rating') else 'N/A'
                     year = result.get('year') or 'N/A'
-                    opt = f"{fav}[VOD] {rating} {year} {result['name']}|{idx}"
+                    opt = f"{fav}[VOD] {rating} {year} {display_name}|{idx}"
                 else:  # series
                     rating = f"{result['rating']:.1f}" if result.get('rating') else 'N/A'
-                    opt = f"{fav}[SERIES] {rating} {result['name']}|{idx}"
+                    opt = f"{fav}[SERIES] {rating} {display_name}|{idx}"
 
                 options.append(opt)
 
@@ -454,6 +458,7 @@ class IPTVMenuManager:
                 if preview_arg == 'spacer':
                     return ""
                 try:
+                    # preview_arg is now just the index number (pipes removed from names)
                     idx = int(preview_arg)
                     result_type, result = all_results[idx]
 
@@ -480,7 +485,10 @@ class IPTVMenuManager:
                                 wrapped = textwrap.fill(now_playing['description'], width=wrap_width)
                                 lines.append(wrapped)
                         else:
-                            lines.append("No program information")
+                            # No EPG data - show full channel name as fallback
+                            lines.append("Channel:")
+                            wrapped_name = textwrap.fill(result['name'], width=wrap_width)
+                            lines.append(wrapped_name)
 
                         # Upcoming section
                         lines.append("")
@@ -518,8 +526,8 @@ class IPTVMenuManager:
                             lines.append(wrapped)
 
                     return "\n".join(lines)
-                except:
-                    return ""
+                except Exception as e:
+                    return f"Error: {str(e)}"
 
             terminal_menu = TerminalMenu(
                 options,
