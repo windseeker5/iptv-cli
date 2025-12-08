@@ -2296,48 +2296,47 @@ class IPTVMenuManager:
         """Streaming Infrastructure menu - manage Docker services"""
         while True:
             console.clear()
+            self.display_header(show_status=False)
             console.print(Panel.fit("Streaming Infrastructure\n[dim white]Dashboard: http://localhost:8080[/dim white]", style="bright_cyan"))
             
             # Check installation status
             docker_installed = self.is_docker_installed()
             lazydocker_installed = self.is_lazydocker_installed()
             compose_exists = os.path.exists('docker-compose.yml')
-            
-            # Build menu options with status indicators
+
+            # Build simplified menu options - Lazydocker handles most management
             options = []
-            
-            # Installation options with status
+
+            # Primary option: Launch Lazydocker (if available)
+            if docker_installed and lazydocker_installed:
+                options.append("Launch Lazydocker")
+
+            # Container status with URLs (unique value not in Lazydocker)
             if docker_installed:
-                options.append("Install Docker [Installed]")
-            else:
-                options.append("Install Docker [Required]")
-                
-            if lazydocker_installed:
-                options.append("Install Lazydocker [Installed]")
-            else:
-                options.append("Install Lazydocker")
-            
-            # Only show these if Docker is installed
+                running_count = self.get_running_container_count()
+                total_count = 3  # NGINX-RTMP, Jellyfin, Samba
+                options.append(f"Container Status & URLs [{running_count}/{total_count} Running]")
+
+                # Start/Stop container options
+                if compose_exists:
+                    if running_count < total_count:
+                        options.append("Start All Containers")
+                    if running_count > 0:
+                        options.append("Stop All Containers")
+
+            # Docker-compose configuration
             if docker_installed:
-                if lazydocker_installed:
-                    options.append("Launch Lazydocker")
-                
                 if compose_exists:
                     options.append("Review/Edit docker-compose.yml")
                 else:
                     options.append("Create docker-compose.yml")
-                    
-                options.append("Start All Services")
-                options.append("Stop All Services")
-                options.append("Restart All Services")
-                
-                # Get running container count for inline status
-                running_count = self.get_running_container_count()
-                total_count = 3  # NGINX-RTMP, Jellyfin, Samba
-                options.append(f"Container Status & URLs [{running_count}/{total_count} Running]")
-                
-                options.append("View Logs (last 50 lines)")
-                options.append("Update Container Images")
+                options.append("Validate docker-compose.yml")
+
+            # Installation options (only show if not installed)
+            if not docker_installed:
+                options.append("Install Docker [Required]")
+            if not lazydocker_installed:
+                options.append("Install Lazydocker")
             
             terminal_menu = TerminalMenu(
                 options,
@@ -2355,26 +2354,22 @@ class IPTVMenuManager:
             selected_option = options[choice]
             
             # Handle selections based on option text
-            if "Install Docker" in selected_option and not docker_installed:
-                self.install_docker()
-            elif "Install Lazydocker" in selected_option and not lazydocker_installed:
-                self.install_lazydocker()
-            elif "Launch Lazydocker" in selected_option:
+            if "Launch Lazydocker" in selected_option:
                 self.launch_lazydocker()
-            elif "Review/Edit docker-compose.yml" in selected_option or "Create docker-compose.yml" in selected_option:
-                self.edit_docker_compose()
-            elif "Start All Services" in selected_option:
-                self.start_all_services()
-            elif "Stop All Services" in selected_option:
-                self.stop_all_services()
-            elif "Restart All Services" in selected_option:
-                self.restart_all_services()
             elif "Container Status & URLs" in selected_option:
                 self.show_container_status_and_urls()
-            elif "View Logs" in selected_option:
-                self.view_container_logs()
-            elif "Update Container Images" in selected_option:
-                self.update_container_images()
+            elif "Review/Edit docker-compose.yml" in selected_option or "Create docker-compose.yml" in selected_option:
+                self.edit_docker_compose()
+            elif "Validate docker-compose.yml" in selected_option:
+                self.validate_docker_compose()
+            elif "Start All Containers" in selected_option:
+                self.start_all_containers()
+            elif "Stop All Containers" in selected_option:
+                self.stop_all_containers()
+            elif "Install Docker" in selected_option:
+                self.install_docker()
+            elif "Install Lazydocker" in selected_option:
+                self.install_lazydocker()
     
     def container_management_menu(self):
         """Legacy redirect to new menu"""
@@ -2383,6 +2378,7 @@ class IPTVMenuManager:
     def show_container_status_and_urls(self):
         """Show combined container status and URLs for both NGINX and Jellyfin"""
         console.clear()
+        self.display_header(show_status=False)
         console.print(Panel.fit("Container Status & URLs", style="dim white"))
         
         # Check Docker status first
@@ -2578,6 +2574,7 @@ class IPTVMenuManager:
     def edit_docker_compose(self):
         """Edit or create docker-compose.yml file"""
         console.clear()
+        self.display_header(show_status=False)
         console.print(Panel.fit("Edit docker-compose.yml", style="dim white"))
         
         compose_file = "docker-compose.yml"
@@ -2617,18 +2614,9 @@ class IPTVMenuManager:
                                   capture_output=True, timeout=10)
             
             if result.returncode == 0:
-                console.print("[green]✓[/green] docker-compose.yml is valid")
+                console.print("[green]Configuration is valid![/green]")
                 console.print()
-                console.print("Would you like to restart services now? (y/n): ", end="")
-                
-                try:
-                    response = input().strip().lower()
-                    if response == 'y':
-                        self.restart_all_services()
-                    else:
-                        console.print("Services not restarted. You can restart them manually from the menu.")
-                except KeyboardInterrupt:
-                    pass
+                console.print("[dim]Use Lazydocker to start/restart services[/dim]")
             else:
                 console.print("[red]✗[/red] docker-compose.yml has errors:")
                 console.print(result.stderr.decode())
@@ -2639,187 +2627,108 @@ class IPTVMenuManager:
             console.print(f"[red]✗[/red] Error editing file: {e}")
         
         self.wait_for_escape()
-    
-    def start_all_services(self):
-        """Start all Docker services using docker-compose"""
+
+    def validate_docker_compose(self):
+        """Validate docker-compose.yml configuration"""
         console.clear()
-        console.print(Panel.fit("Starting All Services", style="dim white"))
-        
+        self.display_header(show_status=False)
+        console.print(Panel.fit("Validate docker-compose.yml", style="dim white"))
+
         if not os.path.exists('docker-compose.yml'):
-            console.print("[red]✗[/red] docker-compose.yml not found")
-            console.print("Please create or review the docker-compose.yml first")
+            console.print("[red]docker-compose.yml not found[/red]")
             self.wait_for_escape()
             return
-        
-        console.print("Starting all services...")
-        
-        try:
-            result = subprocess.run(['docker-compose', 'up', '-d'], 
-                                  capture_output=True, check=True, timeout=120)
-            
-            console.print("[green]✓[/green] All services started successfully!")
-            console.print()
-            console.print("Output:")
-            console.print(result.stdout.decode())
-            
-            if result.stderr.decode():
-                console.print(f"[dim]Stderr:[/dim] {result.stderr.decode()}")
-                
-        except subprocess.CalledProcessError as e:
-            console.print(f"[red]✗[/red] Failed to start services: {e}")
-            if e.stdout:
-                console.print(f"Output: {e.stdout.decode()}")
-            if e.stderr:
-                console.print(f"Error: {e.stderr.decode()}")
-        except FileNotFoundError:
-            console.print("[red]✗[/red] docker-compose not found. Please install Docker Compose.")
-        except subprocess.TimeoutExpired:
-            console.print("[yellow]⚠[/yellow] Operation timed out. Services may still be starting.")
-        
-        self.wait_for_escape()
-    
-    def stop_all_services(self):
-        """Stop all Docker services using docker-compose"""
-        console.clear()
-        console.print(Panel.fit("Stopping All Services", style="dim white"))
-        
-        console.print("Stopping all services...")
-        
-        try:
-            result = subprocess.run(['docker-compose', 'down'], 
-                                  capture_output=True, check=True, timeout=60)
-            
-            console.print("[green]✓[/green] All services stopped successfully!")
-            console.print()
-            console.print("Output:")
-            console.print(result.stdout.decode())
-            
-        except subprocess.CalledProcessError as e:
-            console.print(f"[red]✗[/red] Failed to stop services: {e}")
-            if e.stdout:
-                console.print(f"Output: {e.stdout.decode()}")
-            if e.stderr:
-                console.print(f"Error: {e.stderr.decode()}")
-        except FileNotFoundError:
-            console.print("[red]✗[/red] docker-compose not found")
-        except subprocess.TimeoutExpired:
-            console.print("[yellow]⚠[/yellow] Operation timed out")
-        
-        self.wait_for_escape()
-    
-    def restart_all_services(self):
-        """Restart all Docker services"""
-        console.clear()
-        console.print(Panel.fit("Restarting All Services", style="dim white"))
-        
-        console.print("Restarting all services...")
-        console.print("This will stop and start all containers...")
+
+        console.print("Validating configuration...")
         console.print()
-        
+
         try:
-            # Stop services
-            console.print("Stopping services...")
-            result = subprocess.run(['docker-compose', 'down'], 
-                                  capture_output=True, check=True, timeout=60)
-            console.print("[green]✓[/green] Services stopped")
-            
-            # Start services
-            console.print("Starting services...")
-            result = subprocess.run(['docker-compose', 'up', '-d'], 
-                                  capture_output=True, check=True, timeout=120)
-            
-            console.print("[green]✓[/green] All services restarted successfully!")
-            console.print()
-            console.print("Output:")
-            console.print(result.stdout.decode())
-            
-        except subprocess.CalledProcessError as e:
-            console.print(f"[red]✗[/red] Failed to restart services: {e}")
-            if e.stdout:
-                console.print(f"Output: {e.stdout.decode()}")
-            if e.stderr:
-                console.print(f"Error: {e.stderr.decode()}")
-        except FileNotFoundError:
-            console.print("[red]✗[/red] docker-compose not found")
-        except subprocess.TimeoutExpired:
-            console.print("[yellow]⚠[/yellow] Operation timed out")
-        
-        self.wait_for_escape()
-    
-    def view_container_logs(self):
-        """View last 50 lines of container logs"""
-        console.clear()
-        console.print(Panel.fit("Container Logs", style="dim white"))
-        
-        try:
-            console.print("Fetching logs from all containers...")
-            console.print()
-            
-            # Get logs from docker-compose
-            result = subprocess.run(['docker-compose', 'logs', '--tail=50'], 
-                                  capture_output=True, check=True, timeout=10)
-            
-            output = result.stdout.decode()
-            if output:
+            result = subprocess.run(
+                ['docker-compose', 'config'],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            if result.returncode == 0:
+                console.print("[green]Configuration is valid![/green]")
+                console.print()
+                console.print("[dim]Resolved configuration:[/dim]")
+                # Truncate output if too long
+                output = result.stdout
+                if len(output) > 3000:
+                    output = output[:3000] + "\n... (truncated)"
                 console.print(output)
             else:
-                console.print("[dim]No logs available[/dim]")
-                
-            if result.stderr.decode():
-                console.print(f"[dim]Stderr:[/dim] {result.stderr.decode()}")
-                
-        except subprocess.CalledProcessError as e:
-            console.print(f"[red]✗[/red] Failed to fetch logs: {e}")
+                console.print("[red]Configuration has errors:[/red]")
+                console.print(result.stderr)
         except FileNotFoundError:
-            console.print("[red]✗[/red] docker-compose not found")
+            console.print("[red]docker-compose not found. Please install Docker Compose.[/red]")
         except subprocess.TimeoutExpired:
-            console.print("[yellow]⚠[/yellow] Operation timed out")
-        
-        self.wait_for_escape()
-    
-    def update_container_images(self):
-        """Update/pull latest container images"""
-        console.clear()
-        console.print(Panel.fit("Update Container Images", style="dim white"))
-        
-        console.print("Pulling latest container images...")
-        console.print("This may take several minutes depending on your connection...")
-        console.print()
-        
-        try:
-            # Pull latest images
-            result = subprocess.run(['docker-compose', 'pull'], 
-                                  capture_output=True, check=False, timeout=300)
-            
-            console.print("Output:")
-            console.print(result.stdout.decode())
-            
-            if result.returncode == 0:
-                console.print()
-                console.print("[green]✓[/green] Images updated successfully!")
-                console.print()
-                console.print("Would you like to restart services with new images? (y/n): ", end="")
-                
-                try:
-                    response = input().strip().lower()
-                    if response == 'y':
-                        self.restart_all_services()
-                except KeyboardInterrupt:
-                    pass
-            else:
-                console.print("[yellow]⚠[/yellow] Some images may have failed to update")
-                if result.stderr.decode():
-                    console.print(f"Error: {result.stderr.decode()}")
-                    
-        except FileNotFoundError:
-            console.print("[red]✗[/red] docker-compose not found")
-        except subprocess.TimeoutExpired:
-            console.print("[yellow]⚠[/yellow] Operation timed out. Pull may still be running.")
+            console.print("[yellow]Validation timed out[/yellow]")
         except Exception as e:
-            console.print(f"[red]✗[/red] Error updating images: {e}")
-        
+            console.print(f"[red]Validation failed: {e}[/red]")
+
         self.wait_for_escape()
-    
+
+    def start_all_containers(self):
+        """Start all Docker containers using docker-compose"""
+        console.clear()
+        self.display_header(show_status=False)
+        console.print(Panel.fit("Starting Containers", style="bright_cyan"))
+        console.print()
+
+        try:
+            console.print("[dim]Running docker-compose up -d --build...[/dim]")
+            console.print()
+            result = subprocess.run(
+                ['docker-compose', 'up', '-d', '--build'],
+                capture_output=False,
+                timeout=300
+            )
+            console.print()
+            if result.returncode == 0:
+                console.print("[green]All containers started successfully![/green]")
+            else:
+                console.print("[red]Some containers may have failed to start[/red]")
+        except subprocess.TimeoutExpired:
+            console.print("[yellow]Operation timed out (5 min limit)[/yellow]")
+        except FileNotFoundError:
+            console.print("[red]docker-compose not found. Please install Docker Compose.[/red]")
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/red]")
+
+        self.wait_for_escape()
+
+    def stop_all_containers(self):
+        """Stop all Docker containers using docker-compose"""
+        console.clear()
+        self.display_header(show_status=False)
+        console.print(Panel.fit("Stopping Containers", style="bright_yellow"))
+        console.print()
+
+        try:
+            console.print("[dim]Running docker-compose down...[/dim]")
+            console.print()
+            result = subprocess.run(
+                ['docker-compose', 'down'],
+                capture_output=False,
+                timeout=60
+            )
+            console.print()
+            if result.returncode == 0:
+                console.print("[green]All containers stopped successfully![/green]")
+            else:
+                console.print("[yellow]Some containers may not have stopped cleanly[/yellow]")
+        except subprocess.TimeoutExpired:
+            console.print("[yellow]Operation timed out (60 sec limit)[/yellow]")
+        except FileNotFoundError:
+            console.print("[red]docker-compose not found. Please install Docker Compose.[/red]")
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/red]")
+
+        self.wait_for_escape()
+
     def create_default_docker_compose(self):
         """Create a default docker-compose.yml file"""
         default_compose = """version: '3.8'

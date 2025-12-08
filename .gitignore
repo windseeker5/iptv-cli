@@ -41,6 +41,8 @@ ENV/
 jellyfin/
 data/
 
+doc/
+
 # IDE
 .vscode/
 .idea/
