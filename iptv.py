@@ -208,17 +208,26 @@ class IPTVMenuManager:
                 "Update IPTV db",
                 "Streaming Infrastructure"
             ]
-            
+
             terminal_menu = TerminalMenu(
                 options,
                 title="",
                 menu_cursor="> ",
+                accept_keys=("enter", "x"),
                 cycle_cursor=True,
                 clear_screen=False
             )
-            
+
             choice = terminal_menu.show()
-            
+            key = terminal_menu.chosen_accept_key
+
+            # Handle X key - stop restream
+            if key == 'x':
+                active = self.get_active_restream()
+                if active:
+                    self.stop_restream_quick()
+                continue
+
             if choice is None:  # ESC pressed
                 console.print("\nGoodbye!")
                 break
@@ -281,7 +290,14 @@ class IPTVMenuManager:
                     status_lines.append(f"  Account Status: {account[1]}")
                     status_lines.append(f"  Expires: {exp_date}")
                     status_lines.append(f"  Max Connections: {account[3]}")
-                
+
+                # Check for active restream
+                active_restream = self.get_active_restream()
+                if active_restream:
+                    status_lines.append("")
+                    status_lines.append(f"[red]●[/red] [bright_red bold]Restreaming:[/bright_red bold] {active_restream['channel_name']}")
+                    status_lines.append(f"  [dim]Press (X) to stop[/dim]")
+
                 # Join all lines and display in panel
                 status = "\n".join(status_lines)
                 console.print(Panel(status, style="dim white"))
@@ -584,7 +600,7 @@ class IPTVMenuManager:
                     self.wait_for_escape()
                 elif key == 'r':
                     if result_type != 'series':
-                        self.restream_placeholder(selected)
+                        self.quick_restream(selected)
                     else:
                         console.print("[yellow]Restream not available for series[/yellow]")
                         self.wait_for_escape()
@@ -738,7 +754,7 @@ class IPTVMenuManager:
                     continue  # Return to menu after viewing info
                     
                 elif chosen_key == 'r':  # Restream directly
-                    self.restream_placeholder(selected)
+                    self.quick_restream(selected)
                     continue  # Stay in menu after restreaming
                     
                 elif chosen_key == 'c':  # Download (changed from Copy URL)
@@ -803,7 +819,7 @@ class IPTVMenuManager:
             elif choice == 1:  # Info
                 self.show_live_stream_info(channel)
             elif choice == 2:  # Restream
-                self.restream_placeholder(channel)
+                self.quick_restream(channel)
             elif choice == 3:  # Save to Favorites
                 result = self.save_to_favorites(channel, 'live')
                 if result == -1:
@@ -856,7 +872,7 @@ class IPTVMenuManager:
             elif choice == 2:  # Info
                 self.show_vod_info(vod_item)
             elif choice == 3:  # Restream
-                self.restream_placeholder(vod_item)
+                self.quick_restream(vod_item)
             elif choice == 4:  # Save to Favorites
                 result = self.save_to_favorites(vod_item, 'vod')
                 if result == -1:
@@ -1108,7 +1124,7 @@ class IPTVMenuManager:
                     continue
                     
                 elif chosen_key == 'r':  # Restream
-                    self.restream_placeholder(selected)
+                    self.quick_restream(selected)
                     continue
                     
                 elif chosen_key == 'c':  # Download
@@ -1969,7 +1985,251 @@ class IPTVMenuManager:
         key = re.sub(r'[^a-zA-Z0-9_-]', '_', name.lower())
         key = re.sub(r'_+', '_', key)  # Remove multiple underscores
         return key[:50]  # Limit length
-    
+
+    def detect_running_restream(self):
+        """Detect FFmpeg processes streaming to our RTMP server.
+
+        This scans running processes to find FFmpeg instances pushing to
+        rtmp://localhost:1935/live/ - useful when app restarts but stream continues.
+
+        Returns dict with stream info or None if nothing found.
+        """
+        try:
+            # Use pgrep to find ffmpeg processes, then inspect their command lines
+            result = subprocess.run(
+                ['pgrep', '-a', 'ffmpeg'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+
+            if result.returncode != 0:
+                return None
+
+            for line in result.stdout.strip().split('\n'):
+                if not line:
+                    continue
+
+                # Check if this FFmpeg is streaming to our RTMP server
+                if 'rtmp://localhost:1935/live/' in line or 'rtmp://127.0.0.1:1935/live/' in line:
+                    parts = line.split(None, 1)
+                    if len(parts) < 2:
+                        continue
+
+                    pid = int(parts[0])
+                    cmd = parts[1]
+
+                    # Extract stream key from the RTMP URL
+                    stream_key = None
+                    source_url = None
+
+                    # Parse command line arguments
+                    import shlex
+                    try:
+                        args = shlex.split(cmd)
+                    except:
+                        args = cmd.split()
+
+                    for i, arg in enumerate(args):
+                        # Find source URL (after -i)
+                        if arg == '-i' and i + 1 < len(args):
+                            source_url = args[i + 1]
+                        # Find RTMP target URL
+                        if 'rtmp://localhost:1935/live/' in arg or 'rtmp://127.0.0.1:1935/live/' in arg:
+                            # Extract stream key from URL
+                            stream_key = arg.split('/live/')[-1]
+
+                    if stream_key:
+                        return {
+                            "stream_key": stream_key,
+                            "channel_name": f"[Recovered] {stream_key}",
+                            "pid": pid,
+                            "source_url": source_url or "Unknown",
+                            "started_at": None,
+                            "recovered": True  # Flag indicating this was detected, not tracked
+                        }
+
+            return None
+
+        except Exception:
+            return None
+
+    def get_active_restream(self):
+        """Returns dict with active restream info or None if nothing active.
+
+        First checks our metadata file, then falls back to process detection
+        in case the app crashed/restarted while a stream was running.
+        """
+        meta_file = os.path.join(self.data_dir, ".restream_active.json")
+
+        # First try: check our metadata file
+        if os.path.exists(meta_file):
+            try:
+                with open(meta_file, 'r') as f:
+                    data = json.load(f)
+                # Verify process is still running
+                os.kill(data['pid'], 0)
+                return data
+            except (ProcessLookupError, json.JSONDecodeError, KeyError, FileNotFoundError):
+                # Process dead or file corrupt, clean up
+                try:
+                    os.remove(meta_file)
+                except:
+                    pass
+
+        # Second try: detect running FFmpeg processes (for crash recovery)
+        detected = self.detect_running_restream()
+        if detected:
+            # Save the recovered metadata so we can track it properly now
+            self.save_restream_meta(
+                detected['stream_key'],
+                detected['channel_name'],
+                detected['pid'],
+                detected['source_url']
+            )
+            return detected
+
+        return None
+
+    def save_restream_meta(self, stream_key, channel_name, pid, source_url):
+        """Save restream metadata to JSON file"""
+        meta_file = os.path.join(self.data_dir, ".restream_active.json")
+        data = {
+            "stream_key": stream_key,
+            "channel_name": channel_name,
+            "pid": pid,
+            "source_url": source_url,
+            "started_at": datetime.now().isoformat()
+        }
+        with open(meta_file, 'w') as f:
+            json.dump(data, f)
+
+    def clear_restream_meta(self):
+        """Remove restream metadata file"""
+        meta_file = os.path.join(self.data_dir, ".restream_active.json")
+        if os.path.exists(meta_file):
+            try:
+                os.remove(meta_file)
+            except:
+                pass
+
+    def stop_restream_quick(self):
+        """Quick stop of active restream with minimal UI"""
+        active = self.get_active_restream()
+        if not active:
+            return False
+
+        try:
+            os.kill(active['pid'], signal.SIGTERM)
+            self.clear_restream_meta()
+            console.print(f"[green]✓[/green] Stopped restreaming: {active['channel_name']}")
+            time.sleep(1)
+            return True
+        except ProcessLookupError:
+            self.clear_restream_meta()
+            return False
+
+    def quick_restream(self, item):
+        """One-click restream - starts immediately without submenu"""
+        # Check if nginx container is running
+        container_status = self.check_container_status()
+        if "[green]" not in container_status:
+            console.print("[red]✗[/red] NGINX-RTMP container not running")
+            console.print("[dim]Start it from: Streaming Infrastructure → Start All Containers[/dim]")
+            self.wait_for_escape()
+            return
+
+        # Check if ffmpeg is available
+        try:
+            subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            console.print("[red]✗[/red] FFmpeg not found")
+            self.wait_for_escape()
+            return
+
+        channel_name = item.get('name', 'Unknown')
+        source_url = item.get('stream_url')
+
+        if not source_url:
+            console.print("[red]✗[/red] No stream URL available")
+            self.wait_for_escape()
+            return
+
+        # Check if already restreaming
+        active = self.get_active_restream()
+
+        if active:
+            if active['channel_name'] == channel_name:
+                # Same channel - show info
+                console.clear()
+                console.print(Panel.fit(f"Already Restreaming: {channel_name}", style="green"))
+                console.print()
+                console.print(f"[bright_yellow]HLS:[/bright_yellow] http://localhost:8080/hls/{active['stream_key']}.m3u8")
+                console.print(f"[bright_yellow]RTMP:[/bright_yellow] rtmp://localhost:1935/live/{active['stream_key']}")
+                self.wait_for_escape()
+                return
+            else:
+                # Different channel - ask to switch
+                console.print()
+                console.print(f"[yellow]Currently restreaming:[/yellow] {active['channel_name']}")
+                try:
+                    confirm = input(f"Switch to '{channel_name}'? [Y/n]: ").strip().lower()
+                except KeyboardInterrupt:
+                    return
+                if confirm not in ['y', 'yes', '']:
+                    return
+                # Stop current restream
+                self.stop_restream_quick()
+
+        # Start new restream
+        stream_key = self._generate_stream_key(channel_name)
+        target_url = f"rtmp://localhost:1935/live/{stream_key}"
+
+        console.print(f"\n[dim]Starting restream...[/dim]")
+
+        # Build FFmpeg command
+        # Video: copy (no re-encoding for best quality)
+        # Audio: transcode to AAC (required for RTMP/FLV - AC3/EAC3 not supported)
+        ffmpeg_cmd = [
+            'ffmpeg',
+            '-i', source_url,
+            '-c:v', 'copy',
+            '-c:a', 'aac',
+            '-b:a', '192k',
+            '-ac', '2',  # Downmix to stereo for compatibility
+            '-f', 'flv',
+            target_url
+        ]
+
+        try:
+            process = subprocess.Popen(
+                ffmpeg_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True
+            )
+
+            # Give it a moment to fail if it's going to
+            time.sleep(1)
+            if process.poll() is not None:
+                console.print("[red]✗[/red] Restream failed to start")
+                self.wait_for_escape()
+                return
+
+            # Save metadata
+            self.save_restream_meta(stream_key, channel_name, process.pid, source_url)
+
+            # Show success
+            console.print(f"[green]✓[/green] Restreaming: {channel_name}")
+            console.print()
+            console.print(f"[bright_yellow]HLS:[/bright_yellow] http://localhost:8080/hls/{stream_key}.m3u8")
+            console.print(f"[bright_yellow]RTMP:[/bright_yellow] rtmp://localhost:1935/live/{stream_key}")
+            time.sleep(2)
+
+        except Exception as e:
+            console.print(f"[red]✗[/red] Failed to start restream: {e}")
+            self.wait_for_escape()
+
     def _start_restream(self, item, stream_key, transcode=False):
         """Start restreaming with FFmpeg"""
         console.clear()
@@ -2055,11 +2315,10 @@ class IPTVMenuManager:
             console.print()
             console.print("The stream should be available in a few seconds.")
             console.print("Check 'Container Status & URLs' for monitoring.")
-            
-            # Save process info for later stopping
-            pid_file = os.path.join(self.data_dir, f".restream_{stream_key}.pid")
-            with open(pid_file, "w") as f:
-                f.write(str(process.pid))
+
+            # Save restream metadata
+            source_url = item.get('stream_url') or item.get('url', '')
+            self.save_restream_meta(stream_key, item.get('name', 'Unknown'), process.pid, source_url)
                 
         except Exception as e:
             console.print(f"[red]✗[/red] Failed to start restream: {e}")
@@ -2089,38 +2348,52 @@ class IPTVMenuManager:
         """Stop active restream processes"""
         console.clear()
         console.print(Panel.fit("Stop Restream", style="dim white"))
-        
+
+        # Check new metadata file first
+        active = self.get_active_restream()
+
+        if active:
+            try:
+                os.kill(active['pid'], signal.SIGTERM)
+                console.print(f"[green]✓[/green] Stopped restream: {active['channel_name']}")
+            except ProcessLookupError:
+                console.print(f"[yellow]Restream already stopped: {active['channel_name']}[/yellow]")
+            self.clear_restream_meta()
+            self.wait_for_escape()
+            return
+
+        # Fallback: check old PID files for backwards compatibility
         pid_files = glob.glob(os.path.join(self.data_dir, ".restream_*.pid"))
-        
+
         if not pid_files:
             console.print("No active restreams found")
             self.wait_for_escape()
             return
-        
+
         stopped_count = 0
         for pid_file in pid_files:
             try:
                 with open(pid_file, "r") as f:
                     pid = int(f.read().strip())
-                
+
                 # Try to terminate the process
                 os.kill(pid, signal.SIGTERM)
                 os.remove(pid_file)
                 stopped_count += 1
                 console.print(f"[green]✓[/green] Stopped restream process {pid}")
-                
+
             except (OSError, ValueError, ProcessLookupError):
                 # Process already dead or invalid PID
                 try:
                     os.remove(pid_file)
                 except:
                     pass
-        
+
         if stopped_count > 0:
             console.print(f"[green]✓[/green] Stopped {stopped_count} restream(s)")
         else:
             console.print("[yellow]No active restreams to stop[/yellow]")
-        
+
         self.wait_for_escape()
     
     def show_channel_details(self, channel):
@@ -2330,7 +2603,6 @@ class IPTVMenuManager:
                     options.append("Review/Edit docker-compose.yml")
                 else:
                     options.append("Create docker-compose.yml")
-                options.append("Validate docker-compose.yml")
 
             # Installation options (only show if not installed)
             if not docker_installed:
@@ -2360,8 +2632,6 @@ class IPTVMenuManager:
                 self.show_container_status_and_urls()
             elif "Review/Edit docker-compose.yml" in selected_option or "Create docker-compose.yml" in selected_option:
                 self.edit_docker_compose()
-            elif "Validate docker-compose.yml" in selected_option:
-                self.validate_docker_compose()
             elif "Start All Containers" in selected_option:
                 self.start_all_containers()
             elif "Stop All Containers" in selected_option:
