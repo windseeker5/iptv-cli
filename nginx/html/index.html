@@ -235,65 +235,7 @@
             color: white;
             box-shadow: 0 5px 15px rgba(0, 255, 65, 0.3);
         }
-        
-        .tools-section {
-            background: var(--card-bg);
-            border-radius: 15px;
-            padding: 30px;
-            margin-bottom: 40px;
-            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);
-            border: 1px solid var(--border-color);
-        }
-        
-        .tools-section h2 {
-            color: var(--text-primary);
-            margin-bottom: 25px;
-            font-size: 1.8rem;
-            border-bottom: 3px solid var(--primary-green);
-            padding-bottom: 10px;
-        }
-        
-        .tool-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-        }
-        
-        .tool-card {
-            background: #0a0a0a;
-            padding: 20px;
-            border-radius: 10px;
-            text-align: center;
-            transition: all 0.3s ease;
-            cursor: pointer;
-            border: 2px solid transparent;
-        }
-        
-        .tool-card:hover {
-            background: var(--card-hover);
-            border-color: var(--primary-green);
-            transform: translateY(-3px);
-            box-shadow: 0 5px 15px rgba(0, 255, 65, 0.2);
-        }
-        
-        .tool-card i {
-            font-size: 2.5rem;
-            color: var(--primary-green);
-            margin-bottom: 10px;
-        }
-        
-        .tool-card h4 {
-            font-size: 1.1rem;
-            margin-bottom: 5px;
-            color: var(--text-primary);
-        }
-        
-        .tool-card p {
-            font-size: 0.85rem;
-            color: var(--text-secondary);
-            margin: 0;
-        }
-        
+
         .documentation {
             background: var(--card-bg);
             border-radius: 15px;
@@ -395,9 +337,6 @@
                     <span class="status-indicator online" id="samba-status"></span>
                     <strong>Samba:</strong> <span id="samba-text">Checking...</span>
                 </span>
-                <span class="status-item">
-                    <i class="bi bi-clock"></i> <strong>Uptime:</strong> <span id="uptime">2h 34m</span>
-                </span>
             </div>
         </div>
     </div>
@@ -432,9 +371,6 @@
                 <a href="http://localhost:8096" target="_blank" class="btn-service success">
                     <i class="bi bi-box-arrow-up-right"></i> Open Jellyfin
                 </a>
-                <a href="#" onclick="showJellyfinInfo()" class="btn-service info">
-                    <i class="bi bi-info-circle"></i> Setup Info
-                </a>
             </div>
 
             <!-- NGINX-RTMP Card -->
@@ -445,12 +381,6 @@
                     Input: rtmp://localhost:1935<br>
                     Output: http://localhost:8080
                 </div>
-                <a href="/stat" class="btn-service info">
-                    <i class="bi bi-graph-up"></i> RTMP Stats
-                </a>
-                <a href="#rtmp-guide" class="btn-service primary">
-                    <i class="bi bi-book"></i> Setup Guide
-                </a>
             </div>
 
             <!-- Samba Shares Card -->
@@ -460,66 +390,6 @@
                 <div class="service-info">
                     SMB Port: 445<br>
                     5 shares available (USB mounted)
-                </div>
-                <a href="/samba.html" class="btn-service warning">
-                    <i class="bi bi-folder-fill"></i> Browse Shares
-                </a>
-                <a href="#" onclick="copyToClipboard('smb://localhost')" class="btn-service info">
-                    <i class="bi bi-clipboard"></i> Copy SMB URL
-                </a>
-            </div>
-        </div>
-
-        <!-- USB Drive Status Card -->
-        <div class="service-card" style="border-top: 4px solid var(--success-color);">
-            <h3><i class="bi bi-usb-drive"></i> USB Media Drive</h3>
-            <p>External USB storage for recordings and media library</p>
-            <div class="service-info">
-                Mount: /mnt/media/<br>
-                Status: <span id="usb-status" style="color: var(--success-color);">Mounted</span><br>
-                Space: <span id="usb-space">Checking...</span>
-            </div>
-            <a href="/usb-guide.html" class="btn-service success">
-                <i class="bi bi-book"></i> Setup Guide
-            </a>
-            <a href="#" onclick="checkUSBStatus()" class="btn-service info">
-                <i class="bi bi-hdd"></i> Check Status
-            </a>
-        </div>
-
-        <!-- Tools Section -->
-        <div class="tools-section">
-            <h2><i class="bi bi-tools"></i> Quick Tools</h2>
-            <div class="tool-grid">
-                <div class="tool-card" onclick="window.location.href='/recordings'">
-                    <i class="bi bi-record-circle"></i>
-                    <h4>Recordings</h4>
-                    <p>View saved streams</p>
-                </div>
-                <div class="tool-card" onclick="testStream()">
-                    <i class="bi bi-play-btn"></i>
-                    <h4>Test Stream</h4>
-                    <p>Verify streaming</p>
-                </div>
-                <div class="tool-card" onclick="window.location.href='/logs'">
-                    <i class="bi bi-terminal"></i>
-                    <h4>View Logs</h4>
-                    <p>Container logs</p>
-                </div>
-                <div class="tool-card" onclick="restartServices()">
-                    <i class="bi bi-arrow-clockwise"></i>
-                    <h4>Restart All</h4>
-                    <p>Restart services</p>
-                </div>
-                <div class="tool-card" onclick="window.location.href='/docs.html'">
-                    <i class="bi bi-question-circle"></i>
-                    <h4>Help Docs</h4>
-                    <p>Documentation</p>
-                </div>
-                <div class="tool-card" onclick="showSystemInfo()">
-                    <i class="bi bi-cpu"></i>
-                    <h4>System Info</h4>
-                    <p>Resource usage</p>
                 </div>
             </div>
         </div>
@@ -595,94 +465,18 @@
         function updateStatus(service, status, text) {
             const indicator = document.getElementById(`${service}-status`);
             const textElement = document.getElementById(`${service}-text`);
-            
+
             indicator.className = `status-indicator ${status}`;
             textElement.textContent = text;
-            
+
             if (service === 'jellyfin') {
                 document.getElementById('jellyfin-detail').textContent = text;
             }
         }
 
-        // Copy to clipboard
-        function copyToClipboard(text) {
-            navigator.clipboard.writeText(text).then(() => {
-                alert('Copied to clipboard: ' + text);
-            });
-        }
-
-        // Show Jellyfin info
-        function showJellyfinInfo() {
-            alert('Jellyfin Media Server\n\n' +
-                  'URL: http://localhost:8096\n' +
-                  'First-time setup required\n' +
-                  'Media paths:\n' +
-                  '  • /media/movies - Movies\n' +
-                  '  • /media/music - Music\n' +
-                  '  • /media/photos - Photos\n' +
-                  '  • /media/recordings - TV recordings');
-        }
-
-        // Test stream
-        function testStream() {
-            window.open('/live?stream=test', '_blank');
-        }
-
-        // Restart services (placeholder)
-        function restartServices() {
-            if (confirm('Restart all Docker services?\n\nThis will briefly interrupt streaming.')) {
-                alert('Please use the CLI menu: Streaming Infrastructure → Restart All Services');
-            }
-        }
-
-        // Show system info (placeholder)
-        function showSystemInfo() {
-            alert('System Information\n\n' +
-                  'For detailed system stats, use:\n' +
-                  '• CLI: Launch Lazydocker\n' +
-                  '• Web: http://localhost:8080/stat (RTMP stats)');
-        }
-
-        // Check USB status
-        function checkUSBStatus() {
-            // Simulate USB check
-            const mounted = true;
-            const totalSpace = '2.7 TB';
-            const availSpace = '1.2 TB';
-            
-            document.getElementById('usb-space').textContent = `${availSpace} free of ${totalSpace}`;
-            document.getElementById('usb-status').textContent = mounted ? 'Mounted' : 'Not Mounted';
-            document.getElementById('usb-status').style.color = mounted ? 'var(--success-color)' : 'var(--danger-color)';
-            
-            alert('USB Drive Status:\n\n' +
-                  `Mount Point: /mnt/media/\n` +
-                  `Total Space: ${totalSpace}\n` +
-                  `Available: ${availSpace}\n` +
-                  `Status: ${mounted ? 'Mounted and Ready' : 'Not Mounted'}\n\n` +
-                  'Folders:\n' +
-                  '• RECORDS - TV Recordings\n' +
-                  '• MOVIES - Movie Collection\n' +
-                  '• MUSIC - Music Library\n' +
-                  '• PHOTOS - Photo Gallery');
-        }
-
-        // Update uptime
-        let startTime = Date.now();
-        function updateUptime() {
-            const elapsed = Date.now() - startTime;
-            const hours = Math.floor(elapsed / 3600000);
-            const minutes = Math.floor((elapsed % 3600000) / 60000);
-            document.getElementById('uptime').textContent = `${hours}h ${minutes}m`;
-        }
-
         // Initialize
         checkServices();
         setInterval(checkServices, 30000); // Check every 30 seconds
-        setInterval(updateUptime, 60000); // Update uptime every minute
-        updateUptime();
-        
-        // Check USB on load
-        setTimeout(checkUSBStatus, 1500);
     </script>
 </body>
 </html>
