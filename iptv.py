@@ -36,7 +36,8 @@ import signal
 import glob
 import re
 import base64
-from datetime import datetime
+from datetime import datetime, timedelta
+import threading
 from dotenv import load_dotenv
 from simple_term_menu import TerminalMenu
 from rich.console import Console
@@ -80,8 +81,34 @@ class IPTVMenuManager:
         # Check database age and auto-update if needed
         self.auto_update_database_if_needed()
 
+        # Ensure scheduled recordings table exists (persists across database updates)
+        self.ensure_scheduled_recordings_table()
+
         # Detect platform capabilities for hardware acceleration
         self._is_raspberry_pi = None  # Cache detection result
+
+    def ensure_scheduled_recordings_table(self):
+        """Ensure scheduled_recordings table exists (survives database rebuilds)"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS scheduled_recordings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    stream_id INTEGER,
+                    channel_name TEXT,
+                    start_time INTEGER,
+                    duration INTEGER,
+                    output_path TEXT,
+                    timer_unit TEXT,
+                    status TEXT DEFAULT 'pending',
+                    created_at INTEGER
+                )
+            ''')
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            console.print(f"[yellow]Warning: Could not create scheduled_recordings table: {e}[/yellow]")
 
     def is_raspberry_pi(self):
         """Detect if running on Raspberry Pi for hardware acceleration"""
@@ -432,7 +459,7 @@ class IPTVMenuManager:
                 db_line,
                 f"  Search Results: '{search_term}' ({len(all_results)} found)",
                 "",
-                f"  [dim](p)lay  (s)ave  (d)elete  (r)estream  (c)download  |  ESC = back[/dim]"
+                f"  [dim](p)lay  (s)ave  (d)elete  (r)estream  (c)download  (t)imer  |  ESC = back[/dim]"
             ]
             console.print(Panel("\n".join(panel_lines), style="dim white"))
             console.print()
@@ -549,7 +576,7 @@ class IPTVMenuManager:
                 options,
                 title="",
                 menu_cursor="> ",
-                accept_keys=("enter", "p", "i", "s", "d", "r", "c"),
+                accept_keys=("enter", "p", "i", "s", "d", "r", "c", "t"),
                 cycle_cursor=True,
                 clear_screen=False,
                 preview_command=preview_info,
@@ -571,12 +598,25 @@ class IPTVMenuManager:
             if 0 <= choice < len(all_results):
                 result_type, selected = all_results[choice]
 
-                # Execute action immediately - NO extra menu
-                if key == 'p' or key == 'enter':
+                # Handle keyboard shortcuts
+                if key == 'p':  # Play directly
                     if result_type == 'series':
                         self.show_series_info(selected)
                     else:
                         self.play_with_mpv(selected)
+                elif key == 'enter':  # Open action menu
+                    if result_type == 'live':
+                        self.live_stream_action_menu(selected)
+                    elif result_type == 'vod':
+                        self.vod_action_menu(selected)
+                    else:
+                        self.show_series_info(selected)
+                elif key == 't':  # Schedule recording (Timer)
+                    if result_type == 'live':
+                        self.schedule_recording(selected)
+                    else:
+                        console.print("[yellow]Schedule recording only available for live channels[/yellow]")
+                        self.wait_for_escape()
                 elif key == 'i':
                     if result_type == 'live':
                         self.show_live_stream_info(selected)
@@ -715,7 +755,7 @@ class IPTVMenuManager:
                 options,
                 title="",
                 menu_cursor="> ",
-                accept_keys=("enter", "p", "i", "r", "c", "s", "d"),
+                accept_keys=("enter", "p", "i", "r", "c", "s", "d", "t"),
                 show_shortcut_hints=False
             )
             
@@ -782,7 +822,11 @@ class IPTVMenuManager:
                     console.print("Press any key to continue...")
                     input()
                     continue  # Refresh menu immediately
-                    
+
+                elif chosen_key == 't':  # Schedule recording (Timer)
+                    self.schedule_recording(selected)
+                    continue  # Stay in menu after scheduling
+
                 else:  # Enter key - show action menu
                     self.channel_action_menu(selected)
     
@@ -797,22 +841,23 @@ class IPTVMenuManager:
             
             options = [
                 "Watch Stream",
-                "Stream Information", 
+                "Stream Information",
                 "Restream",
+                "Schedule Recording",
                 "Save to Favorites",
                 "Copy Stream URL",
                 "Back to Results"
             ]
-            
+
             terminal_menu = TerminalMenu(
                 options,
                 title="",
                 menu_cursor="> "
             )
-            
+
             choice = terminal_menu.show()
-            
-            if choice is None or choice == 5:  # Back
+
+            if choice is None or choice == 6:  # Back
                 break
             elif choice == 0:  # Watch
                 self.play_with_mpv(channel)
@@ -820,7 +865,9 @@ class IPTVMenuManager:
                 self.show_live_stream_info(channel)
             elif choice == 2:  # Restream
                 self.quick_restream(channel)
-            elif choice == 3:  # Save to Favorites
+            elif choice == 3:  # Schedule Recording
+                self.schedule_recording(channel)
+            elif choice == 4:  # Save to Favorites
                 result = self.save_to_favorites(channel, 'live')
                 if result == -1:
                     console.print("[yellow]⚠[/yellow] Already in favorites!")
@@ -829,7 +876,7 @@ class IPTVMenuManager:
                 else:
                     console.print("[red]✗[/red] Failed to add to favorites")
                 self.wait_for_escape()
-            elif choice == 4:  # Copy URL
+            elif choice == 5:  # Copy URL
                 self.copy_stream_url(channel)
     
     def vod_action_menu(self, vod_item):
@@ -1574,12 +1621,16 @@ class IPTVMenuManager:
                     console.print()
                 
                 if start_time and end_time:
-                    # Format times
+                    # Format times - convert from UTC to local timezone
                     try:
-                        from datetime import datetime
-                        start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
-                        end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
-                        time_str = f"{start_dt.strftime('%H:%M')} - {end_dt.strftime('%H:%M')}"
+                        from datetime import datetime, timezone
+                        # Parse as UTC datetime (API returns UTC times)
+                        start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+                        end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+                        # Convert to local timezone
+                        start_local = start_dt.astimezone()
+                        end_local = end_dt.astimezone()
+                        time_str = f"{start_local.strftime('%H:%M')} - {end_local.strftime('%H:%M')}"
                     except:
                         time_str = f"{start_time} - {end_time}"
                     
@@ -1922,7 +1973,540 @@ class IPTVMenuManager:
         thread.daemon = True
         thread.start()
         console.print("Download started in background thread...")
-    
+
+    def schedule_recording(self, live_item):
+        """Schedule a recording for a live channel at a specific time"""
+        console.clear()
+        console.print(Panel.fit(f"Schedule Recording: {live_item['name']}", style="cyan"))
+        console.print()
+
+        # Get USB_RECORDS_PATH from environment
+        records_path = os.getenv('USB_RECORDS_PATH', '/mnt/media/RECORDS')
+
+        # Check if records path exists and is writable
+        if not os.path.exists(records_path):
+            console.print(f"[yellow]Warning:[/yellow] Records path does not exist: {records_path}")
+            console.print("Attempting to create directory...")
+            try:
+                os.makedirs(records_path, exist_ok=True)
+                console.print(f"[green]✓[/green] Created {records_path}")
+            except Exception as e:
+                console.print(f"[red]✗[/red] Cannot create records path: {e}")
+                console.print("\nPlease ensure USB_RECORDS_PATH is set correctly in .env")
+                self.wait_for_escape()
+                return
+
+        # Test write permission
+        test_file = os.path.join(records_path, ".write_test")
+        try:
+            with open(test_file, 'w') as f:
+                f.write("test")
+            os.remove(test_file)
+        except Exception as e:
+            console.print(f"[red]✗[/red] Cannot write to records path: {e}")
+            console.print("Check permissions on your Samba share mount")
+            self.wait_for_escape()
+            return
+
+        console.print(f"[green]✓[/green] Recording will be saved to: {records_path}")
+        console.print()
+
+        # Get start time from user
+        console.print("[bold]Enter start date/time:[/bold]")
+        console.print("[dim]Formats: 'now', '19:00', 'tomorrow 19:00', '2024-12-09 19:00'[/dim]")
+        console.print()
+
+        try:
+            start_input = input("Start time: ").strip()
+            if not start_input:
+                console.print("[red]Cancelled[/red]")
+                self.wait_for_escape()
+                return
+        except KeyboardInterrupt:
+            return
+
+        # Parse start time
+        from dateutil import parser as dateparser
+        import time
+
+        try:
+            if start_input.lower() == 'now':
+                start_time = datetime.now()
+            elif ':' in start_input and len(start_input) <= 5:
+                # Just time like "19:00" - ALWAYS assume today
+                today = datetime.now().date()
+                parsed_time = datetime.strptime(start_input, "%H:%M").time()
+                start_time = datetime.combine(today, parsed_time)
+            elif start_input.lower().startswith('tomorrow'):
+                # "tomorrow 19:00"
+                time_part = start_input.lower().replace('tomorrow', '').strip()
+                tomorrow = datetime.now().date() + timedelta(days=1)
+                if time_part:
+                    parsed_time = datetime.strptime(time_part, "%H:%M").time()
+                else:
+                    parsed_time = datetime.now().time()
+                start_time = datetime.combine(tomorrow, parsed_time)
+            else:
+                # Try to parse as full datetime
+                start_time = dateparser.parse(start_input)
+                if not start_time:
+                    raise ValueError("Could not parse date")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Invalid date format: {e}")
+            console.print("Try formats like: 'now', '19:00', 'tomorrow 19:00', '2024-12-09 19:00'")
+            self.wait_for_escape()
+            return
+
+        # Check if start time is in the past (allow 1 minute tolerance for "now")
+        if start_time < datetime.now() - timedelta(minutes=1):
+            console.print(f"[red]✗[/red] Start time is in the past: {start_time}")
+            self.wait_for_escape()
+            return
+
+        # Track if user wants to start "now" - we'll set actual time after confirmation
+        start_now = start_input.lower() == 'now'
+
+        if start_now:
+            console.print(f"[green]✓[/green] Start time: NOW (immediately after confirmation)")
+        else:
+            console.print(f"[green]✓[/green] Start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        console.print()
+
+        # Get duration
+        console.print("[bold]Select recording duration:[/bold]")
+        duration_options = [
+            ("30 minutes", 30 * 60),
+            ("1 hour", 60 * 60),
+            ("1.5 hours", 90 * 60),
+            ("2 hours", 2 * 60 * 60),
+            ("2.5 hours", 150 * 60),
+            ("3 hours", 3 * 60 * 60),
+            ("4 hours", 4 * 60 * 60),
+            ("Custom duration", None),
+            ("Cancel", None)
+        ]
+
+        duration_menu = TerminalMenu(
+            [opt[0] for opt in duration_options],
+            title="Duration"
+        )
+        duration_idx = duration_menu.show()
+
+        if duration_idx is None or duration_options[duration_idx][0] == "Cancel":
+            console.print("[red]Cancelled[/red]")
+            self.wait_for_escape()
+            return
+
+        if duration_options[duration_idx][1] is None:
+            # Custom duration
+            try:
+                custom_mins = input("Enter duration in minutes: ").strip()
+                duration_seconds = int(custom_mins) * 60
+                if duration_seconds < 60:
+                    console.print("[red]Duration must be at least 1 minute[/red]")
+                    self.wait_for_escape()
+                    return
+            except (ValueError, KeyboardInterrupt):
+                console.print("[red]Invalid duration[/red]")
+                self.wait_for_escape()
+                return
+        else:
+            duration_seconds = duration_options[duration_idx][1]
+
+        duration_hours = duration_seconds / 3600
+        console.print(f"[green]✓[/green] Duration: {duration_hours:.1f} hours ({duration_seconds} seconds)")
+        console.print()
+
+        # Generate output filename - try to use EPG program title if available
+        program_title = None
+        try:
+            # Look up EPG for the scheduled time
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            # For "now", use current time; otherwise use scheduled start_time
+            lookup_time = int(datetime.now().timestamp()) if start_now else int(start_time.timestamp())
+            cursor.execute('''
+                SELECT title FROM epg
+                WHERE stream_id = ? AND start_time <= ? AND end_time > ?
+                LIMIT 1
+            ''', (live_item.get('stream_id'), lookup_time, lookup_time))
+            row = cursor.fetchone()
+            if row and row[0]:
+                program_title = row[0]
+            conn.close()
+        except Exception:
+            pass
+
+        # Use program title if found, otherwise channel name
+        if program_title:
+            base_name = program_title
+            console.print(f"[green]✓[/green] EPG Program: {program_title}")
+        else:
+            base_name = live_item['name']
+            console.print(f"[dim]No EPG data - using channel name[/dim]")
+
+        safe_name = "".join(c for c in base_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        safe_name = safe_name.replace(' ', '_').lower()[:50]
+        date_str = start_time.strftime('%Y-%m-%d_%H%M') if not start_now else datetime.now().strftime('%Y-%m-%d_%H%M')
+        output_filename = f"{safe_name}_{date_str}.ts"
+        output_path = os.path.join(records_path, output_filename)
+
+        console.print(f"Output file: [cyan]{output_path}[/cyan]")
+        console.print()
+
+        # Create systemd timer command
+        # Format: systemd-run --user --on-calendar="YYYY-MM-DD HH:MM:SS" --unit=NAME COMMAND
+        timer_unit = f"iptv-record-{int(time.time())}"
+        calendar_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
+
+        wrapper_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "record_wrapper.sh")
+
+        # Build the systemd-run command
+        systemd_cmd = [
+            "systemd-run",
+            "--user",
+            f"--on-calendar={calendar_str}",
+            f"--unit={timer_unit}",
+            "--description=IPTV Scheduled Recording",
+            "/bin/bash",
+            wrapper_path,
+            "--stream-id", str(live_item.get('stream_id', 0)),
+            "--duration", str(duration_seconds),
+            "--output", output_path,
+            "--channel-name", live_item['name']
+        ]
+
+        console.print("[bold]Confirm recording schedule:[/bold]")
+        console.print()
+
+        table = Table(show_header=False, box=None)
+        table.add_column("Field", style="dim")
+        table.add_column("Value", style="cyan")
+        table.add_row("Channel", live_item['name'])
+        # For "now", show that it starts immediately; otherwise show the scheduled time
+        if start_now:
+            table.add_row("Start", "NOW (immediately)")
+        else:
+            table.add_row("Start", f"{start_time.strftime('%Y-%m-%d %H:%M:%S')} (local time)")
+        table.add_row("Duration", f"{duration_hours:.1f} hours")
+        if not start_now:
+            table.add_row("End (approx)", (start_time + timedelta(seconds=duration_seconds)).strftime('%Y-%m-%d %H:%M:%S'))
+        table.add_row("Output", output_path)
+        table.add_row("Timer", timer_unit)
+        console.print(table)
+        console.print()
+
+        confirm_menu = TerminalMenu(
+            ["Confirm and Schedule", "Cancel"],
+            title="Schedule this recording?"
+        )
+        confirm_idx = confirm_menu.show()
+
+        if confirm_idx != 0:
+            console.print("[red]Cancelled[/red]")
+            self.wait_for_escape()
+            return
+
+        # If "now" was selected, use --on-active for relative time (more reliable)
+        if start_now:
+            start_time = datetime.now() + timedelta(seconds=10)
+            console.print(f"[dim]Actual start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')} (local)[/dim]")
+            # Use --on-active for "now" which is relative (avoids timezone issues)
+            systemd_cmd[2] = "--on-active=10s"
+        else:
+            # For scheduled times, use local timezone explicitly
+            # Format: "YYYY-MM-DD HH:MM:SS TZ" - systemd needs local time specification
+            local_tz = datetime.now().astimezone().strftime('%Z')  # Get local timezone like "EST"
+            calendar_str = f"{start_time.strftime('%Y-%m-%d %H:%M:%S')} {local_tz}"
+            console.print(f"[dim]Scheduled time: {calendar_str}[/dim]")
+            systemd_cmd[2] = f"--on-calendar={calendar_str}"
+
+        # Execute systemd-run command
+        try:
+            # Debug: show the command being run
+            console.print(f"[dim]Running: {' '.join(systemd_cmd)}[/dim]")
+
+            result = subprocess.run(
+                systemd_cmd,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+
+            # Debug: show result
+            console.print(f"[dim]Return code: {result.returncode}[/dim]")
+            if result.stdout:
+                console.print(f"[dim]stdout: {result.stdout}[/dim]")
+            if result.stderr:
+                console.print(f"[dim]stderr: {result.stderr}[/dim]")
+
+            if result.returncode == 0:
+                # Save to database
+                try:
+                    conn = sqlite3.connect(self.db_path)
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                        INSERT INTO scheduled_recordings
+                        (stream_id, channel_name, start_time, duration, output_path, timer_unit, status, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+                    ''', (
+                        live_item.get('stream_id', 0),
+                        live_item['name'],
+                        int(start_time.timestamp()),
+                        duration_seconds,
+                        output_path,
+                        timer_unit,
+                        int(datetime.now().timestamp())
+                    ))
+                    recording_id = cursor.lastrowid
+                    conn.commit()
+                    conn.close()
+                except Exception as db_err:
+                    console.print(f"[yellow]Warning: Could not save to database: {db_err}[/yellow]")
+                    recording_id = None
+
+                console.print()
+                console.print(Panel.fit(
+                    "[green]Recording Scheduled Successfully![/green]\n\n"
+                    f"Channel: {live_item['name']}\n"
+                    f"Start: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f"Duration: {duration_hours:.1f} hours\n"
+                    f"Output: {output_path}\n"
+                    f"Timer: {timer_unit}\n\n"
+                    "[dim]Recording will execute even if this app is closed.[/dim]\n"
+                    "[dim]View timers: systemctl --user list-timers | grep iptv[/dim]",
+                    style="green"
+                ))
+            else:
+                console.print(f"[red]✗[/red] Failed to schedule recording")
+                console.print(f"Error: {result.stderr}")
+
+                # Check for common issues
+                if "linger" in result.stderr.lower():
+                    console.print()
+                    console.print("[yellow]Tip: Enable lingering for your user:[/yellow]")
+                    console.print(f"  sudo loginctl enable-linger {os.getenv('USER')}")
+
+        except subprocess.TimeoutExpired:
+            console.print("[red]✗[/red] Timeout scheduling recording")
+        except FileNotFoundError:
+            console.print("[red]✗[/red] systemd-run not found")
+            console.print("This feature requires systemd (Linux)")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Error scheduling recording: {e}")
+
+        self.wait_for_escape()
+
+    def view_scheduled_recordings(self):
+        """View and manage scheduled recordings"""
+        while True:
+            console.clear()
+            console.print(Panel.fit("Scheduled Recordings", style="cyan"))
+            console.print()
+
+            # Get recordings from database
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT id, channel_name, start_time, duration, output_path, timer_unit, status
+                    FROM scheduled_recordings
+                    ORDER BY start_time DESC
+                    LIMIT 50
+                ''')
+                recordings = cursor.fetchall()
+                conn.close()
+            except Exception as e:
+                console.print(f"[red]Error loading recordings: {e}[/red]")
+                self.wait_for_escape()
+                return
+
+            if not recordings:
+                console.print("[dim]No scheduled recordings found.[/dim]")
+                console.print()
+                console.print("To schedule a recording:")
+                console.print("1. Search for a live channel")
+                console.print("2. Select the channel")
+                console.print("3. Choose 'Schedule Recording'")
+                self.wait_for_escape()
+                return
+
+            # Build menu options
+            menu_options = []
+            for rec in recordings:
+                rec_id, channel, start_ts, duration, output, timer, status = rec
+                start_dt = datetime.fromtimestamp(start_ts)
+                duration_hrs = duration / 3600
+
+                # Status indicator
+                if status == 'pending':
+                    if start_dt > datetime.now():
+                        status_icon = "[cyan]⏰[/cyan]"  # Scheduled
+                    else:
+                        status_icon = "[yellow]?[/yellow]"  # Should have started
+                elif status == 'recording':
+                    status_icon = "[red]●[/red]"  # Recording
+                elif status == 'completed':
+                    status_icon = "[green]✓[/green]"  # Done
+                elif status == 'cancelled':
+                    status_icon = "[dim]✗[/dim]"  # Cancelled
+                else:
+                    status_icon = "[red]![/red]"  # Failed/unknown
+
+                menu_options.append(
+                    f"{status_icon} {channel[:30]:30} | {start_dt.strftime('%m-%d %H:%M')} | {duration_hrs:.1f}h | {status}"
+                )
+
+            menu_options.append("─" * 60)
+            menu_options.append("Refresh")
+            menu_options.append("Back")
+
+            menu = TerminalMenu(
+                menu_options,
+                title="Select recording to view details or cancel"
+            )
+
+            idx = menu.show()
+
+            if idx is None or menu_options[idx] == "Back":
+                return
+            elif menu_options[idx] == "Refresh":
+                continue
+            elif "─" in menu_options[idx]:
+                continue
+            else:
+                # Show recording details
+                rec = recordings[idx]
+                rec_id, channel, start_ts, duration, output, timer, status = rec
+
+                self._show_recording_details(rec_id, channel, start_ts, duration, output, timer, status)
+
+    def _show_recording_details(self, rec_id, channel, start_ts, duration, output, timer, status):
+        """Show details for a scheduled recording and allow cancellation"""
+        console.clear()
+        console.print(Panel.fit(f"Recording Details", style="cyan"))
+        console.print()
+
+        start_dt = datetime.fromtimestamp(start_ts)
+        end_dt = start_dt + timedelta(seconds=duration)
+        duration_hrs = duration / 3600
+
+        table = Table(show_header=False, box=None)
+        table.add_column("Field", style="dim", width=15)
+        table.add_column("Value", style="white")
+
+        table.add_row("ID", str(rec_id))
+        table.add_row("Channel", channel)
+        table.add_row("Start Time", start_dt.strftime('%Y-%m-%d %H:%M:%S'))
+        table.add_row("End Time", end_dt.strftime('%Y-%m-%d %H:%M:%S'))
+        table.add_row("Duration", f"{duration_hrs:.1f} hours ({duration} seconds)")
+        table.add_row("Output", output)
+        table.add_row("Timer Unit", timer)
+        table.add_row("Status", status)
+
+        console.print(table)
+        console.print()
+
+        # Check if file exists (for completed recordings)
+        if os.path.exists(output):
+            size_mb = os.path.getsize(output) / (1024 * 1024)
+            console.print(f"[green]✓[/green] Output file exists: {size_mb:.1f} MB")
+        elif status == 'completed':
+            console.print(f"[yellow]⚠[/yellow] Output file not found")
+
+        # Check systemd timer status
+        if status == 'pending':
+            try:
+                result = subprocess.run(
+                    ["systemctl", "--user", "status", f"{timer}.timer"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    console.print(f"[green]✓[/green] Timer is active")
+                else:
+                    console.print(f"[yellow]⚠[/yellow] Timer may not be active")
+            except:
+                pass
+
+        console.print()
+
+        # Options
+        options = []
+        if status == 'pending' and start_dt > datetime.now():
+            options.append("Cancel Recording")
+        if os.path.exists(output):
+            options.append("Play Recording")
+            options.append("Delete Recording File")
+        options.append("Back")
+
+        menu = TerminalMenu(options, title="Actions")
+        action_idx = menu.show()
+
+        if action_idx is None or options[action_idx] == "Back":
+            return
+        elif options[action_idx] == "Cancel Recording":
+            self._cancel_scheduled_recording(rec_id, timer)
+        elif options[action_idx] == "Play Recording":
+            subprocess.Popen(
+                ['mpv', output],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True
+            )
+            console.print("[green]✓[/green] Playing recording in MPV")
+            self.wait_for_escape()
+        elif options[action_idx] == "Delete Recording File":
+            confirm = TerminalMenu(["Yes, delete", "No, keep"], title="Delete recording file?")
+            if confirm.show() == 0:
+                try:
+                    os.remove(output)
+                    console.print(f"[green]✓[/green] Deleted: {output}")
+                except Exception as e:
+                    console.print(f"[red]✗[/red] Could not delete: {e}")
+                self.wait_for_escape()
+
+    def _cancel_scheduled_recording(self, rec_id, timer_unit):
+        """Cancel a scheduled recording"""
+        console.print()
+        console.print(f"Cancelling recording {rec_id}...")
+
+        # Stop the systemd timer
+        try:
+            # Try to stop both timer and service
+            subprocess.run(
+                ["systemctl", "--user", "stop", f"{timer_unit}.timer"],
+                capture_output=True,
+                timeout=10
+            )
+            subprocess.run(
+                ["systemctl", "--user", "stop", f"{timer_unit}.service"],
+                capture_output=True,
+                timeout=10
+            )
+            console.print(f"[green]✓[/green] Stopped systemd timer")
+        except Exception as e:
+            console.print(f"[yellow]Warning: Could not stop timer: {e}[/yellow]")
+
+        # Update database
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE scheduled_recordings SET status = 'cancelled' WHERE id = ?",
+                (rec_id,)
+            )
+            conn.commit()
+            conn.close()
+            console.print(f"[green]✓[/green] Updated database status to 'cancelled'")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Could not update database: {e}")
+
+        console.print()
+        console.print("[green]Recording cancelled.[/green]")
+        self.wait_for_escape()
+
     def restream_placeholder(self, item):
         """Restream content through NGINX-RTMP server"""
         console.clear()
@@ -2580,6 +3164,9 @@ class IPTVMenuManager:
             # Build simplified menu options - Lazydocker handles most management
             options = []
 
+            # Scheduled Recordings (always available)
+            options.append("Scheduled Recordings")
+
             # Primary option: Launch Lazydocker (if available)
             if docker_installed and lazydocker_installed:
                 options.append("Launch Lazydocker")
@@ -2626,7 +3213,9 @@ class IPTVMenuManager:
             selected_option = options[choice]
             
             # Handle selections based on option text
-            if "Launch Lazydocker" in selected_option:
+            if "Scheduled Recordings" in selected_option:
+                self.view_scheduled_recordings()
+            elif "Launch Lazydocker" in selected_option:
                 self.launch_lazydocker()
             elif "Container Status & URLs" in selected_option:
                 self.show_container_status_and_urls()

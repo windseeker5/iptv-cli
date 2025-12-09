@@ -24,6 +24,9 @@ yt-dlp
 # Environment variable management
 python-dotenv
 
+# Date parsing for scheduled recordings
+python-dateutil
+
 # Note: MPV player should be installed separately:
 # Ubuntu/Debian: sudo apt install mpv
 # macOS: brew install mpv
