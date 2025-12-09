@@ -42,6 +42,10 @@ jellyfin/
 data/
 
 doc/
+nginx/hls/
+jellyfin/config/
+#jellyfin/config/
+
 
 # IDE
 .vscode/
