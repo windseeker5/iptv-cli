@@ -1478,25 +1478,34 @@ class IPTVMenuManager:
             console.print()
 
             # Create MPV command with enhanced buffering and reliability settings
-            mpv_cmd = [
-                'mpv',
-                # Disable youtube-dl hook (not needed for direct IPTV streams)
-                '--no-ytdl',
-                # Hardware acceleration for Raspberry Pi
-                '--hwdec=auto',                          # Auto hardware decoding (v4l2m2m on Pi)
-                '--vo=gpu',                              # GPU-accelerated video output
-                # Cache settings for smooth playback
+            mpv_cmd = ['mpv', '--no-ytdl']
+
+            # Add platform-specific hardware acceleration
+            if self.is_raspberry_pi():
+                # Raspberry Pi 4 with Wayland
+                mpv_cmd.extend([
+                    '--hwdec=v4l2m2m',                   # Pi 4 hardware decoder
+                    '--vo=dmabuf-wayland',               # Native Wayland output
+                    '--gpu-context=wayland',             # Wayland GPU context
+                ])
+            else:
+                # Other platforms - auto detection
+                mpv_cmd.extend([
+                    '--hwdec=auto',                      # Auto hardware decoding
+                    '--vo=gpu',                          # GPU video output
+                ])
+
+            # Common settings for all platforms
+            mpv_cmd.extend([
                 '--cache=yes',                           # Enable cache
-                '--cache-secs=10',                       # Cache 10 seconds of content
+                '--cache-secs=10',                       # Cache 10 seconds
                 '--demuxer-max-bytes=50M',               # Cache up to 50MB
-                '--demuxer-max-back-bytes=25M',          # Backward cache of 25MB
-                # Network settings for reliability
-                '--network-timeout=60',                  # 60 second network timeout
-                # User interface
-                '--keep-open=yes',                       # Keep window open after playback ends
+                '--demuxer-max-back-bytes=25M',          # Backward cache 25MB
+                '--network-timeout=60',                  # 60 second timeout
+                '--keep-open=yes',                       # Keep window open
                 '--osd-level=1',                         # Show OSD messages
                 channel['stream_url']
-            ]
+            ])
 
             # Start MPV process - fully detached to prevent pipe deadlock
             # Using DEVNULL prevents pipe buffer from filling up and causing freeze
@@ -5685,24 +5694,33 @@ networks:
             console.print()
 
             # Use yt-dlp with MPV for best quality with simple buffering
-            mpv_cmd = [
-                'mpv',
-                # YouTube format selection
-                '--ytdl-format=bestvideo[height<=1080]+bestaudio/best',
-                # Hardware acceleration for Raspberry Pi
-                '--hwdec=auto',                          # Auto hardware decoding (v4l2m2m on Pi)
-                '--vo=gpu',                              # GPU-accelerated video output
-                # Cache settings for smooth playback
+            mpv_cmd = ['mpv', '--ytdl-format=bestvideo[height<=1080]+bestaudio/best']
+
+            # Add platform-specific hardware acceleration
+            if self.is_raspberry_pi():
+                # Raspberry Pi 4 with Wayland
+                mpv_cmd.extend([
+                    '--hwdec=v4l2m2m',                   # Pi 4 hardware decoder
+                    '--vo=dmabuf-wayland',               # Native Wayland output
+                    '--gpu-context=wayland',             # Wayland GPU context
+                ])
+            else:
+                # Other platforms - auto detection
+                mpv_cmd.extend([
+                    '--hwdec=auto',                      # Auto hardware decoding
+                    '--vo=gpu',                          # GPU video output
+                ])
+
+            # Common settings for all platforms
+            mpv_cmd.extend([
                 '--cache=yes',                           # Enable cache
                 '--demuxer-max-bytes=100M',              # Cache up to 100MB for YT
-                '--demuxer-max-back-bytes=50M',          # Backward cache of 50MB
-                # Network settings for reliability
-                '--network-timeout=60',                  # 60 second network timeout
-                # User interface
-                '--keep-open=yes',                       # Keep window open after playback ends
+                '--demuxer-max-back-bytes=50M',          # Backward cache 50MB
+                '--network-timeout=60',                  # 60 second timeout
+                '--keep-open=yes',                       # Keep window open
                 '--osd-level=1',                         # Show OSD messages
                 video['url']
-            ]
+            ])
 
             # Run MPV
             subprocess.run(mpv_cmd)
