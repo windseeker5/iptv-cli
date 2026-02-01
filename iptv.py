@@ -1495,13 +1495,19 @@ class IPTVMenuManager:
                     '--vo=gpu',                          # GPU video output
                 ])
 
-            # Common settings for all platforms
+            # Common settings for all platforms - enhanced for IPTV stability
             mpv_cmd.extend([
                 '--cache=yes',                           # Enable cache
-                '--cache-secs=10',                       # Cache 10 seconds
-                '--demuxer-max-bytes=50M',               # Cache up to 50MB
-                '--demuxer-max-back-bytes=25M',          # Backward cache 25MB
+                '--cache-secs=30',                       # Cache 30 seconds (increased)
+                '--demuxer-max-bytes=100M',              # Cache up to 100MB (increased)
+                '--demuxer-max-back-bytes=50M',          # Backward cache 50MB (increased)
+                '--demuxer-readahead-secs=20',           # Read ahead 20 seconds
                 '--network-timeout=60',                  # 60 second timeout
+                # Auto-reconnect options - critical for IPTV streams that drop
+                '--stream-lavf-o=reconnect=1',           # Enable reconnection
+                '--stream-lavf-o=reconnect_at_eof=1',    # Reconnect on EOF
+                '--stream-lavf-o=reconnect_streamed=1',  # Reconnect streaming protocols
+                '--stream-lavf-o=reconnect_delay_max=30', # Max 30s retry delay
                 '--keep-open=yes',                       # Keep window open
                 '--osd-level=1',                         # Show OSD messages
                 channel['stream_url']
@@ -2780,16 +2786,27 @@ class IPTVMenuManager:
 
         console.print(f"\n[dim]Starting restream...[/dim]")
 
-        # Build FFmpeg command
+        # Build FFmpeg command with reconnect and buffering for stable IPTV restreaming
         # Video: copy (no re-encoding for best quality)
         # Audio: transcode to AAC (required for RTMP/FLV - AC3/EAC3 not supported)
         ffmpeg_cmd = [
             'ffmpeg',
+            # Input options - reconnect and buffering (MUST come before -i)
+            '-reconnect', '1',                    # Enable reconnection
+            '-reconnect_at_eof', '1',             # Reconnect on EOF
+            '-reconnect_streamed', '1',           # Reconnect for streaming protocols
+            '-reconnect_delay_max', '30',         # Max 30s retry delay
+            '-fflags', '+genpts+discardcorrupt',  # Generate timestamps, discard corrupt
+            '-rtbufsize', '15M',                  # Input buffer size
+            '-analyzeduration', '10M',            # Analyze duration for format detection
+            '-probesize', '10M',                  # Probe size for format detection
             '-i', source_url,
+            # Output options
             '-c:v', 'copy',
             '-c:a', 'aac',
             '-b:a', '192k',
-            '-ac', '2',  # Downmix to stereo for compatibility
+            '-ac', '2',                           # Downmix to stereo for compatibility
+            '-max_muxing_queue_size', '9999',     # Prevent muxing queue overflow
             '-f', 'flv',
             target_url
         ]
