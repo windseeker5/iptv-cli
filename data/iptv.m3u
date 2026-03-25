@@ -37,8 +37,6 @@ http://your-provider-server.com/live/IPTV_USERNAME_REDACTED/IPTV_PASSWORD_REDACT
 http://your-provider-server.com/live/IPTV_USERNAME_REDACTED/IPTV_PASSWORD_REDACTED/414144.ts
 #EXTINF:-1 group-title="VOD/Unknown",FR - 27 robes (2008)
 http://your-provider-server.com/movie/IPTV_USERNAME_REDACTED/IPTV_PASSWORD_REDACTED/1047601.mkv
-#EXTINF:-1 group-title="CA| CANADA ᴴᴰ/ᴿᴬᵂ ⁶⁰ᶠᵖˢ",CA: CARTOON NETWORK
-http://your-provider-server.com/live/IPTV_USERNAME_REDACTED/IPTV_PASSWORD_REDACTED/498782.ts
 #EXTINF:-1 group-title="CA| CANADA ᴴᴰ/ᴿᴬᵂ ⁶⁰ᶠᵖˢ",CA: CASA
 http://your-provider-server.com/live/IPTV_USERNAME_REDACTED/IPTV_PASSWORD_REDACTED/498781.ts
 #EXTINF:-1 group-title="FR - NETFLIX 2025",FR - Au-delà des vagues (2025)
