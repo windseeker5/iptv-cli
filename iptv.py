@@ -152,7 +152,41 @@ class IPTVMenuManager:
         except:
             # Fallback for environments where termios doesn't work
             input()
-    
+
+    def input_with_esc(self, prompt=" > "):
+        """Like input() but returns None if ESC is pressed."""
+        import termios, sys, tty
+        sys.stdout.write(f"\n{prompt}")
+        sys.stdout.flush()
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        buf = []
+        try:
+            tty.setcbreak(fd)
+            while True:
+                ch = sys.stdin.read(1)
+                code = ord(ch)
+                if code == 27:          # ESC
+                    return None
+                elif code in (10, 13):  # Enter
+                    sys.stdout.write("\n")
+                    sys.stdout.flush()
+                    return "".join(buf)
+                elif code == 127:       # Backspace
+                    if buf:
+                        buf.pop()
+                        sys.stdout.write("\b \b")
+                        sys.stdout.flush()
+                elif 32 <= code < 127 or code > 127:  # printable + UTF-8
+                    buf.append(ch)
+                    sys.stdout.write(ch)
+                    sys.stdout.flush()
+        except Exception:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            return input(prompt)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
     def check_database_age(self):
         """Check if database is older than 14 days"""
         if not os.path.exists(self.db_path):
@@ -213,14 +247,14 @@ class IPTVMenuManager:
         if success:
             console.print()
             console.print("[green]✓ Database updated successfully![/green]")
-            console.print("[dim white]Press ESC to continue...[/dim white]")
-            self.wait_for_escape()
+            console.print("[dim white]Continuing in 2 seconds...[/dim white]")
+            time.sleep(2)
         else:
             console.print()
             console.print("[red]✗ Database update failed![/red]")
-            console.print("You can try updating manually from the menu.")
-            console.print("[dim white]Press ESC to continue...[/dim white]")
-            self.wait_for_escape()
+            console.print("You can try updating manually from Settings.")
+            console.print("[dim white]Continuing in 2 seconds...[/dim white]")
+            time.sleep(2)
         
     def main_menu(self):
         """Main menu with arrow key navigation"""
@@ -228,12 +262,14 @@ class IPTVMenuManager:
             console.clear()
             self.display_header(show_status=True)
 
+            fav_count = self._get_favorites_count()
+            fav_label = f"My Starred List  ({fav_count} saved)" if fav_count else "My Starred List  (empty)"
             options = [
-                "Search IPTV",
-                "Discovery Hub",
-                "YouTube Tool",
-                "Update IPTV db",
-                "Streaming Infrastructure"
+                "Search Channels & Movies",
+                "Browse by Category",
+                fav_label,
+                "Scheduled Recordings",
+                "Settings"
             ]
 
             terminal_menu = TerminalMenu(
@@ -255,20 +291,48 @@ class IPTVMenuManager:
                     self.stop_restream_quick()
                 continue
 
-            if choice is None:  # ESC pressed
+            if choice is None:
                 console.print("\nGoodbye!")
                 break
-            elif choice == 0:  # Search IPTV
+            elif choice == 0:
                 self.unified_search_menu()
-            elif choice == 1:  # Discovery Hub
+            elif choice == 1:
                 self.browse_categories_menu()
-            elif choice == 2:  # YouTube Tool
-                self.youtube_tool_menu()
-            elif choice == 3:  # Update IPTV db
-                self.download_menu()
-            elif choice == 4:  # Streaming Infrastructure
-                self.streaming_infrastructure_menu()
+            elif choice == 2:
+                self.view_favorites_menu()
+            elif choice == 3:
+                self.view_scheduled_recordings()
+            elif choice == 4:
+                self.settings_menu()
     
+    def _get_favorites_count(self):
+        """Return number of starred items (safe for menu label use)"""
+        try:
+            return len(self.load_favorites())
+        except:
+            return 0
+
+    def get_service_status_cached(self):
+        """Return service status dict, refreshing at most every 30 seconds."""
+        now = time.time()
+        if not hasattr(self, '_svc_cache_time') or now - self._svc_cache_time > 30:
+            self._svc_cache = {
+                'nginx':    self.check_container_status(),
+                'jellyfin': self.check_jellyfin_status(),
+                'samba':    self.check_samba_status(),
+            }
+            self._svc_cache_time = now
+        return self._svc_cache
+
+    def _svc_dot(self, status_str):
+        """Return colored dot based on service status string."""
+        if "[green]" in status_str:
+            return "[green]●[/green]"
+        elif "[yellow]" in status_str:
+            return "[yellow]●[/yellow]"
+        else:
+            return "[red]●[/red]"
+
     def show_status(self):
         """Show current database status"""
         if os.path.exists(self.db_path):
@@ -317,6 +381,14 @@ class IPTVMenuManager:
                     status_lines.append(f"  Account Status: {account[1]}")
                     status_lines.append(f"  Expires: {exp_date}")
                     status_lines.append(f"  Max Connections: {account[3]}")
+
+                # Service health row
+                svc = self.get_service_status_cached()
+                ng   = self._svc_dot(svc['nginx'])
+                jf   = self._svc_dot(svc['jellyfin'])
+                sb   = self._svc_dot(svc['samba'])
+                status_lines.append("")
+                status_lines.append(f"  Services: {ng} nginx-rtmp  {jf} jellyfin  {sb} samba")
 
                 # Check for active restream
                 active_restream = self.get_active_restream()
@@ -379,18 +451,20 @@ class IPTVMenuManager:
         if not self.check_database():
             return
 
-        console.clear()
-        self.display_header(show_status=False)
-        console.print(Panel.fit("Enter your search term", style="dim white"))
+        while True:
+            console.clear()
+            self.display_header(show_status=False)
+            console.print(Panel.fit("Search Channels & Movies", style="dim white"))
 
-        try:
-            search_term = input("\n > ").strip()
-            if not search_term:
+            search_term = self.input_with_esc()
+            if search_term is None:        # ESC → back to main menu
                 return
+            search_term = search_term.strip()
+            if not search_term:
+                return                     # empty Enter → back to main menu
 
-            # Search live channels, VOD content, and series
-            live_results = self.search_live_channels(search_term)
-            vod_results = self.search_vod_content(search_term)
+            live_results   = self.search_live_channels(search_term)
+            vod_results    = self.search_vod_content(search_term)
             series_results = self.search_series_content(search_term)
 
             if not live_results and not vod_results and not series_results:
@@ -399,8 +473,6 @@ class IPTVMenuManager:
                 return
 
             self.show_unified_results(live_results, vod_results, series_results, search_term)
-            
-        except KeyboardInterrupt:
             return
     
     def show_unified_results(self, live_results, vod_results, series_results, search_term):
@@ -459,7 +531,7 @@ class IPTVMenuManager:
                 db_line,
                 f"  Search Results: '{search_term}' ({len(all_results)} found)",
                 "",
-                f"  [dim](p)lay  (s)ave  (d)elete  (r)estream  (c)download  (t)imer  |  ESC = back[/dim]"
+                f"  [dim]LIVE: (p)lay (r)restream to NGINX (c)record now (t)schedule rec  |  VOD: (p)lay (c)download  |  ALL: (s)★star (d)✕unstar (i)info  |  ESC=back[/dim]"
             ]
             console.print(Panel("\n".join(panel_lines), style="dim white"))
             console.print()
@@ -627,16 +699,18 @@ class IPTVMenuManager:
                 elif key == 's':
                     res = self.save_to_favorites(selected, result_type)
                     if res == -1:
-                        console.print("[yellow]Already in favorites[/yellow]")
+                        console.print("[yellow]Already starred[/yellow]")
                     elif res > 0:
-                        console.print(f"[green]✓ Added to favorites[/green]")
+                        console.print(f"[green]★[/green] [bright_cyan]Added to your starred list![/bright_cyan] ({res} total)")
+                        console.print(f"[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]")
+                        console.print(f"[dim]  Import in VLC, Kodi, or your TV app to watch starred channels[/dim]")
                     self.wait_for_escape()
                 elif key == 'd':
                     res = self.remove_from_favorites(selected, result_type)
                     if res > 0:
-                        console.print(f"[green]✓ Removed from favorites[/green]")
+                        console.print(f"[green]✓[/green] Removed from starred list")
                     else:
-                        console.print("[yellow]Not in favorites[/yellow]")
+                        console.print("[yellow]Not in starred list[/yellow]")
                     self.wait_for_escape()
                 elif key == 'r':
                     if result_type != 'series':
@@ -710,7 +784,25 @@ class IPTVMenuManager:
         page_size = 25
         current_page = 0
         total_pages = (len(results) + page_size - 1) // page_size if results else 1
-        
+
+        # Pre-fetch EPG for all channels (cached channels are instant, rest fetched once)
+        epg_cache = {}
+        uncached = []
+        for result in results:
+            epg_data = self.get_now_playing_local(result['stream_id'], fetch_if_missing=False)
+            if epg_data:
+                epg_cache[result['stream_id']] = epg_data
+            else:
+                uncached.append(result)
+        if uncached:
+            console.clear()
+            self.display_header(show_status=False)
+            console.print(Panel.fit(f"Loading EPG for {len(uncached)} channels (caching for next time)...", style="dim white"))
+            for result in uncached:
+                console.print(f"[dim]Fetching: {result['name']}[/dim]")
+                epg_data = self.get_now_playing_local(result['stream_id'], result.get('name'), fetch_if_missing=True)
+                epg_cache[result['stream_id']] = epg_data
+
         while True:
             console.clear()
             
@@ -720,29 +812,33 @@ class IPTVMenuManager:
             else:
                 console.print(Panel.fit(f"Live Channels: '{search_term}' ({len(results)} found)", style="dim white"))
             
-            console.print("[dim white]# (s)ave | (d)elete | (i)nfo | (r)estream | (c)download | (p)lay[/dim white]\n")
-            
+            console.print("[dim white]# (p)lay  (r)restream to NGINX  (c)record now  (t)schedule rec  |  (s)★star  (d)✕unstar  (i)info  |  ESC=back[/dim white]\n")
+
             # Get current favorites for checking
             favorites_set = self.get_favorites_set()
-            
+
             # Calculate page boundaries
             start_idx = current_page * page_size
             end_idx = min(start_idx + page_size, len(results))
             page_results = results[start_idx:end_idx]
-            
+
             # Create menu options from current page results
             options = []
-            
+
             # Add Previous Page option if not on first page
             if current_page > 0:
                 options.append("← Previous Page")
-            
+
             # Add current page items
             for result in page_results:
-                category = result['category_name'] or 'Unknown'
                 is_fav = (result.get('stream_id'), 'live') in favorites_set
                 fav_indicator = "⭐ " if is_fav else "   "
-                option = f"{fav_indicator}{result['name'][:48]} | {category[:15]} | ID: {result['stream_id']}"
+                epg = epg_cache.get(result['stream_id'])
+                now_playing = epg['title'] if epg and epg.get('title') else ""
+                if now_playing:
+                    option = f"{fav_indicator}{result['name']}  —  {now_playing}"
+                else:
+                    option = f"{fav_indicator}{result['name']}"
                 options.append(option)
             
             # Add Next Page option if not on last page
@@ -750,7 +846,7 @@ class IPTVMenuManager:
                 options.append("Next Page →")
             
             options.append("Back to Search")
-            
+
             terminal_menu = TerminalMenu(
                 options,
                 title="",
@@ -801,24 +897,26 @@ class IPTVMenuManager:
                     self.download_live_to_data(selected)
                     continue  # Stay in menu after downloading
                     
-                elif chosen_key == 's':  # Save to favorites
+                elif chosen_key == 's':  # Star / Save to favorites
                     result = self.save_to_favorites(selected, 'live')
                     if result == -1:
-                        console.print("[yellow]⚠[/yellow] Already in favorites!")
+                        console.print("[yellow]⚠[/yellow] Already starred!")
                     elif result > 0:
-                        console.print(f"[green]✓[/green] Added to favorites ({result} total)")
+                        console.print(f"[green]★[/green] [bright_cyan]Added to your starred list![/bright_cyan] ({result} total)")
+                        console.print(f"[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]")
+                        console.print(f"[dim]  Import in VLC, Kodi, or your TV app[/dim]")
                     else:
-                        console.print("[red]✗[/red] Failed to add to favorites")
+                        console.print("[red]✗[/red] Failed to star")
                     console.print("Press any key to continue...")
                     input()
                     continue  # Refresh menu immediately
-                    
-                elif chosen_key == 'd':  # Delete from favorites
+
+                elif chosen_key == 'd':  # Unstar / Delete from favorites
                     result = self.remove_from_favorites(selected, 'live')
                     if result:
-                        console.print(f"[green]✓[/green] Removed from favorites")
+                        console.print(f"[green]✓[/green] Removed from starred list")
                     else:
-                        console.print("[yellow]⚠[/yellow] Not in favorites")
+                        console.print("[yellow]⚠[/yellow] Not in starred list")
                     console.print("Press any key to continue...")
                     input()
                     continue  # Refresh menu immediately
@@ -840,13 +938,13 @@ class IPTVMenuManager:
             console.print()
             
             options = [
-                "Watch Stream",
-                "Stream Information",
-                "Restream",
-                "Schedule Recording",
-                "Save to Favorites",
+                "Watch Now  (opens MPV player)",
+                "Stream Info  (EPG, category, ID)",
+                "Restream to NGINX-RTMP",
+                "Schedule Recording  (save to Samba share)",
+                "★ Star  (add to playlist)",
                 "Copy Stream URL",
-                "Back to Results"
+                "Back"
             ]
 
             terminal_menu = TerminalMenu(
@@ -867,14 +965,16 @@ class IPTVMenuManager:
                 self.quick_restream(channel)
             elif choice == 3:  # Schedule Recording
                 self.schedule_recording(channel)
-            elif choice == 4:  # Save to Favorites
+            elif choice == 4:  # Star / Save to Favorites
                 result = self.save_to_favorites(channel, 'live')
                 if result == -1:
-                    console.print("[yellow]⚠[/yellow] Already in favorites!")
+                    console.print("[yellow]⚠[/yellow] Already starred!")
                 elif result > 0:
-                    console.print(f"[green]✓[/green] Added to favorites ({result} total)")
+                    console.print(f"[green]★[/green] [bright_cyan]Added to your starred list![/bright_cyan] ({result} total)")
+                    console.print(f"[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]")
+                    console.print(f"[dim]  Import in VLC, Kodi, or your TV app[/dim]")
                 else:
-                    console.print("[red]✗[/red] Failed to add to favorites")
+                    console.print("[red]✗[/red] Failed to star")
                 self.wait_for_escape()
             elif choice == 5:  # Copy URL
                 self.copy_stream_url(channel)
@@ -893,13 +993,13 @@ class IPTVMenuManager:
             console.print()
             
             options = [
-                "Watch VOD",
-                "Download VOD",
-                "VOD Information",
-                "Restream",
-                "Save to Favorites",
+                "Watch Now  (opens MPV player)",
+                "Download to Disk",
+                "Movie Info  (rating, genre, description)",
+                "Restream to NGINX-RTMP",
+                "★ Star  (add to playlist)",
                 "Copy Stream URL",
-                "Back to Results"
+                "Back"
             ]
             
             terminal_menu = TerminalMenu(
@@ -920,14 +1020,16 @@ class IPTVMenuManager:
                 self.show_vod_info(vod_item)
             elif choice == 3:  # Restream
                 self.quick_restream(vod_item)
-            elif choice == 4:  # Save to Favorites
+            elif choice == 4:  # Star / Save to Favorites
                 result = self.save_to_favorites(vod_item, 'vod')
                 if result == -1:
-                    console.print("[yellow]⚠[/yellow] Already in favorites!")
+                    console.print("[yellow]⚠[/yellow] Already starred!")
                 elif result > 0:
-                    console.print(f"[green]✓[/green] Added to favorites ({result} total)")
+                    console.print(f"[green]★[/green] [bright_cyan]Added to your starred list![/bright_cyan] ({result} total)")
+                    console.print(f"[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]")
+                    console.print(f"[dim]  Import in VLC, Kodi, or your TV app[/dim]")
                 else:
-                    console.print("[red]✗[/red] Failed to add to favorites")
+                    console.print("[red]✗[/red] Failed to star")
                 self.wait_for_escape()
             elif choice == 5:  # Copy URL
                 self.copy_stream_url({'stream_url': vod_item['stream_url']})
@@ -979,7 +1081,7 @@ class IPTVMenuManager:
             SELECT stream_id, name, year, rating, genre, stream_url
             FROM vod_streams
             WHERE {conditions}
-            ORDER BY name
+            ORDER BY CAST(rating AS REAL) DESC, name
             LIMIT 50
         """
 
@@ -1007,7 +1109,7 @@ class IPTVMenuManager:
             SELECT series_id, name, genre, rating, plot, category_name
             FROM series_streams
             WHERE {conditions}
-            ORDER BY name
+            ORDER BY CAST(rating AS REAL) DESC, name
             LIMIT 50
         """
 
@@ -1031,19 +1133,19 @@ class IPTVMenuManager:
             else:
                 console.print(Panel.fit(f"VOD Content: '{search_term}' ({len(results)} found)", style="dim white"))
             
-            console.print("[dim white]# (s)ave | (d)elete | (i)nfo | (r)estream | (c)download | (p)lay[/dim white]\n")
-            
+            console.print("[dim white]# (p)lay  (c)download to disk  (r)restream to NGINX  |  (s)★star  (d)✕unstar  (i)info  |  ESC=back[/dim white]\n")
+
             # Get current favorites for checking
             favorites_set = self.get_favorites_set()
-            
+
             # Calculate page boundaries
             start_idx = current_page * page_size
             end_idx = min(start_idx + page_size, len(results))
             page_results = results[start_idx:end_idx]
-            
+
             # Create menu options from current page results
             options = []
-            
+
             # Add Previous Page option if not on first page
             if current_page > 0:
                 options.append("← Previous Page")
@@ -1061,7 +1163,7 @@ class IPTVMenuManager:
                     display_name = result['name']
                 
                 # Format rating without star and decimal if .0
-                if result['rating']:
+                if result.get('rating'):
                     # Convert to int if it's a whole number, otherwise keep 1 decimal
                     rating_val = result['rating']
                     if rating_val == int(rating_val):
@@ -1146,23 +1248,25 @@ class IPTVMenuManager:
                 selected = page_results[result_idx]
                 
                 # Handle shortcuts
-                if chosen_key == 's':  # Save to favorites
+                if chosen_key == 's':  # Star / Save to favorites
                     result = self.save_to_favorites(selected, 'vod')
                     if result == -1:
-                        console.print("[yellow]⚠[/yellow] Already in favorites!")
+                        console.print("[yellow]⚠[/yellow] Already starred!")
                         self.wait_for_escape()
                     elif result > 0:
-                        console.print(f"[green]✓[/green] Added to favorites ({result} total)")
+                        console.print(f"[green]★[/green] [bright_cyan]Added to your starred list![/bright_cyan] ({result} total)")
+                        console.print(f"[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]")
+                        console.print(f"[dim]  Import in VLC, Kodi, or your TV app[/dim]")
                         self.wait_for_escape()
                     continue
-                    
-                elif chosen_key == 'd':  # Delete from favorites
+
+                elif chosen_key == 'd':  # Unstar / Delete from favorites
                     result = self.remove_from_favorites(selected, 'vod')
                     if result > 0:
-                        console.print(f"[green]✓[/green] Removed from favorites ({result} remaining)")
+                        console.print(f"[green]✓[/green] Removed from starred list ({result} remaining)")
                         self.wait_for_escape()
                     else:
-                        console.print("[yellow]⚠[/yellow] Not in favorites")
+                        console.print("[yellow]⚠[/yellow] Not in starred list")
                         self.wait_for_escape()
                     continue
                     
@@ -1185,6 +1289,70 @@ class IPTVMenuManager:
                 else:  # Enter key - show action menu or play
                     self.play_with_mpv({'name': selected['name'], 'stream_url': selected['stream_url']})
     
+    def view_favorites_menu(self):
+        """Browse starred channels and movies"""
+        favs = self.load_favorites()
+        if not favs:
+            console.clear()
+            self.display_header(show_status=False)
+            console.print(Panel.fit(
+                "Your starred list is empty.\n\n"
+                "Star channels and movies with the [bold](s)[/bold] key while searching.\n"
+                "Starred items are saved to a playlist you can import in your TV app.",
+                style="dim white"
+            ))
+            self.wait_for_escape()
+            return
+
+        def _normalize(f):
+            """Ensure favorites have the field names the result views expect."""
+            n = dict(f)
+            if 'category_name' not in n:
+                n['category_name'] = n.get('category', 'Uncategorized')
+            if 'stream_url' not in n:
+                n['stream_url'] = n.get('url', '')
+            return n
+
+        live_favs = [_normalize(f) for f in favs if f.get('type') == 'live']
+        vod_favs  = [_normalize(f) for f in favs if f.get('type') == 'vod']
+
+        while True:
+            console.clear()
+            self.display_header(show_status=False)
+            console.print(Panel.fit(
+                f"[bold]My Starred List[/bold]  ({len(favs)} items)\n"
+                f"[dim]Playlist URL: http://localhost:8080/iptv.m3u  —  Import in VLC, Kodi, or your TV app[/dim]",
+                style="bright_cyan"
+            ))
+
+            options = []
+            if live_favs:
+                options.append(f"Live Channels  ({len(live_favs)} starred)")
+            if vod_favs:
+                options.append(f"Movies & VOD  ({len(vod_favs)} starred)")
+            options.append("Back")
+
+            choice = TerminalMenu(options, menu_cursor="> ").show()
+
+            if choice is None or options[choice] == "Back":
+                break
+
+            label = options[choice]
+            if label.startswith("Live Channels"):
+                self.show_live_results(live_favs, "Starred Live Channels")
+                # Reload in case user starred/unstarred items
+                favs = self.load_favorites()
+                live_favs = [_normalize(f) for f in favs if f.get('type') == 'live']
+                vod_favs  = [_normalize(f) for f in favs if f.get('type') == 'vod']
+            elif label.startswith("Movies"):
+                self.show_vod_results(vod_favs, "Starred Movies & VOD")
+                favs = self.load_favorites()
+                live_favs = [_normalize(f) for f in favs if f.get('type') == 'live']
+                vod_favs  = [_normalize(f) for f in favs if f.get('type') == 'vod']
+
+            if not favs:
+                break
+
     def browse_categories_menu(self):
         """Discovery Hub - Browse and explore content"""
         if not self.check_database():
@@ -1362,29 +1530,46 @@ class IPTVMenuManager:
         while True:
             console.clear()
             console.print(Panel.fit("Settings", style="dim white"))
-            
+
             options = [
+                "YouTube",
+                "Refresh Channel List",
+                "──────────────────────",
                 f"Inject Server URL: {self.inject_server or 'Not set'}",
                 "Test MPV Installation",
-                "Database Information"
+                "Database Information",
+                "──────────────────────",
+                "Streaming Infrastructure"
             ]
-            
+
             terminal_menu = TerminalMenu(
                 options,
                 title="",
-                menu_cursor="> "
+                menu_cursor="> ",
+                cycle_cursor=True,
+                clear_screen=False
             )
-            
+
             choice = terminal_menu.show()
-            
-            if choice is None:  # ESC
+
+            if choice is None:
                 break
-            elif choice == 0:  # Set inject server
+
+            selected = options[choice]
+            if selected.startswith("──"):
+                continue
+            elif "YouTube" in selected:
+                self.youtube_tool_menu()
+            elif "Refresh Channel List" in selected:
+                self.download_menu()
+            elif "Inject Server URL" in selected:
                 self.set_inject_server()
-            elif choice == 1:  # Test MPV
+            elif "Test MPV" in selected:
                 self.test_mpv()
-            elif choice == 2:  # Database info
+            elif "Database Information" in selected:
                 self.show_database_info()
+            elif "Streaming Infrastructure" in selected:
+                self.streaming_infrastructure_menu()
     
     def set_inject_server(self):
         """Set inject server URL"""
@@ -1710,24 +1895,28 @@ class IPTVMenuManager:
         self.wait_for_escape()
 
     def download_live_to_data(self, live_item):
-        """Download/Record live stream to data folder"""
+        """Download/Record live stream to USB records folder (Samba share), fallback to data/"""
         console.clear()
         console.print(Panel.fit(f"Download Live: {live_item['name']}", style="dim white"))
-        
-        # Create data folder if it doesn't exist
-        import os
-        data_folder = "data"
-        if not os.path.exists(data_folder):
-            os.makedirs(data_folder)
-            console.print(f"[green]✓[/green] Created {data_folder} folder")
-        
+
+        # Try USB_RECORDS_PATH first (Samba share), fall back to data/
+        records_path = os.getenv('USB_RECORDS_PATH', '')
+        if records_path and os.path.exists(records_path) and os.access(records_path, os.W_OK):
+            save_folder = records_path
+            console.print(f"[green]✓[/green] Saving to USB/Samba share: {save_folder}")
+        else:
+            save_folder = self.data_dir
+            if records_path:
+                console.print(f"[yellow]⚠[/yellow] USB path not available ({records_path}), using local data/ folder")
+            os.makedirs(save_folder, exist_ok=True)
+
         # Generate filename with timestamp
         from datetime import datetime
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_filename = "".join(c for c in live_item['name'] if c.isalnum() or c in (' ', '-', '_')).rstrip()
         filename = f"{safe_filename}_{timestamp}.ts".replace("  ", " ")
-        filepath = os.path.join(data_folder, filename)
-        
+        filepath = os.path.join(save_folder, filename)
+
         console.print(f"Recording to: {filepath}")
         console.print(f"Source: {live_item['stream_url']}")
         console.print()
@@ -2018,10 +2207,25 @@ class IPTVMenuManager:
                 f.write("test")
             os.remove(test_file)
         except Exception as e:
-            console.print(f"[red]✗[/red] Cannot write to records path: {e}")
-            console.print("Check permissions on your Samba share mount")
-            self.wait_for_escape()
-            return
+            console.print(f"[yellow]⚠[/yellow] Cannot write to [bold]{records_path}[/bold]")
+            console.print(f"[dim]  Reason: {e}[/dim]")
+            console.print()
+            console.print("[dim]This usually means the drive is mounted read-only or owned by root.[/dim]")
+            console.print("[dim]Fix: remount with your user's uid, or run:[/dim]")
+            console.print(f"[dim]  sudo chown -R $USER {records_path}[/dim]")
+            console.print()
+            fallback_path = os.path.join(self.data_dir, "recordings")
+            fix_menu = TerminalMenu(
+                [f"Record to {fallback_path} instead  (local fallback)", "Cancel"],
+                title="Samba share not writable",
+                menu_cursor="> "
+            )
+            if fix_menu.show() == 0:
+                os.makedirs(fallback_path, exist_ok=True)
+                records_path = fallback_path
+                console.print(f"[green]✓[/green] Using local fallback: {records_path}")
+            else:
+                return
 
         console.print(f"[green]✓[/green] Recording will be saved to: {records_path}")
         console.print()
@@ -2356,9 +2560,20 @@ class IPTVMenuManager:
                 # Status indicator
                 if status == 'pending':
                     if start_dt > datetime.now():
-                        status_icon = "[cyan]⏰[/cyan]"  # Scheduled
+                        status_icon = "[cyan]⏰[/cyan]"  # Scheduled future
                     else:
-                        status_icon = "[yellow]?[/yellow]"  # Should have started
+                        # Check if the systemd service is actually running
+                        try:
+                            r = subprocess.run(
+                                ["systemctl", "--user", "is-active", f"{timer}.service"],
+                                capture_output=True, text=True, timeout=3
+                            )
+                            if r.stdout.strip() == "active":
+                                status_icon = "[red]●[/red]"  # Actively recording
+                            else:
+                                status_icon = "[yellow]?[/yellow]"  # Unknown
+                        except Exception:
+                            status_icon = "[yellow]?[/yellow]"
                 elif status == 'recording':
                     status_icon = "[red]●[/red]"  # Recording
                 elif status == 'completed':
@@ -2449,8 +2664,8 @@ class IPTVMenuManager:
 
         # Options
         options = []
-        if status == 'pending' and start_dt > datetime.now():
-            options.append("Cancel Recording")
+        if status == 'pending':
+            options.append("Stop/Cancel Recording")
         if os.path.exists(output):
             options.append("Play Recording")
             options.append("Delete Recording File")
@@ -2461,7 +2676,7 @@ class IPTVMenuManager:
 
         if action_idx is None or options[action_idx] == "Back":
             return
-        elif options[action_idx] == "Cancel Recording":
+        elif options[action_idx] == "Stop/Cancel Recording":
             self._cancel_scheduled_recording(rec_id, timer)
         elif options[action_idx] == "Play Recording":
             subprocess.Popen(
@@ -2733,10 +2948,28 @@ class IPTVMenuManager:
         # Check if nginx container is running
         container_status = self.check_container_status()
         if "[green]" not in container_status:
-            console.print("[red]✗[/red] NGINX-RTMP container not running")
-            console.print("[dim]Start it from: Streaming Infrastructure → Start All Containers[/dim]")
-            self.wait_for_escape()
-            return
+            console.print("[yellow]⚠[/yellow] NGINX-RTMP is not running.")
+            console.print()
+            fix_menu = TerminalMenu(
+                ["Start NGINX-RTMP and then restream", "Cancel"],
+                title="NGINX-RTMP is offline",
+                menu_cursor="> "
+            )
+            if fix_menu.show() == 0:
+                console.print("[dim]Starting NGINX-RTMP...[/dim]")
+                start_result = subprocess.run(
+                    ['docker-compose', 'up', '-d', 'nginx-rtmp'],
+                    capture_output=True, timeout=60
+                )
+                if start_result.returncode != 0:
+                    console.print("[red]✗[/red] Failed to start NGINX-RTMP")
+                    self.wait_for_escape()
+                    return
+                # Invalidate service status cache
+                self._svc_cache_time = 0
+                console.print("[green]✓[/green] NGINX-RTMP started. Launching restream...")
+            else:
+                return
 
         # Check if ffmpeg is available
         try:
@@ -3067,7 +3300,7 @@ class IPTVMenuManager:
             FROM vod_streams vs
             JOIN vod_categories vc ON vs.category_id = vc.category_id
             WHERE vc.category_name = ?
-            ORDER BY vs.name
+            ORDER BY CAST(vs.rating AS REAL) DESC, vs.name
             LIMIT 100
         """
         
@@ -3190,9 +3423,6 @@ class IPTVMenuManager:
             # Build simplified menu options - Lazydocker handles most management
             options = []
 
-            # Scheduled Recordings (always available)
-            options.append("Scheduled Recordings")
-
             # Primary option: Launch Lazydocker (if available)
             if docker_installed and lazydocker_installed:
                 options.append("Launch Lazydocker")
@@ -3239,9 +3469,7 @@ class IPTVMenuManager:
             selected_option = options[choice]
             
             # Handle selections based on option text
-            if "Scheduled Recordings" in selected_option:
-                self.view_scheduled_recordings()
-            elif "Launch Lazydocker" in selected_option:
+            if "Launch Lazydocker" in selected_option:
                 self.launch_lazydocker()
             elif "Container Status & URLs" in selected_option:
                 self.show_container_status_and_urls()
