@@ -35,6 +35,7 @@ services:
     volumes:
       - ./jellyfin/config:/config
       - ./jellyfin/cache:/cache
+      - ${JELLYFIN_MEDIA_PATH:-./media}:/mnt/homemedia:ro
       - ${USB_RECORDS_PATH:-./nginx/recordings}:/media/recordings:ro
       - ${USB_MOVIES_PATH:-./media/movies}:/media/movies:ro
       - ${USB_MUSIC_PATH:-./media/music}:/media/music:ro

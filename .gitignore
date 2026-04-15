@@ -1,5 +1,5 @@
 # Environment variables with sensitive data
-.env
+.env*
 
 # Database files
 *.db
@@ -7,6 +7,7 @@
 
 # JSON data files (may contain sensitive info)
 *.json
+!favorites_seed.json
 
 # Restream process files
 .restream_*.pid
@@ -43,6 +44,7 @@ data/
 
 doc/
 nginx/hls/
+nginx/html/iptv.m3u
 jellyfin/config/
 
 

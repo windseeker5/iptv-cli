@@ -1,0 +1,156 @@
+[
+  {
+    "stream_id": 414054,
+    "name": "CA EN: CRAVE1 HD",
+    "category": "CA| GENERAL EN",
+    "type": "live",
+    "added": "2025-08-31 22:20:00"
+  },
+  {
+    "stream_id": 414055,
+    "name": "CA EN: CRAVE2 HD",
+    "category": "CA| GENERAL EN",
+    "type": "live",
+    "added": "2025-08-31 22:20:00"
+  },
+  {
+    "stream_id": 414056,
+    "name": "CA EN: CRAVE3 HD",
+    "category": "CA| GENERAL EN",
+    "type": "live",
+    "added": "2025-08-31 22:20:01"
+  },
+  {
+    "stream_id": 414057,
+    "name": "CA EN: CRAVE4 HD",
+    "category": "CA| GENERAL EN",
+    "type": "live",
+    "added": "2025-08-31 22:20:02"
+  },
+  {
+    "stream_id": 412928,
+    "name": "CA FR: SUPER ECRAN 1",
+    "category": "CA| CINEMA FR",
+    "type": "live",
+    "added": "2026-04-14 22:14:51"
+  },
+  {
+    "stream_id": 412883,
+    "name": "CA FR: SUPER ECRAN 1 HD",
+    "category": "CA| CINEMA FR",
+    "type": "live",
+    "added": "2026-04-14 22:15:25"
+  },
+  {
+    "stream_id": 412927,
+    "name": "CA FR: SUPER ECRAN 2",
+    "category": "CA| CINEMA FR",
+    "type": "live",
+    "added": "2026-04-14 22:16:22"
+  },
+  {
+    "stream_id": 412882,
+    "name": "CA FR: SUPER ECRAN 2 HD",
+    "category": "CA| CINEMA FR",
+    "type": "live",
+    "added": "2026-04-14 22:16:24"
+  },
+  {
+    "stream_id": 498662,
+    "name": "CA FR: SUPER ECRAN 3",
+    "category": "CA| CINEMA FR",
+    "type": "live",
+    "added": "2026-04-14 22:16:26"
+  },
+  {
+    "stream_id": 412926,
+    "name": "CA FR: SUPER ECRAN 4",
+    "category": "CA| CINEMA FR",
+    "type": "live",
+    "added": "2026-04-14 22:16:28"
+  },
+  {
+    "stream_id": 412881,
+    "name": "CA FR: SUPER ECRAN 4 HD",
+    "category": "CA| CINEMA FR",
+    "type": "live",
+    "added": "2026-04-14 22:16:33"
+  },
+  {
+    "stream_id": 412908,
+    "name": "CA FR: TVA SPORTS 2 HD",
+    "category": "CA| SPORTS FR",
+    "type": "live",
+    "added": "2026-04-14 22:16:57"
+  },
+  {
+    "stream_id": 412907,
+    "name": "CA FR: TVA SPORTS HD",
+    "category": "CA| SPORTS FR",
+    "type": "live",
+    "added": "2026-04-14 22:17:00"
+  },
+  {
+    "stream_id": 498806,
+    "name": "CA: TVA SPORTS",
+    "category": "CA| CANADA \u1d34\u1d30/\u1d3f\u1d2c\u1d42 \u2076\u2070\u1da0\u1d56\u02e2",
+    "type": "live",
+    "added": "2026-04-14 22:17:02"
+  },
+  {
+    "stream_id": 1044084,
+    "name": "CA: TVA SPORTS 2 HD",
+    "category": "CA| CANADA \u1d34\u1d30/\u1d3f\u1d2c\u1d42 \u2076\u2070\u1da0\u1d56\u02e2",
+    "type": "live",
+    "added": "2026-04-14 22:17:04"
+  },
+  {
+    "stream_id": 412932,
+    "name": "CA FR: RDS",
+    "category": "CA| GENERAL FR",
+    "type": "live",
+    "added": "2026-04-14 22:17:43"
+  },
+  {
+    "stream_id": 412899,
+    "name": "CA FR: RDS HD",
+    "category": "CA| GENERAL FR",
+    "type": "live",
+    "added": "2026-04-14 22:17:48"
+  },
+  {
+    "stream_id": 412931,
+    "name": "CA FR: RDS 2",
+    "category": "CA| GENERAL FR",
+    "type": "live",
+    "added": "2026-04-14 22:17:53"
+  },
+  {
+    "stream_id": 412916,
+    "name": "CA FR: RDS HD",
+    "category": "CA| GENERAL FR",
+    "type": "live",
+    "added": "2026-04-14 22:18:33"
+  },
+  {
+    "stream_id": 412895,
+    "name": "CA FR: ICI RDI HD",
+    "category": "CA| GENERAL FR",
+    "type": "live",
+    "added": "2026-04-14 22:19:58"
+  },
+  {
+    "stream_id": 412933,
+    "name": "CA FR: RDI HD",
+    "category": "CA| GENERAL FR",
+    "type": "live",
+    "added": "2026-04-14 22:20:05"
+  },
+  {
+    "stream_id": 412910,
+    "name": "CA FR: TVA",
+    "category": "CA| CINEMA FR",
+    "type": "live",
+    "added": "2026-04-14 22:20:40"
+  }
+]

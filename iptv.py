@@ -36,8 +36,14 @@ import signal
 import glob
 import re
 import base64
+import shutil
+from urllib.parse import urlparse
 from datetime import datetime, timedelta
 import threading
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    ZoneInfo = None
 from dotenv import load_dotenv
 from simple_term_menu import TerminalMenu
 from rich.console import Console
@@ -62,6 +68,7 @@ class IPTVMenuManager:
         
         # Load credentials from environment variables
         self.server = os.getenv('IPTV_SERVER_URL')
+        self.epg_server = os.getenv('EPG_SERVER_URL')
         self.username = os.getenv('IPTV_USERNAME')
         self.password = os.getenv('IPTV_PASSWORD')
         self.inject_server = os.getenv('INJECT_SERVER_URL')
@@ -83,6 +90,7 @@ class IPTVMenuManager:
 
         # Ensure scheduled recordings table exists (persists across database updates)
         self.ensure_scheduled_recordings_table()
+        self.ensure_series_episodes_table()
 
         # Detect platform capabilities for hardware acceleration
         self._is_raspberry_pi = None  # Cache detection result
@@ -109,6 +117,39 @@ class IPTVMenuManager:
             conn.close()
         except Exception as e:
             console.print(f"[yellow]Warning: Could not create scheduled_recordings table: {e}[/yellow]")
+
+    def ensure_series_episodes_table(self):
+        """Ensure series episode cache table exists."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS series_episodes (
+                    episode_id TEXT PRIMARY KEY,
+                    series_id INTEGER,
+                    season_number INTEGER,
+                    season_name TEXT,
+                    episode_num INTEGER,
+                    title TEXT,
+                    container_extension TEXT,
+                    stream_url TEXT,
+                    air_date TEXT,
+                    duration TEXT,
+                    duration_secs INTEGER,
+                    rating REAL,
+                    added TEXT,
+                    direct_source TEXT,
+                    last_cached_at INTEGER
+                )
+            ''')
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_series_episodes_series
+                ON series_episodes(series_id, season_number, episode_num)
+            ''')
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            console.print(f"[yellow]Warning: Could not create series_episodes table: {e}[/yellow]")
 
     def is_raspberry_pi(self):
         """Detect if running on Raspberry Pi for hardware acceleration"""
@@ -152,6 +193,15 @@ class IPTVMenuManager:
         except:
             # Fallback for environments where termios doesn't work
             input()
+
+    def flash_message(self, message, delay=0.9):
+        """Show a short non-blocking status message."""
+        if isinstance(message, (list, tuple)):
+            for line in message:
+                console.print(line)
+        else:
+            console.print(message)
+        time.sleep(delay)
 
     def input_with_esc(self, prompt=" > "):
         """Like input() but returns None if ESC is pressed."""
@@ -241,7 +291,7 @@ class IPTVMenuManager:
         # Perform full database download
         success = self._download_and_create_db([
             "account_info", "live_categories", "live_streams", 
-            "vod_categories", "vod_streams", "series_categories"
+            "vod_categories", "vod_streams", "series_categories", "series_streams"
         ])
         
         if success:
@@ -263,12 +313,13 @@ class IPTVMenuManager:
             self.display_header(show_status=True)
 
             fav_count = self._get_favorites_count()
-            fav_label = f"My Starred List  ({fav_count} saved)" if fav_count else "My Starred List  (empty)"
+            fav_label = f"Favorites  ({fav_count} saved)" if fav_count else "Favorites  (0 saved)"
             options = [
-                "Search Channels & Movies",
-                "Browse by Category",
+                "Search",
                 fav_label,
+                "Browse by Category",
                 "Scheduled Recordings",
+                "Background Downloads",
                 "Settings"
             ]
 
@@ -282,6 +333,7 @@ class IPTVMenuManager:
             )
 
             choice = terminal_menu.show()
+
             key = terminal_menu.chosen_accept_key
 
             # Handle X key - stop restream
@@ -297,16 +349,18 @@ class IPTVMenuManager:
             elif choice == 0:
                 self.unified_search_menu()
             elif choice == 1:
-                self.browse_categories_menu()
-            elif choice == 2:
                 self.view_favorites_menu()
+            elif choice == 2:
+                self.browse_categories_menu()
             elif choice == 3:
                 self.view_scheduled_recordings()
             elif choice == 4:
+                self.view_series_batch_downloads()
+            elif choice == 5:
                 self.settings_menu()
-    
+
     def _get_favorites_count(self):
-        """Return number of starred items (safe for menu label use)"""
+        """Return number of favorites (safe for menu label use)."""
         try:
             return len(self.load_favorites())
         except:
@@ -365,7 +419,7 @@ class IPTVMenuManager:
                     else:
                         # Use yellow for old databases
                         age_str = f"[bright_yellow bold]{age_days:.0f} days old[/bright_yellow bold]"
-                    
+
                     status_lines.append(f"[green]●[/green] [bright_cyan bold]Database: Ready[/bright_cyan bold] | {age_str}")
                 else:
                     status_lines.append(f"[green]●[/green] [bright_cyan bold]Database: Ready[/bright_cyan bold]")
@@ -390,6 +444,14 @@ class IPTVMenuManager:
                 status_lines.append("")
                 status_lines.append(f"  Services: {ng} nginx-rtmp  {jf} jellyfin  {sb} samba")
 
+                bg_downloads = self._get_background_download_summary_cached()
+                if bg_downloads['active'] > 0:
+                    status_lines.append(
+                        f"  Background Downloads: [cyan]{bg_downloads['active']} active[/cyan]"
+                    )
+                elif bg_downloads['known_batches'] > 0:
+                    status_lines.append("  Background Downloads: [dim]0 active[/dim]")
+
                 # Check for active restream
                 active_restream = self.get_active_restream()
                 if active_restream:
@@ -399,7 +461,7 @@ class IPTVMenuManager:
 
                 # Join all lines and display in panel
                 status = "\n".join(status_lines)
-                console.print(Panel(status, style="dim white"))
+                console.print(Panel.fit(status, style="dim white"))
             except:
                 console.print(Panel("[dim white]●[/dim white] Database: Error reading", style="dim white"))
         else:
@@ -454,7 +516,7 @@ class IPTVMenuManager:
         while True:
             console.clear()
             self.display_header(show_status=False)
-            console.print(Panel.fit("Search Channels & Movies", style="dim white"))
+            console.print(Panel.fit("Search", style="dim white"))
 
             search_term = self.input_with_esc()
             if search_term is None:        # ESC → back to main menu
@@ -483,7 +545,11 @@ class IPTVMenuManager:
             # First pass: check what's already cached (instant)
             uncached_channels = []
             for result in live_results:
-                epg_data = self.get_now_playing_local(result['stream_id'], fetch_if_missing=False)
+                epg_data = self.get_now_playing_local(
+                    result['stream_id'],
+                    fetch_if_missing=False,
+                    stream_url=result.get('stream_url'),
+                )
                 if epg_data:
                     epg_cache[str(result['stream_id'])] = epg_data
                 else:
@@ -496,7 +562,12 @@ class IPTVMenuManager:
                 console.print(Panel.fit(f"Loading EPG for {len(uncached_channels)} channels (caching for next time)...", style="dim white"))
                 for result in uncached_channels:
                     console.print(f"[dim]Fetching: {result['name']}[/dim]")
-                    epg_data = self.get_now_playing_local(result['stream_id'], result.get('name'), fetch_if_missing=True)
+                    epg_data = self.get_now_playing_local(
+                        result['stream_id'],
+                        result.get('name'),
+                        fetch_if_missing=True,
+                        stream_url=result.get('stream_url'),
+                    )
                     epg_cache[str(result['stream_id'])] = epg_data
 
         # Build results list
@@ -531,7 +602,7 @@ class IPTVMenuManager:
                 db_line,
                 f"  Search Results: '{search_term}' ({len(all_results)} found)",
                 "",
-                f"  [dim]LIVE: (p)lay (r)restream to NGINX (c)record now (t)schedule rec  |  VOD: (p)lay (c)download  |  ALL: (s)★star (d)✕unstar (i)info  |  ESC=back[/dim]"
+                f"  [dim]LIVE: (p)lay (r)restream (c)record (t)schedule  |  VOD: (p)lay (c)download  |  SERIES: open to browse episodes  |  ALL: (s)★star (d)✕unstar (i)info  |  ESC=back[/dim]"
             ]
             console.print(Panel("\n".join(panel_lines), style="dim white"))
             console.print()
@@ -699,33 +770,33 @@ class IPTVMenuManager:
                 elif key == 's':
                     res = self.save_to_favorites(selected, result_type)
                     if res == -1:
-                        console.print("[yellow]Already starred[/yellow]")
+                        self.flash_message("[yellow]Already in favorites[/yellow]")
                     elif res > 0:
-                        console.print(f"[green]★[/green] [bright_cyan]Added to your starred list![/bright_cyan] ({res} total)")
-                        console.print(f"[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]")
-                        console.print(f"[dim]  Import in VLC, Kodi, or your TV app to watch starred channels[/dim]")
-                    self.wait_for_escape()
+                        self.flash_message([
+                            f"[green]★[/green] [bright_cyan]Added to favorites![/bright_cyan] ({res} total)",
+                            "[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]",
+                            "[dim]  Import in VLC, Kodi, or your TV app to watch favorites[/dim]",
+                        ], delay=1.0)
+                    else:
+                        self.flash_message("[red]Could not add to favorites[/red]")
                 elif key == 'd':
                     res = self.remove_from_favorites(selected, result_type)
                     if res > 0:
-                        console.print(f"[green]✓[/green] Removed from starred list")
+                        self.flash_message("[green]✓[/green] Removed from favorites")
                     else:
-                        console.print("[yellow]Not in starred list[/yellow]")
-                    self.wait_for_escape()
+                        self.flash_message("[yellow]Not in favorites[/yellow]")
                 elif key == 'r':
                     if result_type != 'series':
                         self.quick_restream(selected)
                     else:
-                        console.print("[yellow]Restream not available for series[/yellow]")
-                        self.wait_for_escape()
+                        self.show_series_info(selected)
                 elif key == 'c':
                     if result_type == 'vod':
                         self.download_vod_to_data(selected)
                     elif result_type == 'live':
                         self.download_live_to_data(selected)
                     else:
-                        console.print("[yellow]Download not available for series (select episodes from info)[/yellow]")
-                        self.wait_for_escape()
+                        self.show_series_info(selected)
     
     def search_live_menu(self):
         """Search live channels menu"""
@@ -789,7 +860,11 @@ class IPTVMenuManager:
         epg_cache = {}
         uncached = []
         for result in results:
-            epg_data = self.get_now_playing_local(result['stream_id'], fetch_if_missing=False)
+            epg_data = self.get_now_playing_local(
+                result['stream_id'],
+                fetch_if_missing=False,
+                stream_url=result.get('stream_url'),
+            )
             if epg_data:
                 epg_cache[result['stream_id']] = epg_data
             else:
@@ -800,7 +875,12 @@ class IPTVMenuManager:
             console.print(Panel.fit(f"Loading EPG for {len(uncached)} channels (caching for next time)...", style="dim white"))
             for result in uncached:
                 console.print(f"[dim]Fetching: {result['name']}[/dim]")
-                epg_data = self.get_now_playing_local(result['stream_id'], result.get('name'), fetch_if_missing=True)
+                epg_data = self.get_now_playing_local(
+                    result['stream_id'],
+                    result.get('name'),
+                    fetch_if_missing=True,
+                    stream_url=result.get('stream_url'),
+                )
                 epg_cache[result['stream_id']] = epg_data
 
         while True:
@@ -900,25 +980,23 @@ class IPTVMenuManager:
                 elif chosen_key == 's':  # Star / Save to favorites
                     result = self.save_to_favorites(selected, 'live')
                     if result == -1:
-                        console.print("[yellow]⚠[/yellow] Already starred!")
+                        self.flash_message("[yellow]⚠[/yellow] Already in favorites")
                     elif result > 0:
-                        console.print(f"[green]★[/green] [bright_cyan]Added to your starred list![/bright_cyan] ({result} total)")
-                        console.print(f"[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]")
-                        console.print(f"[dim]  Import in VLC, Kodi, or your TV app[/dim]")
+                        self.flash_message([
+                            f"[green]★[/green] [bright_cyan]Added to favorites![/bright_cyan] ({result} total)",
+                            "[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]",
+                            "[dim]  Import in VLC, Kodi, or your TV app[/dim]",
+                        ], delay=1.0)
                     else:
-                        console.print("[red]✗[/red] Failed to star")
-                    console.print("Press any key to continue...")
-                    input()
+                        self.flash_message("[red]✗[/red] Failed to add to favorites")
                     continue  # Refresh menu immediately
 
                 elif chosen_key == 'd':  # Unstar / Delete from favorites
                     result = self.remove_from_favorites(selected, 'live')
                     if result:
-                        console.print(f"[green]✓[/green] Removed from starred list")
+                        self.flash_message("[green]✓[/green] Removed from favorites")
                     else:
-                        console.print("[yellow]⚠[/yellow] Not in starred list")
-                    console.print("Press any key to continue...")
-                    input()
+                        self.flash_message("[yellow]⚠[/yellow] Not in favorites")
                     continue  # Refresh menu immediately
 
                 elif chosen_key == 't':  # Schedule recording (Timer)
@@ -968,9 +1046,9 @@ class IPTVMenuManager:
             elif choice == 4:  # Star / Save to Favorites
                 result = self.save_to_favorites(channel, 'live')
                 if result == -1:
-                    console.print("[yellow]⚠[/yellow] Already starred!")
+                    console.print("[yellow]⚠[/yellow] Already in favorites")
                 elif result > 0:
-                    console.print(f"[green]★[/green] [bright_cyan]Added to your starred list![/bright_cyan] ({result} total)")
+                    console.print(f"[green]★[/green] [bright_cyan]Added to favorites![/bright_cyan] ({result} total)")
                     console.print(f"[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]")
                     console.print(f"[dim]  Import in VLC, Kodi, or your TV app[/dim]")
                 else:
@@ -1023,9 +1101,9 @@ class IPTVMenuManager:
             elif choice == 4:  # Star / Save to Favorites
                 result = self.save_to_favorites(vod_item, 'vod')
                 if result == -1:
-                    console.print("[yellow]⚠[/yellow] Already starred!")
+                    console.print("[yellow]⚠[/yellow] Already in favorites")
                 elif result > 0:
-                    console.print(f"[green]★[/green] [bright_cyan]Added to your starred list![/bright_cyan] ({result} total)")
+                    console.print(f"[green]★[/green] [bright_cyan]Added to favorites![/bright_cyan] ({result} total)")
                     console.print(f"[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]")
                     console.print(f"[dim]  Import in VLC, Kodi, or your TV app[/dim]")
                 else:
@@ -1251,23 +1329,23 @@ class IPTVMenuManager:
                 if chosen_key == 's':  # Star / Save to favorites
                     result = self.save_to_favorites(selected, 'vod')
                     if result == -1:
-                        console.print("[yellow]⚠[/yellow] Already starred!")
-                        self.wait_for_escape()
+                        self.flash_message("[yellow]⚠[/yellow] Already in favorites")
                     elif result > 0:
-                        console.print(f"[green]★[/green] [bright_cyan]Added to your starred list![/bright_cyan] ({result} total)")
-                        console.print(f"[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]")
-                        console.print(f"[dim]  Import in VLC, Kodi, or your TV app[/dim]")
-                        self.wait_for_escape()
+                        self.flash_message([
+                            f"[green]★[/green] [bright_cyan]Added to favorites![/bright_cyan] ({result} total)",
+                            "[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]",
+                            "[dim]  Import in VLC, Kodi, or your TV app[/dim]",
+                        ], delay=1.0)
+                    else:
+                        self.flash_message("[red]✗[/red] Failed to add to favorites")
                     continue
 
                 elif chosen_key == 'd':  # Unstar / Delete from favorites
                     result = self.remove_from_favorites(selected, 'vod')
                     if result > 0:
-                        console.print(f"[green]✓[/green] Removed from starred list ({result} remaining)")
-                        self.wait_for_escape()
+                        self.flash_message(f"[green]✓[/green] Removed from favorites ({result} remaining)")
                     else:
-                        console.print("[yellow]⚠[/yellow] Not in starred list")
-                        self.wait_for_escape()
+                        self.flash_message("[yellow]⚠[/yellow] Not in favorites")
                     continue
                     
                 elif chosen_key == 'i':  # Show info
@@ -1289,69 +1367,646 @@ class IPTVMenuManager:
                 else:  # Enter key - show action menu or play
                     self.play_with_mpv({'name': selected['name'], 'stream_url': selected['stream_url']})
     
-    def view_favorites_menu(self):
-        """Browse starred channels and movies"""
-        favs = self.load_favorites()
-        if not favs:
-            console.clear()
-            self.display_header(show_status=False)
-            console.print(Panel.fit(
-                "Your starred list is empty.\n\n"
-                "Star channels and movies with the [bold](s)[/bold] key while searching.\n"
-                "Starred items are saved to a playlist you can import in your TV app.",
-                style="dim white"
-            ))
-            self.wait_for_escape()
+    def _favorite_added_timestamp(self, favorite):
+        """Parse favorite timestamp for newest-first sorting."""
+        added = favorite.get('added')
+        if isinstance(added, (int, float)):
+            return float(added)
+
+        if isinstance(added, str) and added.strip():
+            raw = added.strip()
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+                try:
+                    return datetime.strptime(raw, fmt).timestamp()
+                except ValueError:
+                    pass
+            try:
+                return datetime.fromisoformat(raw).timestamp()
+            except ValueError:
+                pass
+
+        return 0.0
+
+    def _load_vod_favorites_metadata(self, vod_ids):
+        """Load VOD metadata in one query for favorites labels."""
+        metadata = {}
+        clean_ids = []
+
+        for stream_id in vod_ids:
+            try:
+                sid = int(stream_id)
+            except (TypeError, ValueError):
+                continue
+            if sid > 0:
+                clean_ids.append(sid)
+
+        if not clean_ids or not os.path.exists(self.db_path):
+            return metadata
+
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            placeholders = ",".join(["?"] * len(clean_ids))
+            query = f"""
+                SELECT stream_id, year, rating, genre
+                FROM vod_streams
+                WHERE stream_id IN ({placeholders})
+            """
+            rows = cursor.execute(query, tuple(clean_ids)).fetchall()
+            conn.close()
+
+            for stream_id, year, rating, genre in rows:
+                metadata[int(stream_id)] = {
+                    'year': year,
+                    'rating': rating,
+                    'genre': genre,
+                }
+        except Exception:
+            return metadata
+
+        return metadata
+
+    def _hydrate_favorites_with_database(self, favorites, persist=False):
+        """Refresh favorites with current stream URLs/metadata from database."""
+        refreshed = [dict(item) for item in favorites]
+        if not refreshed or not os.path.exists(self.db_path):
+            return refreshed, 0
+
+        changed = 0
+
+        live_ids = []
+        vod_ids = []
+        for item in refreshed:
+            try:
+                sid = int(item.get('stream_id') or 0)
+            except (TypeError, ValueError):
+                sid = 0
+            if sid <= 0:
+                continue
+            if item.get('type') == 'live':
+                live_ids.append(sid)
+            elif item.get('type') == 'vod':
+                vod_ids.append(sid)
+
+        live_rows = {}
+        vod_rows = {}
+        live_name_rows = {}
+        vod_name_rows = {}
+
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            if live_ids:
+                placeholders = ",".join(["?"] * len(set(live_ids)))
+                query = f"""
+                    SELECT stream_id, name, stream_url, category_name
+                    FROM live_streams
+                    WHERE stream_id IN ({placeholders})
+                """
+                for row in cursor.execute(query, tuple(set(live_ids))).fetchall():
+                    live_rows[int(row[0])] = row
+
+            if vod_ids:
+                placeholders = ",".join(["?"] * len(set(vod_ids)))
+                query = f"""
+                    SELECT stream_id, name, stream_url, year, rating, genre
+                    FROM vod_streams
+                    WHERE stream_id IN ({placeholders})
+                """
+                for row in cursor.execute(query, tuple(set(vod_ids))).fetchall():
+                    vod_rows[int(row[0])] = row
+
+            unresolved_live_names = set()
+            unresolved_vod_names = set()
+            for item in refreshed:
+                name = str(item.get('name') or '').strip()
+                if not name:
+                    continue
+                try:
+                    sid = int(item.get('stream_id') or 0)
+                except (TypeError, ValueError):
+                    sid = 0
+                if item.get('type') == 'live' and (sid <= 0 or sid not in live_rows):
+                    unresolved_live_names.add(name)
+                if item.get('type') == 'vod' and (sid <= 0 or sid not in vod_rows):
+                    unresolved_vod_names.add(name)
+
+            for name in unresolved_live_names:
+                row = cursor.execute(
+                    """
+                    SELECT stream_id, name, stream_url, category_name
+                    FROM live_streams
+                    WHERE lower(name) = lower(?)
+                    LIMIT 1
+                    """,
+                    (name,),
+                ).fetchone()
+                if row:
+                    live_name_rows[name.lower()] = row
+
+            for name in unresolved_vod_names:
+                row = cursor.execute(
+                    """
+                    SELECT stream_id, name, stream_url, year, rating, genre
+                    FROM vod_streams
+                    WHERE lower(name) = lower(?)
+                    LIMIT 1
+                    """,
+                    (name,),
+                ).fetchone()
+                if row:
+                    vod_name_rows[name.lower()] = row
+
+            conn.close()
+        except Exception:
+            return refreshed, 0
+
+        for item in refreshed:
+            item_changed = False
+            item_type = item.get('type')
+
+            try:
+                sid = int(item.get('stream_id') or 0)
+            except (TypeError, ValueError):
+                sid = 0
+
+            row = None
+            name_key = str(item.get('name') or '').strip().lower()
+
+            if item_type == 'live':
+                if sid > 0:
+                    row = live_rows.get(sid)
+                if row is None and name_key:
+                    row = live_name_rows.get(name_key)
+
+                if row:
+                    new_sid, new_name, new_url, new_category = row
+                    if sid != int(new_sid):
+                        item['stream_id'] = int(new_sid)
+                        sid = int(new_sid)
+                        item_changed = True
+                    if new_name and item.get('name') != new_name:
+                        item['name'] = new_name
+                        item_changed = True
+                    if new_url and item.get('stream_url') != new_url:
+                        item['stream_url'] = new_url
+                        item_changed = True
+                    if new_category:
+                        if item.get('category') != new_category:
+                            item['category'] = new_category
+                            item_changed = True
+                        if item.get('category_name') != new_category:
+                            item['category_name'] = new_category
+                            item_changed = True
+                elif sid > 0 and self.server and self.username and self.password:
+                    fallback_url = f"{self.server}/live/{self.username}/{self.password}/{sid}.ts"
+                    if item.get('stream_url') != fallback_url:
+                        item['stream_url'] = fallback_url
+                        item_changed = True
+
+            elif item_type == 'vod':
+                if sid > 0:
+                    row = vod_rows.get(sid)
+                if row is None and name_key:
+                    row = vod_name_rows.get(name_key)
+
+                if row:
+                    new_sid, new_name, new_url, new_year, new_rating, new_genre = row
+                    if sid != int(new_sid):
+                        item['stream_id'] = int(new_sid)
+                        sid = int(new_sid)
+                        item_changed = True
+                    if new_name and item.get('name') != new_name:
+                        item['name'] = new_name
+                        item_changed = True
+                    if new_url and item.get('stream_url') != new_url:
+                        item['stream_url'] = new_url
+                        item_changed = True
+                    if new_year and item.get('year') != new_year:
+                        item['year'] = new_year
+                        item_changed = True
+                    if new_rating is not None and item.get('rating') != new_rating:
+                        item['rating'] = new_rating
+                        item_changed = True
+                    if new_genre and item.get('genre') != new_genre:
+                        item['genre'] = new_genre
+                        item_changed = True
+                elif sid > 0 and self.server and self.username and self.password:
+                    extension = self._get_download_extension(item, default='mp4')
+                    fallback_url = f"{self.server}/movie/{self.username}/{self.password}/{sid}.{extension}"
+                    if item.get('stream_url') != fallback_url:
+                        item['stream_url'] = fallback_url
+                        item_changed = True
+
+            if item_changed:
+                changed += 1
+
+        if persist and changed > 0:
+            try:
+                favorites_path = os.path.join(self.data_dir, 'favorites.json')
+                with open(favorites_path, 'w', encoding='utf-8') as favorites_file:
+                    json.dump(refreshed, favorites_file, indent=2)
+                self.generate_m3u_playlist()
+            except Exception:
+                pass
+
+        return refreshed, changed
+
+    def _load_vod_description_cache(self):
+        """Load cached VOD descriptions from disk."""
+        cache_path = os.path.join(self.data_dir, 'vod_descriptions_cache.json')
+        try:
+            if os.path.exists(cache_path):
+                with open(cache_path, 'r', encoding='utf-8') as cache_file:
+                    data = json.load(cache_file)
+                    if isinstance(data, dict):
+                        return data
+        except Exception:
+            pass
+        return {}
+
+    def _save_vod_description_cache(self, cache_data):
+        """Persist cached VOD descriptions to disk."""
+        cache_path = os.path.join(self.data_dir, 'vod_descriptions_cache.json')
+        try:
+            with open(cache_path, 'w', encoding='utf-8') as cache_file:
+                json.dump(cache_data, cache_file, indent=2)
+        except Exception:
+            pass
+
+    def _get_vod_description_cached(self, stream_id, cache_data):
+        """Return VOD description from cache or fetch once from API."""
+        try:
+            sid = int(stream_id)
+        except (TypeError, ValueError):
+            return ""
+
+        if sid <= 0:
+            return ""
+
+        key = str(sid)
+        now_ts = int(time.time())
+        max_age = 7 * 24 * 3600
+
+        entry = cache_data.get(key)
+        if isinstance(entry, dict):
+            cached_at = int(entry.get('cached_at', 0) or 0)
+            description = str(entry.get('description', '') or '').strip()
+            age = now_ts - cached_at
+            if description and age < max_age:
+                return description
+
+        description = ""
+        try:
+            url = f"{self.server}/player_api.php"
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            params = {
+                'username': self.username,
+                'password': self.password,
+                'action': 'get_vod_info',
+                'vod_id': sid,
+            }
+            response = requests.get(url, params=params, headers=headers, timeout=10)
+            if response.status_code == 200:
+                payload = response.json()
+                info = payload.get('info') if isinstance(payload, dict) else {}
+                if isinstance(info, dict):
+                    description = info.get('plot') or info.get('description') or ""
+                if not description and isinstance(payload, dict):
+                    description = payload.get('description') or ""
+                description = self._decode_base64_if_needed(description)
+                description = re.sub(r'\s+', ' ', str(description or '')).strip()
+        except Exception:
+            pass
+
+        cache_data[key] = {
+            'description': description,
+            'cached_at': now_ts,
+        }
+        self._save_vod_description_cache(cache_data)
+        return description
+
+    def _needs_live_epg_prefetch(self, favorites):
+        """Decide if we should refresh live EPG cache for favorites now."""
+        live_ids = []
+        for favorite in favorites:
+            if favorite.get('type') != 'live':
+                continue
+            try:
+                sid = int(favorite.get('stream_id') or 0)
+            except (TypeError, ValueError):
+                continue
+            if sid > 0:
+                live_ids.append(sid)
+
+        if not live_ids:
+            return False
+
+        sig = tuple(sorted(set(live_ids)))
+        now_ts = int(time.time())
+        last_sig = getattr(self, '_favorites_live_epg_sig', None)
+        last_ts = getattr(self, '_favorites_live_epg_prefetch_at', 0)
+
+        if sig != last_sig:
+            return True
+        if (now_ts - last_ts) > 300:
+            return True
+        return False
+
+    def _prefetch_live_epg_for_favorites(self, favorites):
+        """Warm EPG cache for all live favorites (best effort)."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        live_items = []
+        live_ids = []
+        seen = set()
+
+        for favorite in favorites:
+            if favorite.get('type') != 'live':
+                continue
+            try:
+                sid = int(favorite.get('stream_id') or 0)
+            except (TypeError, ValueError):
+                continue
+            if sid <= 0 or sid in seen:
+                continue
+            seen.add(sid)
+            live_ids.append(sid)
+            live_items.append(favorite)
+
+        if not live_items:
+            self._favorites_live_epg_sig = tuple()
+            self._favorites_live_epg_prefetch_at = int(time.time())
             return
 
-        def _normalize(f):
-            """Ensure favorites have the field names the result views expect."""
-            n = dict(f)
-            if 'category_name' not in n:
-                n['category_name'] = n.get('category', 'Uncategorized')
-            if 'stream_url' not in n:
-                n['stream_url'] = n.get('url', '')
-            return n
+        def _fetch_one(item):
+            stream_id = item.get('stream_id')
+            channel_name = item.get('name')
+            stream_url = item.get('stream_url')
+            # Skip network if already cached for "now"
+            cached = self.get_now_playing_local(
+                stream_id,
+                channel_name=channel_name,
+                fetch_if_missing=False,
+                stream_url=stream_url,
+            )
+            if cached and (cached.get('title') or cached.get('description')):
+                return
+            self.get_now_playing_local(
+                stream_id,
+                channel_name=channel_name,
+                fetch_if_missing=True,
+                stream_url=stream_url,
+            )
 
-        live_favs = [_normalize(f) for f in favs if f.get('type') == 'live']
-        vod_favs  = [_normalize(f) for f in favs if f.get('type') == 'vod']
+        try:
+            workers = min(4, max(1, len(live_items)))
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                list(executor.map(_fetch_one, live_items))
+        except Exception:
+            pass
+
+        self._favorites_live_epg_sig = tuple(sorted(set(live_ids)))
+        self._favorites_live_epg_prefetch_at = int(time.time())
+
+    def _build_favorite_menu_label(self, favorite, vod_metadata, vod_desc_cache, detail_width):
+        """Build compact one-line row with live-now or VOD description."""
+        item_type = favorite.get('type')
+        name = str(favorite.get('name', 'Unknown')).replace('\n', ' ').strip()
+        name = textwrap.shorten(name, width=34, placeholder='...')
+
+        if item_type == 'live':
+            epg = self.get_now_playing_local(
+                favorite.get('stream_id'),
+                channel_name=favorite.get('name'),
+                fetch_if_missing=False,
+                stream_url=favorite.get('stream_url'),
+            )
+            detail = ""
+            if epg:
+                detail = (epg.get('title') or epg.get('description') or "").strip()
+            if detail:
+                detail = textwrap.shorten(detail, width=detail_width, placeholder='...')
+                return f"[L] {name} - {detail}"
+            return f"[L] {name} -"
+
+        try:
+            stream_id = int(favorite.get('stream_id') or 0)
+        except (TypeError, ValueError):
+            stream_id = 0
+
+        detail = self._get_vod_description_cached(stream_id, vod_desc_cache) if stream_id > 0 else ""
+        if not detail:
+            meta = vod_metadata.get(stream_id, {})
+            fallback = []
+            year = meta.get('year') or favorite.get('year')
+            if year:
+                fallback.append(str(year))
+            rating = meta.get('rating')
+            try:
+                if rating is not None and str(rating).strip() != "":
+                    fallback.append(f"{float(rating):.1f}/10")
+            except (TypeError, ValueError):
+                pass
+            detail = " | ".join(fallback) if fallback else "No description"
+
+        detail = textwrap.shorten(detail, width=detail_width, placeholder='...')
+        return f"[V] {name} - {detail}"
+
+    def _load_sorted_favorites(self):
+        """Load and normalize favorites sorted newest first."""
+        normalized = []
+        for favorite in self.load_favorites():
+            item = dict(favorite)
+            item_type = item.get('type')
+            if item_type not in ('live', 'vod'):
+                continue
+            if 'category_name' not in item:
+                item['category_name'] = item.get('category', 'Uncategorized')
+            if 'stream_url' not in item:
+                item['stream_url'] = item.get('url', '')
+            normalized.append(item)
+
+        normalized, refresh_count = self._hydrate_favorites_with_database(normalized, persist=True)
+        self._favorites_last_refresh_count = refresh_count
+
+        normalized.sort(key=self._favorite_added_timestamp, reverse=True)
+        return normalized
+
+    def view_favorites_menu(self):
+        """Browse favorites in one consolidated list with direct actions."""
+        current_page = 0
+        page_size = 25
+        vod_desc_cache = self._load_vod_description_cache()
 
         while True:
+            favorites = self._load_sorted_favorites()
+            if not favorites:
+                console.clear()
+                self.display_header(show_status=False)
+                console.print(Panel.fit(
+                    "Your favorites list is empty.\n\n"
+                    "Add favorites with the (s) key while searching.\n"
+                    "Favorites are saved to a playlist you can import in your TV app.",
+                    style="dim white"
+                ))
+                self.wait_for_escape()
+                return
+
+            if self._needs_live_epg_prefetch(favorites):
+                console.clear()
+                self.display_header(show_status=False)
+                console.print("[dim]Refreshing EPG for favorite live channels...[/dim]")
+                self._prefetch_live_epg_for_favorites(favorites)
+
+            total_pages = (len(favorites) + page_size - 1) // page_size
+            current_page = max(0, min(current_page, total_pages - 1))
+
+            start_idx = current_page * page_size
+            end_idx = min(start_idx + page_size, len(favorites))
+            page_items = favorites[start_idx:end_idx]
+
+            vod_ids = [item.get('stream_id') for item in page_items if item.get('type') == 'vod']
+            vod_metadata = self._load_vod_favorites_metadata(vod_ids)
+
+            term_width = shutil.get_terminal_size(fallback=(120, 30)).columns
+            detail_width = max(28, min(90, term_width - 46))
+
+            options = []
+            payloads = []
+
+            if current_page > 0:
+                options.append("< Previous Page")
+                payloads.append(('prev', None))
+
+            for item in page_items:
+                options.append(self._build_favorite_menu_label(item, vod_metadata, vod_desc_cache, detail_width))
+                payloads.append(('item', item))
+
+            if current_page < total_pages - 1:
+                options.append("Next Page >")
+                payloads.append(('next', None))
+
+            options.append("Back")
+            payloads.append(('back', None))
+
             console.clear()
             self.display_header(show_status=False)
+
+            title = f"[bold]Favorites[/bold]  ({len(favorites)} saved)"
+            if total_pages > 1:
+                title += f"  -  Page {current_page + 1}/{total_pages}"
+
             console.print(Panel.fit(
-                f"[bold]My Starred List[/bold]  ({len(favs)} items)\n"
-                f"[dim]Playlist URL: http://localhost:8080/iptv.m3u  —  Import in VLC, Kodi, or your TV app[/dim]",
+                f"{title}\n"
+                f"[dim]Playlist URL: http://localhost:8080/iptv.m3u[/dim]",
                 style="bright_cyan"
             ))
 
-            options = []
-            if live_favs:
-                options.append(f"Live Channels  ({len(live_favs)} starred)")
-            if vod_favs:
-                options.append(f"Movies & VOD  ({len(vod_favs)} starred)")
-            options.append("Back")
+            refresh_count = getattr(self, '_favorites_last_refresh_count', 0)
+            if refresh_count:
+                console.print(f"[dim]Updated {refresh_count} favorites with latest stream links.[/dim]")
 
-            choice = TerminalMenu(options, menu_cursor="> ").show()
+            live_items = [item for item in favorites if item.get('type') == 'live']
+            live_with_epg = 0
+            for live_item in live_items:
+                epg_now = self.get_now_playing_local(
+                    live_item.get('stream_id'),
+                    channel_name=live_item.get('name'),
+                    fetch_if_missing=False,
+                    stream_url=live_item.get('stream_url'),
+                )
+                if epg_now and (epg_now.get('title') or epg_now.get('description')):
+                    live_with_epg += 1
 
-            if choice is None or options[choice] == "Back":
-                break
+            if live_items:
+                if live_with_epg < len(live_items):
+                    epg_errors = getattr(self, '_epg_fetch_errors', {})
+                    if isinstance(epg_errors, dict) and epg_errors:
+                        sample_error = next(iter(epg_errors.values()))
+                        console.print(
+                            f"[yellow]EPG now: {live_with_epg}/{len(live_items)} channels  ({sample_error})[/yellow]"
+                        )
+                    else:
+                        console.print(f"[yellow]EPG now: {live_with_epg}/{len(live_items)} channels[/yellow]")
+                else:
+                    console.print(f"[green]EPG now: {live_with_epg}/{len(live_items)} channels[/green]")
 
-            label = options[choice]
-            if label.startswith("Live Channels"):
-                self.show_live_results(live_favs, "Starred Live Channels")
-                # Reload in case user starred/unstarred items
-                favs = self.load_favorites()
-                live_favs = [_normalize(f) for f in favs if f.get('type') == 'live']
-                vod_favs  = [_normalize(f) for f in favs if f.get('type') == 'vod']
-            elif label.startswith("Movies"):
-                self.show_vod_results(vod_favs, "Starred Movies & VOD")
-                favs = self.load_favorites()
-                live_favs = [_normalize(f) for f in favs if f.get('type') == 'live']
-                vod_favs  = [_normalize(f) for f in favs if f.get('type') == 'vod']
+            console.print("[dim]# P play  |  R restream  |  C record/download  |  T schedule live  |  D remove[/dim]\n")
 
-            if not favs:
-                break
+            terminal_menu = TerminalMenu(
+                options,
+                title="",
+                menu_cursor="> ",
+                accept_keys=("enter", "p", "r", "c", "t", "d"),
+                show_shortcut_hints=False,
+                cycle_cursor=True,
+                clear_screen=False,
+            )
+
+            choice_raw = terminal_menu.show()
+            if isinstance(choice_raw, tuple):
+                choice = choice_raw[0] if choice_raw else None
+            else:
+                choice = choice_raw
+            chosen_key = terminal_menu.chosen_accept_key or 'enter'
+
+            if choice is None:
+                return
+
+            selected_kind, selected_item = payloads[choice]
+            if selected_kind == 'prev':
+                current_page -= 1
+                continue
+            if selected_kind == 'next':
+                current_page += 1
+                continue
+            if selected_kind == 'back':
+                return
+
+            resolved_items, _ = self._hydrate_favorites_with_database([selected_item], persist=False)
+            if resolved_items:
+                selected_item = resolved_items[0]
+
+            item_type = selected_item.get('type')
+            stream_url = selected_item.get('stream_url')
+            if not stream_url and chosen_key in ('enter', 'p', 'r', 'c', 't'):
+                console.print("[red]No stream URL available for this favorite.[/red]")
+                self.wait_for_escape()
+                continue
+
+            if chosen_key in ('enter', 'p'):
+                self.play_with_mpv(selected_item)
+                continue
+
+            if chosen_key == 'r':
+                self.quick_restream(selected_item)
+                continue
+
+            if chosen_key == 'c':
+                if item_type == 'live':
+                    self.download_live_to_data(selected_item)
+                else:
+                    self.download_vod_to_data(selected_item)
+                continue
+
+            if chosen_key == 't':
+                if item_type == 'live':
+                    self.schedule_recording(selected_item)
+                else:
+                    console.print("[yellow]Schedule recording is only available for live channels.[/yellow]")
+                    self.wait_for_escape()
+                continue
+
+            if chosen_key == 'd':
+                result = self.remove_from_favorites(selected_item, item_type)
+                if result == -1:
+                    console.print("[yellow]This item is no longer in your favorites list.[/yellow]")
+                else:
+                    console.print("[green]Removed from favorites.[/green]")
+                time.sleep(1)
+                continue
 
     def browse_categories_menu(self):
         """Discovery Hub - Browse and explore content"""
@@ -1781,7 +2436,11 @@ class IPTVMenuManager:
         console.print("\n[cyan]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/cyan]")
         console.print("[yellow]Fetching EPG data...[/yellow]")
         
-        epg_listings = self.get_epg_data(channel['stream_id'], channel_name=channel.get('name'))
+        epg_listings = self.get_epg_data(
+            channel['stream_id'],
+            channel_name=channel.get('name'),
+            stream_url=channel.get('stream_url'),
+        )
         
         if epg_listings:
             console.print("[green]✓[/green] EPG data available\n")
@@ -1821,16 +2480,15 @@ class IPTVMenuManager:
                     console.print()
                 
                 if start_time and end_time:
-                    # Format times - convert from UTC to local timezone
+                    # Format times using provider timezone source, then local display
                     try:
-                        from datetime import datetime, timezone
-                        # Parse as UTC datetime (API returns UTC times)
-                        start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
-                        end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
-                        # Convert to local timezone
-                        start_local = start_dt.astimezone()
-                        end_local = end_dt.astimezone()
-                        time_str = f"{start_local.strftime('%H:%M')} - {end_local.strftime('%H:%M')}"
+                        start_ts, end_ts = self._extract_epg_window(program)
+                        if start_ts and end_ts:
+                            start_local = datetime.fromtimestamp(start_ts).astimezone()
+                            end_local = datetime.fromtimestamp(end_ts).astimezone()
+                            time_str = f"{start_local.strftime('%H:%M')} - {end_local.strftime('%H:%M')}"
+                        else:
+                            time_str = f"{start_time} - {end_time}"
                     except:
                         time_str = f"{start_time} - {end_time}"
                     
@@ -1867,32 +2525,1023 @@ class IPTVMenuManager:
         console.print("\n[dim white]Additional metadata not available[/dim white]")
         self.wait_for_escape()
 
-    def show_series_info(self, series_item):
-        """Show detailed series information"""
+    def _season_label(self, season_number, season_name=None):
+        """Format a human-friendly season label."""
+        if season_name:
+            return season_name
+        if season_number == 0:
+            return "Specials"
+        return f"Season {season_number}"
+
+    def _get_download_extension(self, item, default='mp4'):
+        """Pick a download file extension from metadata or URL."""
+        extension = item.get('container_extension')
+        if extension:
+            return str(extension).strip('.').lower()
+
+        stream_url = item.get('stream_url', '')
+        match = re.search(r'\.([A-Za-z0-9]{2,5})(?:$|\?)', stream_url)
+        if match:
+            return match.group(1).lower()
+
+        return default
+
+    def _safe_path_component(self, value):
+        """Sanitize a single path component for local storage."""
+        cleaned = re.sub(r'[\\/:*?"<>|]+', ' ', str(value or '')).strip()
+        cleaned = re.sub(r'\s+', ' ', cleaned)
+        return cleaned or 'Unknown'
+
+    def _choose_batch_download_tool(self):
+        """Choose the best available resumable download tool."""
+        if shutil.which('curl'):
+            return 'curl'
+        if shutil.which('wget'):
+            return 'wget'
+        return 'python'
+
+    def _get_series_download_root(self):
+        """Pick the preferred root folder for TV show downloads."""
+        candidates = []
+
+        jellyfin_media_path = os.getenv('JELLYFIN_MEDIA_PATH')
+        if jellyfin_media_path:
+            candidates.append(os.path.join(jellyfin_media_path, 'TvShow'))
+
+        candidates.append(os.path.join(self.data_dir, 'TvShow'))
+
+        for path in candidates:
+            parent = os.path.dirname(path)
+            if os.path.exists(path) and os.access(path, os.W_OK):
+                return path
+            if os.path.exists(parent) and os.access(parent, os.W_OK):
+                os.makedirs(path, exist_ok=True)
+                return path
+
+        fallback = os.path.join(self.data_dir, 'TvShow')
+        os.makedirs(fallback, exist_ok=True)
+        return fallback
+
+    def _build_series_download_jobs(self, series_item, episodes):
+        """Build local target paths for a series episode batch."""
+        root_path = self._get_series_download_root()
+        series_folder = self._safe_path_component(series_item.get('name', 'Series'))
+        jobs = []
+
+        for episode in episodes:
+            season_label = self._season_label(episode.get('season_number', 0), episode.get('season_name'))
+            season_folder = self._safe_path_component(season_label)
+            extension = self._get_download_extension(episode)
+            filename = f"{self._safe_path_component(episode['title'])}.{extension}"
+            filepath = os.path.join(root_path, series_folder, season_folder, filename)
+
+            jobs.append({
+                'title': episode['title'],
+                'stream_url': episode['stream_url'],
+                'filepath': filepath,
+            })
+
+        return root_path, jobs
+
+    def _new_series_batch_state(self, total_jobs=0):
+        """Create a fresh in-memory state object for a batch download."""
+        return {
+            'total': int(total_jobs or 0),
+            'completed': 0,
+            'skipped': 0,
+            'failed': 0,
+            'current_index': 0,
+            'current_title': '',
+            'last_line': 'Waiting for worker output...',
+            'last_error': '',
+            'started': False,
+            'complete': False,
+            'last_activity_at': time.time(),
+            'remainder': '',
+        }
+
+    def _read_series_batch_state(self, log_path, total_jobs=0):
+        """Parse the full log file and return current batch state."""
+        state = self._new_series_batch_state(total_jobs)
+        if not log_path or not os.path.exists(log_path):
+            return state
+
+        try:
+            with open(log_path, 'r', encoding='utf-8', errors='replace') as log_file:
+                while True:
+                    chunk = log_file.read(64 * 1024)
+                    if not chunk:
+                        break
+                    self._ingest_series_batch_log_chunk(chunk, state)
+
+            if state['remainder']:
+                self._ingest_series_batch_log_chunk('\n', state)
+        except Exception as exc:
+            state['last_error'] = f"Could not parse log: {exc}"
+
+        return state
+
+    def _series_batch_processed_count(self, state):
+        """Return number of episodes already accounted for."""
+        return state['completed'] + state['skipped'] + state['failed']
+
+    def _series_batch_status_label(self, state, process_pid):
+        """Return a compact status label for list views."""
+        if state['complete']:
+            if state['failed'] > 0:
+                return "DONE*"
+            return "DONE"
+
+        if process_pid and self._is_pid_running(process_pid):
+            if state['started']:
+                return "RUNNING"
+            return "STARTING"
+
+        if state['started'] or self._series_batch_processed_count(state) > 0:
+            return "CRASHED"
+
+        return "QUEUED"
+
+    def _load_series_batch_manifests(self, limit=40):
+        """Return latest series batch manifests for the downloads screen."""
+        manifest_pattern = os.path.join(self.data_dir, 'series_batch_*.json')
+        manifest_paths = sorted(
+            glob.glob(manifest_pattern),
+            key=lambda path: os.path.getmtime(path),
+            reverse=True,
+        )
+
+        jobs = []
+        for manifest_path in manifest_paths:
+            try:
+                with open(manifest_path, 'r', encoding='utf-8', errors='replace') as manifest_file:
+                    manifest = json.load(manifest_file)
+            except Exception:
+                continue
+
+            batch_jobs = manifest.get('jobs') if isinstance(manifest.get('jobs'), list) else []
+            total_jobs = manifest.get('total_jobs', len(batch_jobs))
+            try:
+                total_jobs = int(total_jobs)
+            except (TypeError, ValueError):
+                total_jobs = len(batch_jobs)
+
+            process_pid = manifest.get('process_pid', 0)
+            try:
+                process_pid = int(process_pid)
+            except (TypeError, ValueError):
+                process_pid = 0
+
+            log_path = manifest.get('log_path')
+            if not log_path:
+                base = os.path.splitext(os.path.basename(manifest_path))[0]
+                log_path = os.path.join(self.data_dir, 'logs', f"{base}.log")
+
+            created_at = manifest.get('created_at')
+            try:
+                created_at = int(created_at)
+            except (TypeError, ValueError):
+                created_at = int(os.path.getmtime(manifest_path))
+
+            jobs.append({
+                'manifest_path': manifest_path,
+                'series_name': manifest.get('series_name', 'Series'),
+                'batch_label': manifest.get('batch_label', 'Series Batch'),
+                'destination': manifest.get('destination', os.path.join(self.data_dir, 'TvShow')),
+                'log_path': log_path,
+                'process_pid': process_pid,
+                'total_jobs': total_jobs,
+                'created_at': created_at,
+            })
+
+            if len(jobs) >= limit:
+                break
+
+        return jobs
+
+    def _get_background_download_summary_cached(self):
+        """Return cached background download stats for the header panel."""
+        now = time.time()
+        if not hasattr(self, '_bg_download_cache_time') or now - self._bg_download_cache_time > 5:
+            manifests = self._load_series_batch_manifests(limit=80)
+            active = 0
+            for job in manifests:
+                if self._is_pid_running(job.get('process_pid', 0)):
+                    active += 1
+
+            self._bg_download_cache = {
+                'active': active,
+                'known_batches': len(manifests),
+            }
+            self._bg_download_cache_time = now
+
+        return self._bg_download_cache
+
+    def view_series_batch_downloads(self):
+        """Browse recent series batch downloads and reopen live monitor."""
+        while True:
+            console.clear()
+            console.print(Panel.fit("Background Downloads", style="dim white"))
+
+            jobs = self._load_series_batch_manifests(limit=50)
+            if not jobs:
+                console.print("[dim]No background series downloads found yet.[/dim]")
+                console.print("[dim]Queue a series/season/episode download to populate this list.[/dim]")
+                self.wait_for_escape()
+                return
+
+            menu_options = []
+            hydrated = []
+
+            for job in jobs:
+                state = self._read_series_batch_state(job['log_path'], job['total_jobs'])
+                total = max(job['total_jobs'], state['total'])
+                processed = self._series_batch_processed_count(state)
+                label = self._series_batch_status_label(state, job['process_pid'])
+                batch_text = textwrap.shorten(job['batch_label'], width=44, placeholder='...')
+                menu_options.append(
+                    f"{label:8} {processed:>3}/{total:<3}  fail:{state['failed']:<2}  {batch_text}"
+                )
+                hydrated.append((job, state))
+
+            menu_options.append("Refresh")
+            menu_options.append("Back")
+
+            menu = TerminalMenu(menu_options, title="Select batch to inspect")
+            idx = menu.show()
+
+            if idx is None or idx == len(menu_options) - 1:
+                return
+            if idx == len(menu_options) - 2:
+                continue
+
+            selected_job, selected_state = hydrated[idx]
+            self._show_series_batch_download_details(selected_job, selected_state)
+
+    def _show_series_batch_download_details(self, job, state=None):
+        """Show details for one batch and allow reopening live monitor."""
+        while True:
+            if state is None:
+                state = self._read_series_batch_state(job['log_path'], job['total_jobs'])
+
+            total = max(job['total_jobs'], state['total'])
+            processed = self._series_batch_processed_count(state)
+            status = self._series_batch_status_label(state, job['process_pid'])
+            created_at = datetime.fromtimestamp(job['created_at']).strftime('%Y-%m-%d %H:%M:%S')
+
+            console.clear()
+            console.print(Panel.fit("Batch Download Details", style="dim white"))
+            console.print(f"[dim]Series:[/dim] {job['series_name']}")
+            console.print(f"[dim]Batch:[/dim] {job['batch_label']}")
+            console.print(f"[dim]Created:[/dim] {created_at}")
+            console.print(f"[dim]Status:[/dim] {status}")
+            console.print(f"[dim]Progress:[/dim] {self._progress_bar(processed, total)}")
+            console.print(
+                f"[dim]Counts:[/dim] done={state['completed']}  skipped={state['skipped']}  failed={state['failed']}"
+            )
+            console.print(f"[dim]Destination:[/dim] {job['destination']}")
+            console.print(f"[dim]Process PID:[/dim] {job['process_pid']}")
+            console.print(f"[dim]Log file:[/dim] {job['log_path']}")
+
+            if state['last_error']:
+                error_text = textwrap.shorten(state['last_error'], width=110, placeholder='...')
+                console.print(f"[red]Last error:[/red] {error_text}")
+            elif state['last_line']:
+                last_line = textwrap.shorten(state['last_line'], width=110, placeholder='...')
+                console.print(f"[dim]Last log:[/dim] {last_line}")
+
+            options = ["Open Live Monitor", "Refresh Details", "Back"]
+            choice = TerminalMenu(options, title="Actions").show()
+
+            if choice is None or choice == 2:
+                return
+            if choice == 1:
+                state = None
+                continue
+
+            self.monitor_series_batch_download(
+                job['process_pid'],
+                job['log_path'],
+                total,
+                job['batch_label'],
+                job['series_name'],
+                job['destination'],
+            )
+            state = None
+
+    def _is_pid_running(self, pid):
+        """Check if a process still exists without sending a signal."""
+        try:
+            pid_int = int(pid)
+        except (TypeError, ValueError):
+            return False
+
+        if pid_int <= 0:
+            return False
+
+        try:
+            os.kill(pid_int, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except Exception:
+            return False
+
+    def _progress_bar(self, completed, total, width=34):
+        """Render a compact text progress bar."""
+        if total <= 0:
+            return f"[{'-' * width}] 0/0"
+
+        ratio = max(0.0, min(float(completed) / float(total), 1.0))
+        filled = int(round(ratio * width))
+        bar = f"{'#' * filled}{'-' * (width - filled)}"
+        return f"[{bar}] {completed}/{total} ({ratio * 100:.1f}%)"
+
+    def _ingest_series_batch_log_chunk(self, chunk, state):
+        """Parse new log output and update batch state."""
+        if not chunk:
+            return
+
+        merged = state['remainder'] + chunk.replace('\r', '\n')
+        lines = merged.split('\n')
+        state['remainder'] = lines.pop() if lines else ''
+
+        for raw_line in lines:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            state['last_line'] = line
+            state['last_activity_at'] = time.time()
+
+            start_match = re.search(r"Starting batch '.+' with (\d+) episodes", line)
+            if start_match:
+                state['started'] = True
+                state['total'] = max(state['total'], int(start_match.group(1)))
+                continue
+
+            step_match = re.search(r"\[(\d+)/(\d+)\]\s+(START|DONE|SKIP|FAIL)\s+(.+)", line)
+            if step_match:
+                state['started'] = True
+                state['current_index'] = int(step_match.group(1))
+                state['total'] = max(state['total'], int(step_match.group(2)))
+                action = step_match.group(3)
+                payload = step_match.group(4)
+
+                if action == 'START':
+                    state['current_title'] = payload
+                elif action == 'DONE':
+                    state['completed'] += 1
+                    state['current_title'] = ''
+                elif action == 'SKIP':
+                    state['skipped'] += 1
+                    state['current_title'] = ''
+                elif action == 'FAIL':
+                    state['failed'] += 1
+                    state['last_error'] = payload
+                    state['current_title'] = ''
+                continue
+
+            summary_match = re.search(r"Batch complete:\s*done=(\d+),\s*skipped=(\d+),\s*failed=(\d+)", line)
+            if summary_match:
+                state['completed'] = int(summary_match.group(1))
+                state['skipped'] = int(summary_match.group(2))
+                state['failed'] = int(summary_match.group(3))
+                state['complete'] = True
+
+    def monitor_series_batch_download(self, process_pid, log_path, total_jobs, batch_label, series_name, destination):
+        """Show live status for a background series batch worker."""
+        import select
+        import termios
+        import tty
+
+        state = self._new_series_batch_state(total_jobs)
+
+        file_offset = 0
+        refresh_interval = 0.5
+        final_state_since = None
+        monitor_started_at = time.time()
+
+        fd = None
+        old_settings = None
+        interactive = False
+
+        try:
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+            tty.setcbreak(fd)
+            interactive = True
+        except Exception:
+            interactive = False
+
+        try:
+            while True:
+                if os.path.exists(log_path):
+                    with open(log_path, 'r', encoding='utf-8', errors='replace') as log_file:
+                        log_file.seek(file_offset)
+                        chunk = log_file.read()
+                        file_offset = log_file.tell()
+                    self._ingest_series_batch_log_chunk(chunk, state)
+
+                processed = state['completed'] + state['skipped'] + state['failed']
+                process_alive = self._is_pid_running(process_pid)
+
+                if state['complete']:
+                    if state['failed'] > 0:
+                        status = "[yellow]Completed (with errors)[/yellow]"
+                    else:
+                        status = "[green]Completed[/green]"
+                    terminal_state = True
+                elif process_alive:
+                    if state['started']:
+                        status = "[cyan]Running[/cyan]"
+                    else:
+                        status = "[cyan]Starting[/cyan]"
+                    terminal_state = False
+                else:
+                    status = "[red]Crashed[/red]"
+                    terminal_state = True
+                    if not state['last_error']:
+                        state['last_error'] = state['last_line']
+
+                console.clear()
+                console.print(Panel.fit("Series Batch Download Monitor", style="dim white"))
+                console.print(f"[dim]Series:[/dim] {series_name}")
+                console.print(f"[dim]Batch:[/dim] {batch_label}")
+                console.print(f"[dim]Destination:[/dim] {destination}")
+                console.print(f"[dim]Process PID:[/dim] {process_pid}")
+                console.print(f"[dim]Status:[/dim] {status}")
+                console.print(f"[dim]Progress:[/dim] {self._progress_bar(processed, state['total'])}")
+                console.print(
+                    f"[dim]Counts:[/dim] done={state['completed']}  skipped={state['skipped']}  failed={state['failed']}"
+                )
+
+                if state['current_title']:
+                    current = textwrap.shorten(state['current_title'], width=100, placeholder='...')
+                    console.print(f"[dim]Current:[/dim] {current}")
+
+                if state['last_error']:
+                    error_text = textwrap.shorten(state['last_error'], width=110, placeholder='...')
+                    console.print(f"[red]Last error:[/red] {error_text}")
+                elif state['last_line']:
+                    last_line = textwrap.shorten(state['last_line'], width=110, placeholder='...')
+                    console.print(f"[dim]Last log:[/dim] {last_line}")
+
+                console.print(f"[dim]Log file:[/dim] {log_path}")
+                console.print("[dim]Press ESC to close monitor.[/dim]")
+
+                if terminal_state and final_state_since is None:
+                    final_state_since = time.time()
+
+                if interactive:
+                    ready, _, _ = select.select([sys.stdin], [], [], refresh_interval)
+                    if ready:
+                        char = sys.stdin.read(1)
+                        if char and ord(char) == 27:
+                            break
+                else:
+                    time.sleep(refresh_interval)
+                    if terminal_state and final_state_since and (time.time() - final_state_since) >= 3:
+                        break
+                    if (time.time() - monitor_started_at) >= 5:
+                        break
+        finally:
+            if interactive and fd is not None and old_settings is not None:
+                try:
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                except Exception:
+                    pass
+
+    def queue_series_batch_download(self, series_item, episodes, batch_label):
+        """Start a detached background worker to download series episodes sequentially."""
+        if not episodes:
+            console.print("[yellow]No episodes available to download[/yellow]")
+            self.wait_for_escape()
+            return
+
+        root_path, jobs = self._build_series_download_jobs(series_item, episodes)
+        tool = self._choose_batch_download_tool()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_series = self._safe_path_component(series_item.get('name', 'series')).replace(' ', '_')
+        manifest_path = os.path.join(self.data_dir, f"series_batch_{safe_series}_{timestamp}.json")
+        logs_dir = os.path.join(self.data_dir, 'logs')
+        os.makedirs(logs_dir, exist_ok=True)
+        log_path = os.path.join(logs_dir, f"series_batch_{safe_series}_{timestamp}.log")
+
+        manifest_payload = {
+            'tool': tool,
+            'jobs': jobs,
+            'batch_label': batch_label,
+            'series_name': series_item.get('name', 'Series'),
+            'destination': root_path,
+            'log_path': log_path,
+            'total_jobs': len(jobs),
+            'created_at': int(time.time()),
+            'process_pid': 0,
+        }
+
+        with open(manifest_path, 'w') as manifest_file:
+            json.dump(manifest_payload, manifest_file, indent=2)
+
+        worker_code = """
+import json
+import os
+import subprocess
+import sys
+import time
+
+import requests
+
+
+def log_line(handle, message):
+    handle.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {message}\\n")
+    handle.flush()
+
+
+def download_with_requests(job, handle):
+    headers = {
+        'User-Agent': 'VLC/3.0.0 LibVLC/3.0.0',
+        'Accept': '*/*',
+        'Connection': 'keep-alive',
+    }
+    temp_path = job['filepath'] + '.part'
+    resume_at = 0
+    mode = 'wb'
+
+    if os.path.exists(temp_path):
+        resume_at = os.path.getsize(temp_path)
+        if resume_at > 0:
+            headers['Range'] = f'bytes={resume_at}-'
+            mode = 'ab'
+
+    with requests.get(job['stream_url'], headers=headers, stream=True, timeout=60) as response:
+        response.raise_for_status()
+        with open(temp_path, mode) as output_file:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    output_file.write(chunk)
+
+    os.replace(temp_path, job['filepath'])
+
+
+def main():
+    manifest_path, log_path = sys.argv[1], sys.argv[2]
+    with open(manifest_path) as manifest_file:
+        manifest = json.load(manifest_file)
+
+    tool = manifest.get('tool', 'python')
+    jobs = manifest.get('jobs', [])
+
+    with open(log_path, 'a', buffering=1) as log_handle:
+        log_line(log_handle, f"Starting batch '{manifest.get('batch_label', 'Series Batch')}' with {len(jobs)} episodes")
+        completed = 0
+        skipped = 0
+        failed = 0
+
+        for index, job in enumerate(jobs, start=1):
+            os.makedirs(os.path.dirname(job['filepath']), exist_ok=True)
+            if os.path.exists(job['filepath']) and os.path.getsize(job['filepath']) > 0:
+                skipped += 1
+                log_line(log_handle, f"[{index}/{len(jobs)}] SKIP existing: {job['filepath']}")
+                continue
+
+            log_line(log_handle, f"[{index}/{len(jobs)}] START {job['title']}")
+
+            try:
+                if tool == 'curl':
+                    command = [
+                        'curl', '-L', '-C', '-', '-o', job['filepath'],
+                        '-A', 'VLC/3.0.0 LibVLC/3.0.0',
+                        '--connect-timeout', '60',
+                        '--retry', '20',
+                        '--retry-delay', '5',
+                        job['stream_url'],
+                    ]
+                    subprocess.run(command, check=True, stdout=log_handle, stderr=subprocess.STDOUT)
+                elif tool == 'wget':
+                    command = [
+                        'wget', '-c', '-O', job['filepath'],
+                        '--user-agent=VLC/3.0.0 LibVLC/3.0.0',
+                        '--timeout=60', '--tries=20',
+                        job['stream_url'],
+                    ]
+                    subprocess.run(command, check=True, stdout=log_handle, stderr=subprocess.STDOUT)
+                else:
+                    download_with_requests(job, log_handle)
+
+                completed += 1
+                log_line(log_handle, f"[{index}/{len(jobs)}] DONE {job['filepath']}")
+            except Exception as exc:
+                failed += 1
+                log_line(log_handle, f"[{index}/{len(jobs)}] FAIL {job['title']}: {exc}")
+
+        log_line(log_handle, f"Batch complete: done={completed}, skipped={skipped}, failed={failed}")
+
+
+if __name__ == '__main__':
+    main()
+"""
+
+        try:
+            with open(log_path, 'a') as log_handle:
+                process = subprocess.Popen(
+                    [sys.executable, '-c', worker_code, manifest_path, log_path],
+                    stdout=log_handle,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+        except Exception as exc:
+            console.print(f"[red]✗[/red] Failed to start batch worker: {exc}")
+            self.wait_for_escape()
+            return
+
+        manifest_payload['process_pid'] = process.pid
+        manifest_payload['started_at'] = int(time.time())
+        try:
+            with open(manifest_path, 'w') as manifest_file:
+                json.dump(manifest_payload, manifest_file, indent=2)
+        except Exception:
+            pass
+
+        console.print(f"[green]✓[/green] Queued {len(episodes)} episode(s) for background download")
+        console.print(f"[dim]Series:[/dim] {series_item.get('name', 'Series')}")
+        console.print(f"[dim]Batch:[/dim] {batch_label}")
+        console.print(f"[dim]Destination:[/dim] {root_path}")
+        console.print(f"[dim]Process PID:[/dim] {process.pid}")
+        console.print(f"[dim]Log file:[/dim] {log_path}")
+        console.print("[dim]Opening live status monitor... (ESC to close)[/dim]")
+        self.monitor_series_batch_download(
+            process.pid,
+            log_path,
+            len(jobs),
+            batch_label,
+            series_item.get('name', 'Series'),
+            root_path,
+        )
+
+    def _load_cached_series_episodes(self, series_id):
+        """Load cached episodes for a series from SQLite."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        rows = cursor.execute('''
+            SELECT episode_id, series_id, season_number, season_name, episode_num,
+                   title, container_extension, stream_url, air_date, duration,
+                   duration_secs, rating, added, direct_source
+            FROM series_episodes
+            WHERE series_id = ?
+            ORDER BY season_number, episode_num, title
+        ''', (series_id,)).fetchall()
+        conn.close()
+
+        keys = [
+            'episode_id', 'series_id', 'season_number', 'season_name', 'episode_num',
+            'title', 'container_extension', 'stream_url', 'air_date', 'duration',
+            'duration_secs', 'rating', 'added', 'direct_source'
+        ]
+        return [dict(zip(keys, row)) for row in rows]
+
+    def _cache_series_episodes(self, series_id, episodes):
+        """Store freshly fetched episodes for a series."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cached_at = int(time.time())
+
+        cursor.execute('DELETE FROM series_episodes WHERE series_id = ?', (series_id,))
+        cursor.executemany('''
+            INSERT INTO series_episodes (
+                episode_id, series_id, season_number, season_name, episode_num,
+                title, container_extension, stream_url, air_date, duration,
+                duration_secs, rating, added, direct_source, last_cached_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', [(
+            episode['episode_id'],
+            episode['series_id'],
+            episode['season_number'],
+            episode.get('season_name', ''),
+            episode['episode_num'],
+            episode['title'],
+            episode.get('container_extension', ''),
+            episode['stream_url'],
+            episode.get('air_date', ''),
+            episode.get('duration', ''),
+            episode.get('duration_secs', 0),
+            episode.get('rating'),
+            episode.get('added', ''),
+            episode.get('direct_source', ''),
+            cached_at,
+        ) for episode in episodes])
+
+        conn.commit()
+        conn.close()
+
+    def _fetch_series_episodes_from_api(self, series_item):
+        """Fetch episode metadata for a single series and build stream URLs."""
+        series_id = series_item.get('series_id')
+        if not series_id:
+            return []
+
+        url = (
+            f"{self.server}/player_api.php?username={self.username}&password={self.password}"
+            f"&action=get_series_info&series_id={series_id}"
+        )
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+
+        try:
+            response = requests.get(url, headers=headers, timeout=30)
+            if response.status_code != 200:
+                console.print(f"[red]Could not fetch series episodes (HTTP {response.status_code})[/red]")
+                return []
+
+            data = response.json()
+        except requests.exceptions.RequestException as e:
+            console.print(f"[red]Could not fetch series episodes: {e}[/red]")
+            return []
+        except json.JSONDecodeError:
+            console.print("[red]Series info endpoint returned invalid JSON[/red]")
+            return []
+
+        season_names = {}
+        for season in data.get('seasons') or []:
+            try:
+                season_number = int(season.get('season_number', season.get('season', 0)))
+            except (TypeError, ValueError):
+                continue
+            season_names[season_number] = season.get('name') or self._season_label(season_number)
+
+        episodes = []
+        for season_key, season_episodes in (data.get('episodes') or {}).items():
+            try:
+                fallback_season = int(season_key)
+            except (TypeError, ValueError):
+                fallback_season = 0
+
+            for episode in season_episodes or []:
+                episode_id = episode.get('id') or episode.get('stream_id')
+                if not episode_id:
+                    continue
+
+                try:
+                    season_number = int(episode.get('season', fallback_season))
+                except (TypeError, ValueError):
+                    season_number = fallback_season
+
+                try:
+                    episode_num = int(episode.get('episode_num', 0))
+                except (TypeError, ValueError):
+                    episode_num = 0
+
+                info = episode.get('info') if isinstance(episode.get('info'), dict) else {}
+                container_extension = episode.get('container_extension') or 'mp4'
+                rating = info.get('rating')
+                duration_secs = info.get('duration_secs') or 0
+
+                try:
+                    rating = float(rating) if rating not in (None, '') else None
+                except (TypeError, ValueError):
+                    rating = None
+
+                try:
+                    duration_secs = int(duration_secs)
+                except (TypeError, ValueError):
+                    duration_secs = 0
+
+                title = episode.get('title') or (
+                    f"{series_item['name']} - S{season_number:02d}E{episode_num:02d}"
+                )
+
+                episodes.append({
+                    'episode_id': str(episode_id),
+                    'series_id': series_id,
+                    'series_name': series_item['name'],
+                    'season_number': season_number,
+                    'season_name': season_names.get(season_number, self._season_label(season_number)),
+                    'episode_num': episode_num,
+                    'title': title,
+                    'name': title,
+                    'container_extension': container_extension,
+                    'stream_url': (
+                        f"{self.server}/series/{self.username}/{self.password}/"
+                        f"{episode_id}.{container_extension}"
+                    ),
+                    'air_date': info.get('air_date') or episode.get('air_date', ''),
+                    'duration': info.get('duration', ''),
+                    'duration_secs': duration_secs,
+                    'rating': rating,
+                    'added': episode.get('added', ''),
+                    'direct_source': episode.get('direct_source', ''),
+                })
+
+        episodes.sort(key=lambda item: (item['season_number'], item['episode_num'], item['title']))
+        return episodes
+
+    def get_series_episodes(self, series_item, force_refresh=False):
+        """Return episode list for a series, using cache when available."""
+        series_id = series_item.get('series_id')
+        if not series_id:
+            return []
+
+        cached_episodes = self._load_cached_series_episodes(series_id)
+        if cached_episodes and not force_refresh:
+            return cached_episodes
+
+        episodes = self._fetch_series_episodes_from_api(series_item)
+        if episodes:
+            self._cache_series_episodes(series_id, episodes)
+            return episodes
+
+        return cached_episodes
+
+    def show_series_episode_info(self, episode):
+        """Show detailed episode information including stream URL."""
         console.clear()
-        console.print(Panel.fit("Series Information", style="dim white"))
+        console.print(Panel.fit("Episode Information", style="dim white"))
 
         table = Table(show_header=False, box=None)
         table.add_column("Property", style="dim white")
         table.add_column("Value", style="white")
 
-        table.add_row("Name", series_item['name'])
-        if series_item.get('rating'):
-            table.add_row("Rating", f"{series_item['rating']:.1f}/10")
-        if series_item.get('genre'):
-            table.add_row("Genre", series_item['genre'])
-        if series_item.get('category_name'):
-            table.add_row("Category", series_item['category_name'])
-        table.add_row("Series ID", str(series_item.get('series_id', 'N/A')))
+        table.add_row("Series", episode.get('series_name', 'Unknown'))
+        table.add_row("Title", episode['title'])
+        table.add_row("Season", self._season_label(episode.get('season_number', 0), episode.get('season_name')))
+        table.add_row("Episode", str(episode.get('episode_num', 'N/A')))
+        if episode.get('air_date'):
+            table.add_row("Air Date", episode['air_date'])
+        if episode.get('duration'):
+            table.add_row("Duration", episode['duration'])
+        if episode.get('rating') is not None:
+            table.add_row("Rating", f"{episode['rating']:.1f}/10")
+        table.add_row("Stream URL", episode['stream_url'])
 
         console.print(table)
 
-        if series_item.get('plot'):
-            console.print("\n[dim white]Plot:[/dim white]")
-            console.print(series_item['plot'])
+        if episode.get('direct_source'):
+            console.print("\n[dim white]Direct Source:[/dim white]")
+            console.print(episode['direct_source'])
 
-        console.print("\n[dim yellow]Note: Episode browsing coming soon. Use your TV app to browse episodes.[/dim yellow]")
         self.wait_for_escape()
+
+    def series_episode_action_menu(self, series_item, episode):
+        """Action menu for a single series episode."""
+        while True:
+            console.clear()
+            console.print(Panel.fit(f"Episode: {episode['title']}", style="dim white"))
+            console.print(f"Series: {episode.get('series_name', 'Unknown')}")
+            console.print(f"Season: {self._season_label(episode.get('season_number', 0), episode.get('season_name'))}")
+            console.print(f"Episode: {episode.get('episode_num', 'N/A')}")
+            if episode.get('duration'):
+                console.print(f"Duration: {episode['duration']}")
+            console.print()
+
+            options = [
+                "Watch Now  (opens MPV player)",
+                "Download to Disk",
+                "Queue Season Download",
+                "Episode Info  (including stream URL)",
+                "Restream to NGINX-RTMP",
+                "Copy Stream URL",
+                "Back"
+            ]
+
+            choice = TerminalMenu(options, title="", menu_cursor="> ").show()
+
+            if choice is None or choice == 6:
+                break
+            elif choice == 0:
+                self.play_with_mpv(episode)
+            elif choice == 1:
+                self.queue_series_batch_download(series_item, [episode], f"{series_item['name']} - single episode")
+            elif choice == 2:
+                season_episodes = self.get_series_episodes(series_item)
+                season_episodes = [
+                    item for item in season_episodes
+                    if item.get('season_number') == episode.get('season_number')
+                ]
+                self.queue_series_batch_download(
+                    series_item,
+                    season_episodes,
+                    f"{series_item['name']} - {self._season_label(episode.get('season_number', 0), episode.get('season_name'))}"
+                )
+            elif choice == 3:
+                self.show_series_episode_info(episode)
+            elif choice == 4:
+                self.quick_restream(episode)
+            elif choice == 5:
+                self.copy_stream_url(episode)
+
+    def show_series_episode_results(self, series_item, season_number, episodes):
+        """Browse episodes for a specific season."""
+        while True:
+            console.clear()
+            season_label = self._season_label(season_number, episodes[0].get('season_name') if episodes else None)
+            console.print(Panel.fit(f"{series_item['name']} | {season_label}", style="dim white"))
+            console.print("[dim white]# (p)lay  (c)queue episode  (b)batch season  (r)restream  (i)info  |  Enter=actions  ESC=back[/dim white]\n")
+
+            options = []
+            for episode in episodes:
+                episode_label = f"E{episode.get('episode_num', 0):02d}"
+                duration = episode.get('duration') or ''
+                suffix = f" [{duration}]" if duration else ''
+                options.append(f"{episode_label} {episode['title']}{suffix}")
+            options.append("Back")
+
+            terminal_menu = TerminalMenu(
+                options,
+                title="",
+                menu_cursor="> ",
+                accept_keys=("enter", "p", "c", "b", "r", "i"),
+                show_shortcut_hints=False,
+            )
+            choice = terminal_menu.show()
+            key = terminal_menu.chosen_accept_key
+
+            if choice is None or choice == len(episodes):
+                break
+
+            selected = episodes[choice]
+            if key == 'p':
+                self.play_with_mpv(selected)
+            elif key == 'c':
+                self.queue_series_batch_download(series_item, [selected], f"{series_item['name']} - single episode")
+            elif key == 'b':
+                self.queue_series_batch_download(series_item, episodes, f"{series_item['name']} - {season_label}")
+            elif key == 'r':
+                self.quick_restream(selected)
+            elif key == 'i':
+                self.show_series_episode_info(selected)
+            else:
+                self.series_episode_action_menu(series_item, selected)
+
+    def show_series_info(self, series_item):
+        """Show series details and browse seasons/episodes."""
+        while True:
+            episodes = self.get_series_episodes(series_item)
+            seasons = {}
+            for episode in episodes:
+                seasons.setdefault(episode['season_number'], []).append(episode)
+
+            console.clear()
+            console.print(Panel.fit("Series Information", style="dim white"))
+
+            table = Table(show_header=False, box=None)
+            table.add_column("Property", style="dim white")
+            table.add_column("Value", style="white")
+
+            table.add_row("Name", series_item['name'])
+            if series_item.get('rating'):
+                table.add_row("Rating", f"{series_item['rating']:.1f}/10")
+            if series_item.get('genre'):
+                table.add_row("Genre", series_item['genre'])
+            if series_item.get('category_name'):
+                table.add_row("Category", series_item['category_name'])
+            table.add_row("Series ID", str(series_item.get('series_id', 'N/A')))
+            if episodes:
+                table.add_row("Episodes Cached", str(len(episodes)))
+
+            console.print(table)
+
+            if series_item.get('plot'):
+                console.print("\n[dim white]Plot:[/dim white]")
+                console.print(series_item['plot'])
+
+            console.print()
+            if not seasons:
+                console.print("[yellow]No episode metadata available for this series yet.[/yellow]")
+                options = ["Retry Episode Fetch", "Back"]
+                choice = TerminalMenu(options, title="", menu_cursor="> ").show()
+                if choice == 0:
+                    refreshed = self.get_series_episodes(series_item, force_refresh=True)
+                    if not refreshed:
+                        self.wait_for_escape()
+                    continue
+                break
+
+            season_numbers = sorted(seasons)
+            options = [
+                f"{self._season_label(number, seasons[number][0].get('season_name'))} ({len(seasons[number])} episodes)"
+                for number in season_numbers
+            ]
+            options.extend(["Queue Full Series Download", "Refresh Episode Cache", "Back"])
+
+            choice = TerminalMenu(options, title="", menu_cursor="> ").show()
+
+            if choice is None or choice == len(options) - 1:
+                break
+
+            if choice == len(options) - 3:
+                self.queue_series_batch_download(series_item, episodes, f"{series_item['name']} - full series")
+                continue
+
+            if choice == len(options) - 2:
+                refreshed = self.get_series_episodes(series_item, force_refresh=True)
+                if not refreshed:
+                    self.wait_for_escape()
+                continue
+
+            season_number = season_numbers[choice]
+            self.show_series_episode_results(series_item, season_number, seasons[season_number])
 
     def download_live_to_data(self, live_item):
         """Download/Record live stream to USB records folder (Samba share), fallback to data/"""
@@ -1968,7 +3617,8 @@ class IPTVMenuManager:
         
         # Generate filename
         safe_filename = "".join(c for c in vod_item['name'] if c.isalnum() or c in (' ', '-', '_')).rstrip()
-        filename = f"{safe_filename}.mp4".replace("  ", " ")
+        extension = self._get_download_extension(vod_item)
+        filename = f"{safe_filename}.{extension}".replace("  ", " ")
         filepath = os.path.join(data_folder, filename)
         
         console.print(f"Downloading to: {filepath}")
@@ -2066,7 +3716,8 @@ class IPTVMenuManager:
                 download_cmd = 'python'
         
         # Get filename from URL or use default
-        filename = vod_item['name'].replace(" ", "_").replace("/", "_") + ".mp4"
+        extension = self._get_download_extension(vod_item)
+        filename = vod_item['name'].replace(" ", "_").replace("/", "_") + f".{extension}"
         
         console.print(f"Download tool: {download_cmd}")
         console.print(f"Filename: {filename}")
@@ -4359,8 +6010,7 @@ networks:
 
                             for listing in listings:
                                 try:
-                                    start_time = int(listing.get('start_timestamp', 0))
-                                    end_time = int(listing.get('stop_timestamp', 0))
+                                    start_time, end_time = self._extract_epg_window(listing)
                                     title = self._decode_base64_if_needed(listing.get('title', '')) or listing.get('title', '')
                                     description = self._decode_base64_if_needed(listing.get('description', '')) or listing.get('description', '')
 
@@ -4466,6 +6116,26 @@ networks:
                 )
             ''')
 
+            cursor.execute('''
+                CREATE TABLE series_episodes (
+                    episode_id TEXT PRIMARY KEY,
+                    series_id INTEGER,
+                    season_number INTEGER,
+                    season_name TEXT,
+                    episode_num INTEGER,
+                    title TEXT,
+                    container_extension TEXT,
+                    stream_url TEXT,
+                    air_date TEXT,
+                    duration TEXT,
+                    duration_secs INTEGER,
+                    rating REAL,
+                    added TEXT,
+                    direct_source TEXT,
+                    last_cached_at INTEGER
+                )
+            ''')
+
             # Load data from JSON files
             self._load_data_from_json(cursor)
             
@@ -4476,6 +6146,7 @@ networks:
             cursor.execute("CREATE INDEX idx_epg_stream ON epg(stream_id)")
             cursor.execute("CREATE INDEX idx_epg_time ON epg(start_time, end_time)")
             cursor.execute("CREATE INDEX idx_series_name ON series_streams(name)")
+            cursor.execute("CREATE INDEX idx_series_episode_lookup ON series_episodes(series_id, season_number, episode_num)")
             
             conn.commit()
             conn.close()
@@ -5316,7 +6987,8 @@ networks:
                 return favs
         except Exception as e:
             console.print(f"[yellow]⚠[/yellow] Error loading favorites: {e}")
-        return []
+        # No favorites found — try importing from seed file (fresh clone)
+        return self.import_favorites_seed()
 
     def save_to_favorites(self, item, item_type='live'):
         """Add item to favorites JSON"""
@@ -5352,7 +7024,10 @@ networks:
             
             # Auto-generate M3U playlist
             self.generate_m3u_playlist()
-            
+
+            # Keep seed file in sync for git portability
+            self.export_favorites_seed()
+
             return len(favs)  # Return total count
             
         except Exception as e:
@@ -5423,7 +7098,10 @@ networks:
                 
                 # Regenerate M3U playlist
                 self.generate_m3u_playlist()
-                
+
+                # Keep seed file in sync for git portability
+                self.export_favorites_seed()
+
                 return len(favs)  # Return new count
             
             return -1  # Item not found
@@ -5440,30 +7118,216 @@ networks:
         except:
             return set()
 
-    def get_epg_data(self, stream_id, channel_name=None, limit=3):
-        """Get EPG data for a stream using multiple strategies"""
-        
-        def try_epg_fetch(param_value):
-            """Helper function to try fetching EPG with a given parameter"""
+    def export_favorites_seed(self):
+        """Export favorites to a credential-free seed file for git tracking"""
+        try:
+            favs = self.load_favorites()
+            seed = []
+            for fav in favs:
+                seed.append({
+                    'stream_id': fav.get('stream_id', 0),
+                    'name': fav.get('name', 'Unknown'),
+                    'category': fav.get('category', fav.get('category_name', 'Uncategorized')),
+                    'type': fav.get('type', 'live'),
+                    'added': fav.get('added', '')
+                })
+            seed_path = os.path.join(self.script_dir, 'favorites_seed.json')
+            with open(seed_path, 'w') as f:
+                json.dump(seed, f, indent=2)
+        except Exception as e:
+            console.print(f"[yellow]⚠[/yellow] Error exporting favorites seed: {e}")
+
+    def import_favorites_seed(self):
+        """Import favorites from seed file (used on fresh clone)"""
+        try:
+            seed_path = os.path.join(self.script_dir, 'favorites_seed.json')
+            if not os.path.exists(seed_path):
+                return []
+            with open(seed_path, 'r') as f:
+                seed = json.load(f)
+            # Build full favorites with placeholder URLs (hydration will fix them)
+            favs = []
+            for item in seed:
+                favs.append({
+                    'stream_id': item.get('stream_id', 0),
+                    'name': item.get('name', 'Unknown'),
+                    'stream_url': '',
+                    'category': item.get('category', 'Uncategorized'),
+                    'type': item.get('type', 'live'),
+                    'added': item.get('added', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+                })
+            if favs:
+                os.makedirs(self.data_dir, exist_ok=True)
+                favorites_path = os.path.join(self.data_dir, 'favorites.json')
+                with open(favorites_path, 'w') as f:
+                    json.dump(favs, f, indent=2)
+                console.print(f"[green]✓[/green] Imported {len(favs)} favorites from seed file")
+            return favs
+        except Exception as e:
+            console.print(f"[yellow]⚠[/yellow] Error importing favorites seed: {e}")
+            return []
+
+    def _get_provider_timezone(self):
+        """Return provider timezone from cached account info or local fallback."""
+        cached = getattr(self, '_provider_timezone_cache', None)
+        if cached:
+            return cached
+
+        tz_name = None
+        account_info_path = os.path.join(self.data_dir, 'account_info.json')
+        try:
+            if os.path.exists(account_info_path):
+                with open(account_info_path, 'r', encoding='utf-8') as account_file:
+                    data = json.load(account_file)
+                if isinstance(data, dict):
+                    server_info = data.get('server_info', {})
+                    if isinstance(server_info, dict):
+                        tz_name = server_info.get('timezone')
+        except Exception:
+            tz_name = None
+
+        if not tz_name:
+            tz_name = os.getenv('TZ')
+
+        tzinfo = None
+        if tz_name and ZoneInfo:
             try:
-                url = f"{self.server}/player_api.php?username={self.username}&password={self.password}&action=get_short_epg&stream_id={param_value}&limit={limit}"
+                tzinfo = ZoneInfo(str(tz_name))
+            except Exception:
+                tzinfo = None
+
+        if tzinfo is None:
+            tzinfo = datetime.now().astimezone().tzinfo
+
+        self._provider_timezone_cache = tzinfo
+        return tzinfo
+
+    def _extract_epg_window(self, listing):
+        """Extract start/end timestamps from EPG listing with timezone handling."""
+        if not isinstance(listing, dict):
+            return 0, 0
+
+        # Preferred strategy: parse start/end strings in provider timezone.
+        start_text = listing.get('start')
+        end_text = listing.get('end')
+        if start_text and end_text:
+            try:
+                provider_tz = self._get_provider_timezone()
+                start_dt = datetime.strptime(str(start_text), '%Y-%m-%d %H:%M:%S').replace(tzinfo=provider_tz)
+                end_dt = datetime.strptime(str(end_text), '%Y-%m-%d %H:%M:%S').replace(tzinfo=provider_tz)
+                start_ts = int(start_dt.timestamp())
+                end_ts = int(end_dt.timestamp())
+                if start_ts > 0 and end_ts > start_ts:
+                    return start_ts, end_ts
+            except Exception:
+                pass
+
+        # Fallback strategy: use numeric timestamps from API payload.
+        try:
+            start_ts = int(listing.get('start_timestamp', 0) or 0)
+            end_ts = int(listing.get('stop_timestamp', 0) or 0)
+            if start_ts > 0 and end_ts > start_ts:
+                return start_ts, end_ts
+        except Exception:
+            pass
+
+        return 0, 0
+
+    def _epg_server_candidates(self, stream_url=None):
+        """Return ordered candidate API bases for EPG calls."""
+        candidates = []
+
+        def add_candidate(base_url):
+            if not base_url:
+                return
+            normalized = str(base_url).strip().rstrip('/')
+            if normalized and normalized not in candidates:
+                candidates.append(normalized)
+
+        add_candidate(self.epg_server)
+        add_candidate(self.server)
+        if self.epg_server and str(self.epg_server).startswith('http://'):
+            add_candidate(str(self.epg_server).replace('http://', 'https://', 1))
+        elif self.epg_server and str(self.epg_server).startswith('https://'):
+            add_candidate(str(self.epg_server).replace('https://', 'http://', 1))
+        if self.server and str(self.server).startswith('http://'):
+            add_candidate(str(self.server).replace('http://', 'https://', 1))
+        elif self.server and str(self.server).startswith('https://'):
+            add_candidate(str(self.server).replace('https://', 'http://', 1))
+
+        if stream_url:
+            parsed = urlparse(str(stream_url))
+            if parsed.scheme and parsed.netloc:
+                base = f"{parsed.scheme}://{parsed.netloc}"
+                add_candidate(base)
+                if parsed.scheme == 'http':
+                    add_candidate(f"https://{parsed.netloc}")
+                elif parsed.scheme == 'https':
+                    add_candidate(f"http://{parsed.netloc}")
+
+        return candidates
+
+    def get_epg_data(self, stream_id, channel_name=None, limit=3, stream_url=None):
+        """Get EPG data for a stream using multiple strategies"""
+        candidates = self._epg_server_candidates(stream_url=stream_url)
+        stream_key = str(stream_id)
+        errors = []
+
+        if not hasattr(self, '_epg_fetch_errors'):
+            self._epg_fetch_errors = {}
+
+        def note_error(message):
+            if not message:
+                return
+            text = str(message)
+            if text not in errors and len(errors) < 8:
+                errors.append(text)
+
+        def clear_error():
+            self._epg_fetch_errors.pop(stream_key, None)
+
+        def set_error_if_any():
+            if errors:
+                self._epg_fetch_errors[stream_key] = errors[0]
+            else:
+                clear_error()
+
+        def try_epg_fetch(param_value, server_base):
+            """Helper function to try fetching EPG with a given parameter"""
+            host = urlparse(server_base).netloc or server_base
+            try:
+                url = f"{server_base}/player_api.php"
                 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-                
-                response = requests.get(url, headers=headers, timeout=10)
+                params = {
+                    'username': self.username,
+                    'password': self.password,
+                    'action': 'get_short_epg',
+                    'stream_id': param_value,
+                    'limit': limit,
+                }
+
+                response = requests.get(url, params=params, headers=headers, timeout=10)
                 if response.status_code == 200:
                     epg_data = response.json()
                     listings = epg_data.get('epg_listings', []) if isinstance(epg_data, dict) else []
                     if listings:
                         return listings
-            except:
-                pass
+                    note_error(f"{host}: empty EPG")
+                else:
+                    note_error(f"{host}: HTTP {response.status_code}")
+            except requests.exceptions.RequestException as exc:
+                note_error(f"{host}: {exc.__class__.__name__}")
+            except Exception as exc:
+                note_error(f"{host}: {exc.__class__.__name__}")
             return []
-        
+
         # Strategy 1: Try with stream_id first
-        epg_listings = try_epg_fetch(stream_id)
-        if epg_listings:
-            return epg_listings
-        
+        for server_base in candidates:
+            epg_listings = try_epg_fetch(stream_id, server_base)
+            if epg_listings:
+                clear_error()
+                return epg_listings
+
         # Strategy 2: If channel name is provided, try to find base channel name
         if channel_name:
             # Remove common HD/SD suffixes and try again
@@ -5482,15 +7346,19 @@ networks:
             # Try with base name variants
             if base_name != channel_name:
                 # First try the base name without HD/SD suffix
-                epg_listings = try_epg_fetch(base_name)
-                if epg_listings:
-                    return epg_listings
+                for server_base in candidates:
+                    epg_listings = try_epg_fetch(base_name, server_base)
+                    if epg_listings:
+                        clear_error()
+                        return epg_listings
                 
                 # Try base name without number
                 if base_name_no_number != base_name:
-                    epg_listings = try_epg_fetch(base_name_no_number)
-                    if epg_listings:
-                        return epg_listings
+                    for server_base in candidates:
+                        epg_listings = try_epg_fetch(base_name_no_number, server_base)
+                        if epg_listings:
+                            clear_error()
+                            return epg_listings
             
             # Strategy 3: Try to find a matching stream with similar name from database
             try:
@@ -5517,13 +7385,16 @@ networks:
                 # Try each similar channel's stream_id
                 for similar_id, similar_name in similar_channels:
                     if similar_id != stream_id:  # Don't retry the same stream_id
-                        epg_listings = try_epg_fetch(similar_id)
-                        if epg_listings:
-                            console.print(f"[dim yellow]EPG found using similar channel: {similar_name}[/dim yellow]")
-                            return epg_listings
+                        for server_base in candidates:
+                            epg_listings = try_epg_fetch(similar_id, server_base)
+                            if epg_listings:
+                                console.print(f"[dim yellow]EPG found using similar channel: {similar_name}[/dim yellow]")
+                                clear_error()
+                                return epg_listings
             except:
                 pass
-        
+
+        set_error_if_any()
         return []
 
     def _decode_base64_if_needed(self, text):
@@ -5537,9 +7408,9 @@ networks:
             pass
         return text
 
-    def get_now_playing(self, stream_id, channel_name=None):
+    def get_now_playing(self, stream_id, channel_name=None, stream_url=None):
         """Get currently playing program title and description for a channel"""
-        epg_data = self.get_epg_data(stream_id, channel_name=channel_name, limit=1)
+        epg_data = self.get_epg_data(stream_id, channel_name=channel_name, limit=1, stream_url=stream_url)
         if epg_data and len(epg_data) > 0:
             program = epg_data[0]
             title = self._decode_base64_if_needed(program.get('title', ''))
@@ -5551,7 +7422,7 @@ networks:
             }
         return None
 
-    def get_now_playing_local(self, stream_id, channel_name=None, fetch_if_missing=False):
+    def get_now_playing_local(self, stream_id, channel_name=None, fetch_if_missing=False, stream_url=None):
         """Get currently playing program from local EPG cache, optionally fetch if missing"""
         try:
             conn = sqlite3.connect(self.db_path)
@@ -5584,17 +7455,17 @@ networks:
 
             # If fetch_if_missing is True, fetch from network and cache
             if fetch_if_missing:
-                return self._fetch_and_cache_epg(stream_id, channel_name)
+                return self._fetch_and_cache_epg(stream_id, channel_name, stream_url=stream_url)
 
         except:
             pass
         return None
 
-    def _fetch_and_cache_epg(self, stream_id, channel_name=None):
+    def _fetch_and_cache_epg(self, stream_id, channel_name=None, stream_url=None):
         """Fetch EPG from network and cache in database"""
         try:
             # Fetch from network
-            epg_data = self.get_epg_data(stream_id, channel_name=channel_name, limit=10)
+            epg_data = self.get_epg_data(stream_id, channel_name=channel_name, limit=10, stream_url=stream_url)
 
             if epg_data:
                 conn = sqlite3.connect(self.db_path)
@@ -5603,8 +7474,7 @@ networks:
 
                 for listing in epg_data:
                     try:
-                        start_time = int(listing.get('start_timestamp', 0))
-                        end_time = int(listing.get('stop_timestamp', 0))
+                        start_time, end_time = self._extract_epg_window(listing)
                         title = self._decode_base64_if_needed(listing.get('title', '')) or listing.get('title', '')
                         description = self._decode_base64_if_needed(listing.get('description', '')) or listing.get('description', '')
 
@@ -5621,8 +7491,7 @@ networks:
 
                 # Return the current program
                 for listing in epg_data:
-                    start_time = int(listing.get('start_timestamp', 0))
-                    end_time = int(listing.get('stop_timestamp', 0))
+                    start_time, end_time = self._extract_epg_window(listing)
                     if start_time <= now < end_time:
                         title = self._decode_base64_if_needed(listing.get('title', '')) or listing.get('title', '')
                         description = self._decode_base64_if_needed(listing.get('description', '')) or listing.get('description', '')
