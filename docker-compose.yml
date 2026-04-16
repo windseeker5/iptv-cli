@@ -29,9 +29,8 @@ services:
   jellyfin:
     image: jellyfin/jellyfin:latest
     container_name: iptv-jellyfin
-    ports:
-      - "${JELLYFIN_HTTP_PORT:-8096}:8096"    # Jellyfin web interface
-      - "${JELLYFIN_HTTPS_PORT:-8920}:8920"   # Jellyfin HTTPS (optional)
+    expose:
+      - "8096"
     volumes:
       - ./jellyfin/config:/config
       - ./jellyfin/cache:/cache
@@ -41,7 +40,7 @@ services:
       - ${USB_MUSIC_PATH:-./media/music}:/media/music:ro
       - ${USB_PHOTOS_PATH:-./media/photos}:/media/photos:ro
     environment:
-      - JELLYFIN_PublishedServerUrl=http://localhost:${JELLYFIN_HTTP_PORT:-8096}
+      - JELLYFIN_PublishedServerUrl=${JELLYFIN_PUBLISHED_SERVER_URL:-https://${CADDY_DOMAIN:-tv.dresdell.com}}
     networks:
       - iptv-network
     restart: unless-stopped
@@ -50,6 +49,45 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+  caddy:
+    image: caddy:2
+    container_name: iptv-caddy
+    ports:
+      - "${CADDY_HTTP_PORT:-80}:80"
+      - "${CADDY_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./infrastructure/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      - CADDY_DOMAIN=${CADDY_DOMAIN:-tv.dresdell.com}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL:-admin@tv.dresdell.com}
+    depends_on:
+      - viewer-counter
+      - jellyfin
+    networks:
+      - iptv-network
+    restart: unless-stopped
+
+  viewer-counter:
+    image: python:3.12-alpine
+    container_name: iptv-viewer-counter
+    command: ["python", "/app/viewer_counter.py"]
+    volumes:
+      - ./infrastructure/viewer_counter.py:/app/viewer_counter.py:ro
+      - ./nginx/logs:/logs:ro
+    environment:
+      - HLS_LOG_PATH=/logs/hls_access.log
+      - VIEWER_WINDOW_SECONDS=45
+      - PORT=9090
+    expose:
+      - "9090"
+    depends_on:
+      - nginx-rtmp
+    networks:
+      - iptv-network
+    restart: unless-stopped
 
   samba:
     image: dperson/samba:latest
@@ -82,6 +120,10 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+volumes:
+  caddy_data:
+  caddy_config:
 
 networks:
   iptv-network:
