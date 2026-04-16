@@ -35,6 +35,11 @@ Update your `.env` file with NGINX ports (optional - defaults provided):
 NGINX_RTMP_PORT=1935
 NGINX_HTTP_PORT=8080
 NGINX_ADMIN_PORT=8081
+
+# HTTPS for Jellyfin via Caddy + Let's Encrypt
+CADDY_DOMAIN=tv.dresdell.com
+LETSENCRYPT_EMAIL=you@example.com
+JELLYFIN_PUBLISHED_SERVER_URL=https://tv.dresdell.com
 ```
 
 ### 3. Using the Feature
@@ -66,6 +71,7 @@ NGINX_ADMIN_PORT=8081
 
 Once the container is running, you'll have access to:
 
+- **Jellyfin (HTTPS)**: `https://tv.dresdell.com`
 - **Web Interface**: `http://localhost:8080`
 - **HLS Streams**: `http://localhost:8080/hls/[stream_key].m3u8`
 - **RTMP Input**: `rtmp://localhost:1935/live/[stream_key]`
@@ -106,7 +112,8 @@ Access these by appending suffixes to stream keys:
 ### Docker Services
 
 - **nginx-rtmp**: Main NGINX-RTMP server container
-- **Future**: Ready for Jellyfin integration
+- **jellyfin**: Media server container (proxied through Caddy)
+- **caddy**: Reverse proxy with automatic Let's Encrypt certificates
 
 ### Directory Structure
 

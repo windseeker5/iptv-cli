@@ -365,10 +365,10 @@
                 <h3><i class="bi bi-collection-play-fill"></i> Jellyfin Media Server</h3>
                 <p>Your personal media server for movies, shows, and recorded content</p>
                 <div class="service-info">
-                    URL: http://localhost:8096<br>
+                    URL: <span id="jellyfin-url">https://tv.dresdell.com</span><br>
                     Status: <span id="jellyfin-detail">Online</span>
                 </div>
-                <a href="http://localhost:8096" target="_blank" class="btn-service success">
+                <a href="https://tv.dresdell.com" target="_blank" class="btn-service success" id="jellyfin-link">
                     <i class="bi bi-box-arrow-up-right"></i> Open Jellyfin
                 </a>
             </div>
@@ -434,6 +434,8 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     
     <script>
+        const JELLYFIN_PUBLIC_URL = 'https://tv.dresdell.com';
+
         // Check service status
         function checkServices() {
             // Check NGINX-RTMP (this server)
@@ -447,16 +449,8 @@
                 })
                 .catch(() => updateStatus('nginx', 'offline', 'Offline'));
 
-            // Check Jellyfin
-            fetch('http://localhost:8096/health')
-                .then(response => {
-                    if (response.ok) {
-                        updateStatus('jellyfin', 'online', 'Running');
-                    } else {
-                        updateStatus('jellyfin', 'unknown', 'Unknown');
-                    }
-                })
-                .catch(() => updateStatus('jellyfin', 'offline', 'Offline'));
+            // Check Jellyfin via public URL (works with reverse proxy)
+            checkJellyfinStatus();
 
             // For Samba, we can't directly check from browser, so assume online if page loads
             updateStatus('samba', 'online', 'Running');
@@ -474,7 +468,23 @@
             }
         }
 
+        function checkJellyfinStatus() {
+            fetch(`${JELLYFIN_PUBLIC_URL}/health?t=${Date.now()}`, {
+                method: 'GET',
+                mode: 'no-cors',
+                cache: 'no-store'
+            })
+                .then(() => updateStatus('jellyfin', 'online', 'Running'))
+                .catch(() => updateStatus('jellyfin', 'offline', 'Offline'));
+        }
+
+        function configureJellyfinLinks() {
+            document.getElementById('jellyfin-link').href = JELLYFIN_PUBLIC_URL;
+            document.getElementById('jellyfin-url').textContent = JELLYFIN_PUBLIC_URL;
+        }
+
         // Initialize
+        configureJellyfinLinks();
         checkServices();
         setInterval(checkServices, 30000); // Check every 30 seconds
     </script>

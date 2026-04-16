@@ -1,0 +1,15 @@
+{
+    email {$LETSENCRYPT_EMAIL}
+}
+
+{$CADDY_DOMAIN} {
+    encode zstd gzip
+
+    @viewer_api path /api/viewers
+    reverse_proxy @viewer_api viewer-counter:9090
+
+    @iptv path /live /live* /hls /hls* /stat /stat* /control /control* /iptv.m3u /usb-guide.html /kdc-logo-transparent.png
+    reverse_proxy @iptv nginx-rtmp:8080
+
+    reverse_proxy jellyfin:8096
+}

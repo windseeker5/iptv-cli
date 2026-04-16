@@ -74,56 +74,42 @@
             border: none;
         }
         
-        .controls {
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
-            display: flex;
-            gap: 15px;
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
-        
-        .video-container:hover .controls {
-            opacity: 1;
-        }
-        
-        .control-btn {
-            background: rgba(0, 0, 0, 0.7);
-            border: 2px solid #333;
+        .cast-badge {
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid #334155;
             color: white;
-            padding: 12px;
-            border-radius: 50%;
+            padding: 6px 10px;
+            border-radius: 15px;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: all 0.25s ease;
             backdrop-filter: blur(10px);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
         }
-        
-        .control-btn:hover {
-            background: rgba(0, 0, 0, 0.9);
-            transform: scale(1.1);
-            border-color: #00ff41;
-            box-shadow: 0 0 10px rgba(0, 255, 65, 0.3);
+
+        .cast-badge:hover {
+            background: rgba(31, 41, 55, 0.95);
+            border-color: #22c55e;
+            box-shadow: 0 4px 12px rgba(34, 197, 94, 0.25);
         }
-        
-        .cast-btn {
-            background: rgba(0, 255, 65, 0.2);
-            border: 2px solid #00ff41;
+
+        .cast-badge svg {
+            width: 16px;
+            height: 16px;
         }
-        
-        .cast-btn:hover {
-            background: rgba(0, 255, 65, 0.4);
+
+        .cast-badge.casting {
+            background: rgba(34, 197, 94, 0.25);
+            border-color: #22c55e;
+            animation: castPulse 1.8s infinite;
         }
-        
-        .cast-btn.casting {
-            background: #00ff41;
-            animation: pulse 2s infinite;
-        }
-        
-        @keyframes pulse {
-            0% { box-shadow: 0 0 0 0 rgba(0, 255, 65, 0.7); }
-            70% { box-shadow: 0 0 0 10px rgba(0, 255, 65, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(0, 255, 65, 0); }
+
+        @keyframes castPulse {
+            0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55); }
+            70% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
         }
         
         .loading {
@@ -210,6 +196,12 @@
             align-items: center;
             margin-bottom: 10px;
         }
+
+        .top-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
         
         /* Jellyfin Badge */
         .jellyfin-badge {
@@ -255,6 +247,27 @@
             width: 12px;
             height: 12px;
             margin-right: 4px;
+        }
+
+        .viewer-badge {
+            z-index: 1000;
+            border-radius: 15px;
+            border: 1px solid #0f8f42;
+            font-size: 12px;
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 12px;
+            background: rgba(0, 0, 0, 0.65);
+            color: #86efac;
+            box-shadow: 0 3px 12px rgba(34, 197, 94, 0.2);
+        }
+
+        .viewer-badge .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #22c55e;
+            margin-right: 6px;
         }
 
         /* No Stream Card - Same dimensions as video-container */
@@ -318,16 +331,6 @@
                 width: 95vw;
             }
 
-            .controls {
-                bottom: 10px;
-                right: 10px;
-                gap: 10px;
-            }
-
-            .control-btn {
-                padding: 10px;
-            }
-
             .no-stream-card {
                 width: 95vw;
                 padding: 30px 20px;
@@ -348,12 +351,25 @@
         <!-- Header Row: Logo + Jellyfin Badge -->
         <div class="badge-container">
             <img src="kdc-logo-transparent.png" alt="KDC" class="logo">
-            <a href="#" class="jellyfin-badge badge px-2 py-1 offline" id="jellyfin-badge">
-                <svg class="badge-icon" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12.0003 2.00037L13.09 8.26037L20 7L14.5 12.74L20.5 14L13.08 15.74L12 22L10.91 15.74L4 17L9.5 11.26L3.5 10L10.92 8.26L12.0003 2.00037Z"/>
-                </svg>
-                <span id="jellyfin-status">Jellyfin</span>
-            </a>
+            <div class="top-actions">
+                <span class="viewer-badge" id="viewer-badge" title="Active viewers in the last 45 seconds">
+                    <span class="dot"></span>
+                    <span id="viewer-count">Viewers: 0</span>
+                </span>
+
+                <button class="cast-badge" id="cast-btn" title="Cast to TV" style="display: none;" type="button">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11zm20-7H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
+                    </svg>
+                </button>
+
+                <a href="#" class="jellyfin-badge badge px-2 py-1 offline" id="jellyfin-badge">
+                    <svg class="badge-icon" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12.0003 2.00037L13.09 8.26037L20 7L14.5 12.74L20.5 14L13.08 15.74L12 22L10.91 15.74L4 17L9.5 11.26L3.5 10L10.92 8.26L12.0003 2.00037Z"/>
+                    </svg>
+                    <span id="jellyfin-status">Jellyfin</span>
+                </a>
+            </div>
         </div>
         
         <div class="video-container">
@@ -379,19 +395,6 @@
                 <div id="stream-url">Loading...</div>
             </div>
             
-            <div class="controls">
-                <button class="control-btn" id="fullscreen-btn" title="Fullscreen">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
-                    </svg>
-                </button>
-                
-                <button class="control-btn cast-btn" id="cast-btn" title="Cast to TV" style="display: none;">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11zm20-7H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
-                    </svg>
-                </button>
-            </div>
         </div>
 
         <!-- No Stream Card -->
@@ -410,12 +413,13 @@
     <script>
         class LiveStreamPlayer {
             constructor() {
+                this.jellyfinUrl = 'https://tv.dresdell.com';
                 this.video = document.getElementById('video');
                 this.loading = document.getElementById('loading');
                 this.error = document.getElementById('error');
                 this.streamUrl = document.getElementById('stream-url');
                 this.castBtn = document.getElementById('cast-btn');
-                this.fullscreenBtn = document.getElementById('fullscreen-btn');
+                this.viewerCount = document.getElementById('viewer-count');
                 this.jellyfinBadge = document.getElementById('jellyfin-badge');
                 this.jellyfinStatus = document.getElementById('jellyfin-status');
                 this.videoContainer = document.querySelector('.video-container');
@@ -433,21 +437,50 @@
                 this.initializeCast();
                 this.checkJellyfinStatus();
                 this.detectStream();
+                this.updateViewerCount();
                 
                 // Check Jellyfin status every 30 seconds
                 setInterval(() => this.checkJellyfinStatus(), 30000);
+                setInterval(() => this.updateViewerCount(), 10000);
+            }
+
+            getViewerEndpoints() {
+                const sameOrigin = `${window.location.origin}/api/viewers`;
+                const publicOrigin = `${this.jellyfinUrl}/api/viewers`;
+
+                if (window.location.port === '8080') {
+                    return [publicOrigin, sameOrigin];
+                }
+
+                return [sameOrigin, publicOrigin];
+            }
+
+            async updateViewerCount() {
+                const endpoints = this.getViewerEndpoints();
+
+                for (const endpoint of endpoints) {
+                    try {
+                        const response = await fetch(`${endpoint}?t=${Date.now()}`, {
+                            cache: 'no-store'
+                        });
+
+                        if (!response.ok) {
+                            continue;
+                        }
+
+                        const data = await response.json();
+                        const count = Number.isInteger(data.active_viewers) ? data.active_viewers : 0;
+                        this.viewerCount.textContent = `Viewers: ${count}`;
+                        return;
+                    } catch (error) {
+                        continue;
+                    }
+                }
+
+                this.viewerCount.textContent = 'Viewers: --';
             }
             
             setupEventListeners() {
-                // Fullscreen toggle
-                this.fullscreenBtn.addEventListener('click', () => {
-                    if (document.fullscreenElement) {
-                        document.exitFullscreen();
-                    } else {
-                        this.video.requestFullscreen();
-                    }
-                });
-                
                 // Video events
                 this.video.addEventListener('loadstart', () => this.showLoading());
                 this.video.addEventListener('loadeddata', () => this.hideLoading());
@@ -638,41 +671,19 @@
             }
 
             async checkJellyfinStatus() {
-                try {
-                    // Try to reach Jellyfin on default port 8096
-                    const response = await fetch('http://localhost:8096/health', {
-                        method: 'GET',
-                        timeout: 5000
-                    });
-                    
-                    if (response.ok || response.status === 200) {
-                        this.setJellyfinOnline();
-                    } else {
-                        this.setJellyfinOffline();
-                    }
-                } catch (error) {
-                    // If health endpoint doesn't exist, try the main page
-                    try {
-                        const response = await fetch('http://localhost:8096/', {
-                            method: 'HEAD',
-                            timeout: 5000
-                        });
-                        
-                        if (response.ok) {
-                            this.setJellyfinOnline();
-                        } else {
-                            this.setJellyfinOffline();
-                        }
-                    } catch (secondError) {
-                        this.setJellyfinOffline();
-                    }
-                }
+                fetch(`${this.jellyfinUrl}/health?t=${Date.now()}`, {
+                    method: 'GET',
+                    mode: 'no-cors',
+                    cache: 'no-store'
+                })
+                    .then(() => this.setJellyfinOnline())
+                    .catch(() => this.setJellyfinOffline());
             }
             
             setJellyfinOnline() {
                 this.jellyfinBadge.classList.remove('offline');
                 this.jellyfinBadge.classList.add('online');
-                this.jellyfinBadge.href = 'http://localhost:8096';
+                this.jellyfinBadge.href = this.jellyfinUrl;
                 this.jellyfinBadge.style.cursor = 'pointer';
                 this.jellyfinStatus.textContent = 'Jellyfin';
                 this.jellyfinBadge.title = 'Open Jellyfin Media Server';
