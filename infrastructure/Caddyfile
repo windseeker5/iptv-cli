@@ -11,5 +11,10 @@
     @iptv path /live /live* /hls /hls* /stat /stat* /control /control* /iptv.m3u /usb-guide.html /kdc-logo-transparent.png
     reverse_proxy @iptv nginx-rtmp:8080
 
-    reverse_proxy jellyfin:8096
+    reverse_proxy jellyfin:8096 {
+        header_up Host {http.request.host}
+        header_up X-Real-IP {http.request.remote.host}
+        header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+        flush_interval -1
+    }
 }
