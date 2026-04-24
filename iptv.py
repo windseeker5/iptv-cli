@@ -37,6 +37,7 @@ import glob
 import re
 import base64
 import shutil
+import tempfile
 from urllib.parse import urlparse
 from datetime import datetime, timedelta
 import threading
@@ -6752,9 +6753,16 @@ networks:
                          input=key_process.stdout, check=True)
             
             # Add repository
-            with open('/tmp/docker.list', 'w') as f:
-                f.write(repo_line)
-            subprocess.run(['sudo', 'mv', '/tmp/docker.list', '/etc/apt/sources.list.d/docker.list'], check=True)
+            fd, temp_path = tempfile.mkstemp(suffix='.list')
+            try:
+                with os.fdopen(fd, 'w') as f:
+                    f.write(repo_line)
+                os.chmod(temp_path, 0o600)
+                subprocess.run(['sudo', 'mv', temp_path, '/etc/apt/sources.list.d/docker.list'], check=True)
+            except Exception:
+                if os.path.exists(temp_path):
+                    os.unlink(temp_path)
+                raise
             
             # Update package index again
             console.print("Updating package index with Docker repository...")

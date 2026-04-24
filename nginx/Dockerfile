@@ -12,7 +12,7 @@ RUN mkdir -p /nginx/hls /nginx/html /nginx/log /nginx/recordings
 COPY nginx.conf /etc/nginx/nginx.conf
 
 # Set permissions first
-RUN chmod 777 /nginx/hls /nginx/html /nginx/log /nginx/recordings
+RUN chmod 755 /nginx/hls /nginx/html /nginx/log /nginx/recordings
 
 # Copy web content
 COPY index.html /nginx/html/index.html
