@@ -60,6 +60,8 @@ load_dotenv()
 
 class IPTVMenuManager:
     def __init__(self):
+        # Store script directory for seed file resolution
+        self.script_dir = os.path.dirname(os.path.abspath(__file__))
         # Create data directory if it doesn't exist
         self.data_dir = "data"
         os.makedirs(self.data_dir, exist_ok=True)
