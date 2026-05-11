@@ -2768,6 +2768,7 @@ class IPTVMenuManager:
                 hydrated.append((job, state))
 
             menu_options.append("Refresh")
+            menu_options.append("Clear All History")
             menu_options.append("Back")
 
             menu = TerminalMenu(menu_options, title="Select batch to inspect")
@@ -2776,10 +2777,37 @@ class IPTVMenuManager:
             if idx is None or idx == len(menu_options) - 1:
                 return
             if idx == len(menu_options) - 2:
+                self._clear_download_history()
+                continue
+            if idx == len(menu_options) - 3:
                 continue
 
             selected_job, selected_state = hydrated[idx]
             self._show_series_batch_download_details(selected_job, selected_state)
+
+    def _clear_download_history(self):
+        """Delete all batch download manifest and log files."""
+        console.clear()
+        console.print(Panel.fit("Clear Download History", style="dim white"))
+        console.print("[yellow]This will delete all download manifests and log files.[/yellow]")
+        console.print("[dim]Your actual downloaded media files are NOT affected.[/dim]\n")
+
+        confirm = TerminalMenu(["Yes, clear everything", "Cancel"], title="Are you sure?").show()
+        if confirm != 0:
+            return
+
+        manifests = glob.glob(os.path.join(self.data_dir, 'series_batch_*.json'))
+        logs = glob.glob(os.path.join(self.data_dir, 'logs', 'series_batch_*.log'))
+        deleted = 0
+        for path in manifests + logs:
+            try:
+                os.remove(path)
+                deleted += 1
+            except Exception:
+                pass
+
+        console.print(f"\n[green]✓[/green] Deleted {deleted} file(s).")
+        time.sleep(1.5)
 
     def _show_series_batch_download_details(self, job, state=None):
         """Show details for one batch and allow reopening live monitor."""
@@ -3114,8 +3142,9 @@ def main():
 
             try:
                 if tool == 'curl':
+                    temp_path = job['filepath'] + '.part'
                     command = [
-                        'curl', '-L', '-C', '-', '-o', job['filepath'],
+                        'curl', '-L', '-C', '-', '-o', temp_path,
                         '-A', 'VLC/3.0.0 LibVLC/3.0.0',
                         '--connect-timeout', '60',
                         '--retry', '20',
@@ -3123,14 +3152,17 @@ def main():
                         job['stream_url'],
                     ]
                     subprocess.run(command, check=True, stdout=log_handle, stderr=subprocess.STDOUT)
+                    os.replace(temp_path, job['filepath'])
                 elif tool == 'wget':
+                    temp_path = job['filepath'] + '.part'
                     command = [
-                        'wget', '-c', '-O', job['filepath'],
+                        'wget', '-c', '-O', temp_path,
                         '--user-agent=VLC/3.0.0 LibVLC/3.0.0',
                         '--timeout=60', '--tries=20',
                         job['stream_url'],
                     ]
                     subprocess.run(command, check=True, stdout=log_handle, stderr=subprocess.STDOUT)
+                    os.replace(temp_path, job['filepath'])
                 else:
                     download_with_requests(job, log_handle)
 
@@ -3440,7 +3472,7 @@ if __name__ == '__main__':
             console.clear()
             season_label = self._season_label(season_number, episodes[0].get('season_name') if episodes else None)
             console.print(Panel.fit(f"{series_item['name']} | {season_label}", style="dim white"))
-            console.print("[dim white]# (p)lay  (c)queue episode  (b)batch season  (r)restream  (i)info  |  Enter=actions  ESC=back[/dim white]\n")
+            console.print("[dim white]# (p)lay  (d)download  (b)batch season  (r)restream  (i)info  |  Enter=actions  ESC=back[/dim white]\n")
 
             options = []
             for episode in episodes:
@@ -3454,7 +3486,7 @@ if __name__ == '__main__':
                 options,
                 title="",
                 menu_cursor="> ",
-                accept_keys=("enter", "p", "c", "b", "r", "i"),
+                accept_keys=("enter", "p", "c", "d", "b", "r", "i"),
                 show_shortcut_hints=False,
             )
             choice = terminal_menu.show()
@@ -3466,7 +3498,7 @@ if __name__ == '__main__':
             selected = episodes[choice]
             if key == 'p':
                 self.play_with_mpv(selected)
-            elif key == 'c':
+            elif key in ('c', 'd'):
                 self.queue_series_batch_download(series_item, [selected], f"{series_item['name']} - single episode")
             elif key == 'b':
                 self.queue_series_batch_download(series_item, episodes, f"{series_item['name']} - {season_label}")
