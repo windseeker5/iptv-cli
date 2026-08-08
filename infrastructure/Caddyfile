@@ -18,3 +18,24 @@
         flush_interval -1
     }
 }
+
+crm.dresdell.com {
+    encode zstd gzip
+
+    @supabase path /auth/* /rest/* /storage/* /functions/* /realtime/*
+    reverse_proxy @supabase host.docker.internal:54321
+
+    reverse_proxy host.docker.internal:5173
+}
+
+live.dresdell.com {
+    encode zstd gzip
+
+    @viewer_api path /api/viewers
+    reverse_proxy @viewer_api viewer-counter:9090
+
+    @root path /
+    rewrite @root /live
+
+    reverse_proxy nginx-rtmp:8080
+}
