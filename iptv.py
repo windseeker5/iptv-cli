@@ -12,7 +12,7 @@ import sys
 
 # Auto-activate virtual environment and set working directory
 script_dir = os.path.dirname(os.path.abspath(__file__))
-venv_activate = os.path.join(script_dir, 'venv', 'bin', 'activate_this.py')
+venv_activate = os.path.join(script_dir, "venv", "bin", "activate_this.py")
 
 # Change to script directory
 os.chdir(script_dir)
@@ -20,10 +20,10 @@ os.chdir(script_dir)
 # Activate virtual environment if it exists
 if os.path.exists(venv_activate):
     with open(venv_activate) as f:
-        exec(f.read(), {'__file__': venv_activate})
-elif os.path.exists(os.path.join(script_dir, 'venv', 'bin', 'python')):
+        exec(f.read(), {"__file__": venv_activate})
+elif os.path.exists(os.path.join(script_dir, "venv", "bin", "python")):
     # Alternative method if activate_this.py doesn't exist
-    venv_python = os.path.join(script_dir, 'venv', 'bin', 'python')
+    venv_python = os.path.join(script_dir, "venv", "bin", "python")
     if sys.executable != venv_python:
         os.execv(venv_python, [venv_python] + sys.argv)
 import sqlite3
@@ -38,9 +38,10 @@ import re
 import base64
 import shutil
 import tempfile
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 from datetime import datetime, timedelta
 import threading
+
 try:
     from zoneinfo import ZoneInfo
 except ImportError:
@@ -50,7 +51,13 @@ from simple_term_menu import TerminalMenu
 from rich.console import Console
 from pyfiglet import Figlet
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TaskProgressColumn,
+)
 from rich.table import Table
 import yt_dlp
 
@@ -59,6 +66,7 @@ console = Console()
 # Load environment variables
 load_dotenv()
 
+
 class IPTVMenuManager:
     def __init__(self):
         # Store script directory for seed file resolution
@@ -66,28 +74,35 @@ class IPTVMenuManager:
         # Create data directory if it doesn't exist
         self.data_dir = "data"
         os.makedirs(self.data_dir, exist_ok=True)
-        
+
         self.db_path = os.path.join(self.data_dir, "iptv.db")
-        
+
         # Load credentials from environment variables
-        self.server = os.getenv('IPTV_SERVER_URL')
-        self.epg_server = os.getenv('EPG_SERVER_URL')
-        self.username = os.getenv('IPTV_USERNAME')
-        self.password = os.getenv('IPTV_PASSWORD')
-        self.inject_server = os.getenv('INJECT_SERVER_URL')
-        
+        self.server = os.getenv("IPTV_SERVER_URL")
+        self.epg_server = os.getenv("EPG_SERVER_URL")
+        self.username = os.getenv("IPTV_USERNAME")
+        self.password = os.getenv("IPTV_PASSWORD")
+        self.inject_server = os.getenv("INJECT_SERVER_URL")
+
         # Validate required environment variables
         if not all([self.server, self.username, self.password]):
             missing_vars = []
-            if not self.server: missing_vars.append('IPTV_SERVER_URL')
-            if not self.username: missing_vars.append('IPTV_USERNAME')
-            if not self.password: missing_vars.append('IPTV_PASSWORD')
-            
-            console.print(f"[red]Error: Missing required environment variables: {', '.join(missing_vars)}[/red]")
-            console.print("Please check your .env file and ensure all IPTV credentials are set.")
+            if not self.server:
+                missing_vars.append("IPTV_SERVER_URL")
+            if not self.username:
+                missing_vars.append("IPTV_USERNAME")
+            if not self.password:
+                missing_vars.append("IPTV_PASSWORD")
+
+            console.print(
+                f"[red]Error: Missing required environment variables: {', '.join(missing_vars)}[/red]"
+            )
+            console.print(
+                "Please check your .env file and ensure all IPTV credentials are set."
+            )
             console.print("Copy .env.example to .env and add your credentials.")
             sys.exit(1)
-        
+
         # Check database age and auto-update if needed
         self.auto_update_database_if_needed()
 
@@ -103,7 +118,7 @@ class IPTVMenuManager:
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            cursor.execute('''
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS scheduled_recordings (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     stream_id INTEGER,
@@ -115,18 +130,20 @@ class IPTVMenuManager:
                     status TEXT DEFAULT 'pending',
                     created_at INTEGER
                 )
-            ''')
+            """)
             conn.commit()
             conn.close()
         except Exception as e:
-            console.print(f"[yellow]Warning: Could not create scheduled_recordings table: {e}[/yellow]")
+            console.print(
+                f"[yellow]Warning: Could not create scheduled_recordings table: {e}[/yellow]"
+            )
 
     def ensure_series_episodes_table(self):
         """Ensure series episode cache table exists."""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            cursor.execute('''
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS series_episodes (
                     episode_id TEXT PRIMARY KEY,
                     series_id INTEGER,
@@ -144,15 +161,17 @@ class IPTVMenuManager:
                     direct_source TEXT,
                     last_cached_at INTEGER
                 )
-            ''')
-            cursor.execute('''
+            """)
+            cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_series_episodes_series
                 ON series_episodes(series_id, season_number, episode_num)
-            ''')
+            """)
             conn.commit()
             conn.close()
         except Exception as e:
-            console.print(f"[yellow]Warning: Could not create series_episodes table: {e}[/yellow]")
+            console.print(
+                f"[yellow]Warning: Could not create series_episodes table: {e}[/yellow]"
+            )
 
     def is_raspberry_pi(self):
         """Detect if running on Raspberry Pi for hardware acceleration"""
@@ -161,18 +180,18 @@ class IPTVMenuManager:
 
         try:
             # Check /proc/device-tree/model for Raspberry Pi
-            if os.path.exists('/proc/device-tree/model'):
-                with open('/proc/device-tree/model', 'r') as f:
+            if os.path.exists("/proc/device-tree/model"):
+                with open("/proc/device-tree/model", "r") as f:
                     model = f.read()
-                    if 'Raspberry Pi' in model:
+                    if "Raspberry Pi" in model:
                         self._is_raspberry_pi = True
                         return True
 
             # Fallback: Check /proc/cpuinfo for BCM chip
-            if os.path.exists('/proc/cpuinfo'):
-                with open('/proc/cpuinfo', 'r') as f:
+            if os.path.exists("/proc/cpuinfo"):
+                with open("/proc/cpuinfo", "r") as f:
                     cpuinfo = f.read()
-                    if 'BCM' in cpuinfo or 'Raspberry Pi' in cpuinfo:
+                    if "BCM" in cpuinfo or "Raspberry Pi" in cpuinfo:
                         self._is_raspberry_pi = True
                         return True
         except Exception:
@@ -184,6 +203,7 @@ class IPTVMenuManager:
     def wait_for_escape(self):
         """Wait for escape key instead of enter"""
         import termios, sys, tty
+
         try:
             fd = sys.stdin.fileno()
             old_settings = termios.tcgetattr(fd)
@@ -209,6 +229,7 @@ class IPTVMenuManager:
     def input_with_esc(self, prompt=" > "):
         """Like input() but returns None if ESC is pressed."""
         import termios, sys, tty
+
         sys.stdout.write(f"\n{prompt}")
         sys.stdout.flush()
         fd = sys.stdin.fileno()
@@ -219,13 +240,13 @@ class IPTVMenuManager:
             while True:
                 ch = sys.stdin.read(1)
                 code = ord(ch)
-                if code == 27:          # ESC
+                if code == 27:  # ESC
                     return None
                 elif code in (10, 13):  # Enter
                     sys.stdout.write("\n")
                     sys.stdout.flush()
                     return "".join(buf)
-                elif code == 127:       # Backspace
+                elif code == 127:  # Backspace
                     if buf:
                         buf.pop()
                         sys.stdout.write("\b \b")
@@ -244,26 +265,28 @@ class IPTVMenuManager:
         """Check if database is older than 14 days"""
         if not os.path.exists(self.db_path):
             return True  # Database doesn't exist, needs creation
-        
+
         try:
             # Get file modification time
             file_modified_time = os.path.getmtime(self.db_path)
             current_time = datetime.now().timestamp()
-            
+
             # Calculate age in days
             age_in_seconds = current_time - file_modified_time
             age_in_days = age_in_seconds / (24 * 60 * 60)
-            
+
             return age_in_days > 14
         except Exception as e:
-            console.print(f"[yellow]Warning: Could not check database age: {e}[/yellow]")
+            console.print(
+                f"[yellow]Warning: Could not check database age: {e}[/yellow]"
+            )
             return False
-    
+
     def get_database_age_days(self):
         """Get database age in days"""
         if not os.path.exists(self.db_path):
             return None
-        
+
         try:
             file_modified_time = os.path.getmtime(self.db_path)
             current_time = datetime.now().timestamp()
@@ -272,31 +295,44 @@ class IPTVMenuManager:
             return age_in_days
         except:
             return None
-    
+
     def auto_update_database_if_needed(self):
         """Automatically update database if it's older than 14 days"""
         if not self.check_database_age():
             return  # Database is fresh, no update needed
-        
+
         console.clear()
         console.print(Panel.fit("Database Auto-Update", style="bright_yellow"))
-        
+
         age_days = self.get_database_age_days()
         if age_days is None:
-            console.print("[yellow]⚠ Database not found. Creating new database...[/yellow]")
+            console.print(
+                "[yellow]⚠ Database not found. Creating new database...[/yellow]"
+            )
         else:
-            console.print(f"[yellow]⚠ Database is {age_days:.1f} days old (>14 days).[/yellow]")
-        
-        console.print("[bright_cyan]Starting automatic database update...[/bright_cyan]")
+            console.print(
+                f"[yellow]⚠ Database is {age_days:.1f} days old (>14 days).[/yellow]"
+            )
+
+        console.print(
+            "[bright_cyan]Starting automatic database update...[/bright_cyan]"
+        )
         console.print("This may take a few minutes depending on your connection.")
         console.print()
-        
+
         # Perform full database download
-        success = self._download_and_create_db([
-            "account_info", "live_categories", "live_streams", 
-            "vod_categories", "vod_streams", "series_categories", "series_streams"
-        ])
-        
+        success = self._download_and_create_db(
+            [
+                "account_info",
+                "live_categories",
+                "live_streams",
+                "vod_categories",
+                "vod_streams",
+                "series_categories",
+                "series_streams",
+            ]
+        )
+
         if success:
             console.print()
             console.print("[green]✓ Database updated successfully![/green]")
@@ -308,7 +344,7 @@ class IPTVMenuManager:
             console.print("You can try updating manually from Settings.")
             console.print("[dim white]Continuing in 2 seconds...[/dim white]")
             time.sleep(2)
-        
+
     def main_menu(self):
         """Main menu with arrow key navigation"""
         while True:
@@ -316,14 +352,18 @@ class IPTVMenuManager:
             self.display_header(show_status=True)
 
             fav_count = self._get_favorites_count()
-            fav_label = f"Favorites  ({fav_count} saved)" if fav_count else "Favorites  (0 saved)"
+            fav_label = (
+                f"Favorites  ({fav_count} saved)"
+                if fav_count
+                else "Favorites  (0 saved)"
+            )
             options = [
                 "Search",
                 fav_label,
                 "Browse by Category",
                 "Scheduled Recordings",
                 "Background Downloads",
-                "Settings"
+                "Settings",
             ]
 
             terminal_menu = TerminalMenu(
@@ -332,7 +372,7 @@ class IPTVMenuManager:
                 menu_cursor="> ",
                 accept_keys=("enter", "x"),
                 cycle_cursor=True,
-                clear_screen=False
+                clear_screen=False,
             )
 
             choice = terminal_menu.show()
@@ -340,7 +380,7 @@ class IPTVMenuManager:
             key = terminal_menu.chosen_accept_key
 
             # Handle X key - stop restream
-            if key == 'x':
+            if key == "x":
                 active = self.get_active_restream()
                 if active:
                     self.stop_restream_quick()
@@ -372,11 +412,11 @@ class IPTVMenuManager:
     def get_service_status_cached(self):
         """Return service status dict, refreshing at most every 30 seconds."""
         now = time.time()
-        if not hasattr(self, '_svc_cache_time') or now - self._svc_cache_time > 30:
+        if not hasattr(self, "_svc_cache_time") or now - self._svc_cache_time > 30:
             self._svc_cache = {
-                'nginx':    self.check_container_status(),
-                'jellyfin': self.check_jellyfin_status(),
-                'samba':    self.check_samba_status(),
+                "nginx": self.check_container_status(),
+                "jellyfin": self.check_jellyfin_status(),
+                "samba": self.check_samba_status(),
             }
             self._svc_cache_time = now
         return self._svc_cache
@@ -396,20 +436,26 @@ class IPTVMenuManager:
             try:
                 conn = sqlite3.connect(self.db_path)
                 cursor = conn.cursor()
-                live_count = cursor.execute("SELECT COUNT(*) FROM live_streams").fetchone()[0]
-                vod_count = cursor.execute("SELECT COUNT(*) FROM vod_streams").fetchone()[0]
-                
+                live_count = cursor.execute(
+                    "SELECT COUNT(*) FROM live_streams"
+                ).fetchone()[0]
+                vod_count = cursor.execute(
+                    "SELECT COUNT(*) FROM vod_streams"
+                ).fetchone()[0]
+
                 # Get account info
                 try:
-                    account = cursor.execute("SELECT * FROM account_info LIMIT 1").fetchone()
+                    account = cursor.execute(
+                        "SELECT * FROM account_info LIMIT 1"
+                    ).fetchone()
                 except:
                     account = None
-                
+
                 conn.close()
-                
+
                 # Build status lines
                 status_lines = []
-                
+
                 # Get database age
                 age_days = self.get_database_age_days()
                 if age_days is not None:
@@ -423,60 +469,80 @@ class IPTVMenuManager:
                         # Use yellow for old databases
                         age_str = f"[bright_yellow bold]{age_days:.0f} days old[/bright_yellow bold]"
 
-                    status_lines.append(f"[green]●[/green] [bright_cyan bold]Database: Ready[/bright_cyan bold] | {age_str}")
+                    status_lines.append(
+                        f"[green]●[/green] [bright_cyan bold]Database: Ready[/bright_cyan bold] | {age_str}"
+                    )
                 else:
-                    status_lines.append(f"[green]●[/green] [bright_cyan bold]Database: Ready[/bright_cyan bold]")
-                
+                    status_lines.append(
+                        f"[green]●[/green] [bright_cyan bold]Database: Ready[/bright_cyan bold]"
+                    )
+
                 # Add statistics
                 status_lines.append(f"  Live Channels: {live_count:,}")
                 status_lines.append(f"  VOD Content: {vod_count:,}")
                 status_lines.append(f"  Total Content: {live_count + vod_count:,}")
-                
+
                 # Add account info if available
                 if account:
-                    exp_date = datetime.fromtimestamp(int(account[2])).strftime('%Y-%m-%d')
+                    exp_date = datetime.fromtimestamp(int(account[2])).strftime(
+                        "%Y-%m-%d"
+                    )
                     status_lines.append(f"  Account Status: {account[1]}")
                     status_lines.append(f"  Expires: {exp_date}")
                     status_lines.append(f"  Max Connections: {account[3]}")
 
                 # Service health row
                 svc = self.get_service_status_cached()
-                ng   = self._svc_dot(svc['nginx'])
-                jf   = self._svc_dot(svc['jellyfin'])
-                sb   = self._svc_dot(svc['samba'])
+                ng = self._svc_dot(svc["nginx"])
+                jf = self._svc_dot(svc["jellyfin"])
+                sb = self._svc_dot(svc["samba"])
                 status_lines.append("")
-                status_lines.append(f"  Services: {ng} nginx-rtmp  {jf} jellyfin  {sb} samba")
+                status_lines.append(
+                    f"  Services: {ng} nginx-rtmp  {jf} jellyfin  {sb} samba"
+                )
 
                 bg_downloads = self._get_background_download_summary_cached()
-                if bg_downloads['active'] > 0:
+                if bg_downloads["active"] > 0:
                     status_lines.append(
                         f"  Background Downloads: [cyan]{bg_downloads['active']} active[/cyan]"
                     )
-                elif bg_downloads['known_batches'] > 0:
+                elif bg_downloads["known_batches"] > 0:
                     status_lines.append("  Background Downloads: [dim]0 active[/dim]")
 
                 # Check for active restream
                 active_restream = self.get_active_restream()
                 if active_restream:
                     status_lines.append("")
-                    status_lines.append(f"[red]●[/red] [bright_red bold]Restreaming:[/bright_red bold] {active_restream['channel_name']}")
+                    status_lines.append(
+                        f"[red]●[/red] [bright_red bold]Restreaming:[/bright_red bold] {active_restream['channel_name']}"
+                    )
                     status_lines.append(f"  [dim]Press (X) to stop[/dim]")
 
                 # Join all lines and display in panel
                 status = "\n".join(status_lines)
                 console.print(Panel.fit(status, style="dim white"))
             except:
-                console.print(Panel("[dim white]●[/dim white] Database: Error reading", style="dim white"))
+                console.print(
+                    Panel(
+                        "[dim white]●[/dim white] Database: Error reading",
+                        style="dim white",
+                    )
+                )
         else:
-            console.print(Panel("[dim white]●[/dim white] Database: Not found - Use 'Download/Update Database'", style="dim white"))
+            console.print(
+                Panel(
+                    "[dim white]●[/dim white] Database: Not found - Use 'Download/Update Database'",
+                    style="dim white",
+                )
+            )
 
     def display_header(self, show_status=True):
         """Display the welcome header with optional status panel"""
         console.print()
         console.print("[bright_red] ✻[/bright_red] Welcome to")
 
-        figlet = Figlet(font='isometric1')
-        title = figlet.renderText('IPTV')
+        figlet = Figlet(font="isometric1")
+        title = figlet.renderText("IPTV")
         console.print(f"[cyan]{title}[/cyan]")
 
         if show_status:
@@ -487,21 +553,17 @@ class IPTVMenuManager:
         while True:
             console.clear()
             console.print(Panel.fit("Download/Update Database", style="dim white"))
-            
+
             options = [
                 "Download Fresh Data (Full Update)",
                 "Quick Update (Live Streams Only)",
-                "Download VOD Only"
+                "Download VOD Only",
             ]
-            
-            terminal_menu = TerminalMenu(
-                options,
-                title="",
-                menu_cursor="> "
-            )
-            
+
+            terminal_menu = TerminalMenu(options, title="", menu_cursor="> ")
+
             choice = terminal_menu.show()
-            
+
             if choice is None:  # ESC
                 break
             elif choice == 0:  # Full download
@@ -510,7 +572,7 @@ class IPTVMenuManager:
                 self.download_live_only()
             elif choice == 2:  # VOD only
                 self.download_vod_only()
-    
+
     def unified_search_menu(self):
         """Unified search menu for live channels, VOD, and series content"""
         if not self.check_database():
@@ -522,14 +584,14 @@ class IPTVMenuManager:
             console.print(Panel.fit("Search", style="dim white"))
 
             search_term = self.input_with_esc()
-            if search_term is None:        # ESC → back to main menu
+            if search_term is None:  # ESC → back to main menu
                 return
             search_term = search_term.strip()
             if not search_term:
-                return                     # empty Enter → back to main menu
+                return  # empty Enter → back to main menu
 
-            live_results   = self.search_live_channels(search_term)
-            vod_results    = self.search_vod_content(search_term)
+            live_results = self.search_live_channels(search_term)
+            vod_results = self.search_vod_content(search_term)
             series_results = self.search_series_content(search_term)
 
             if not live_results and not vod_results and not series_results:
@@ -537,10 +599,14 @@ class IPTVMenuManager:
                 self.wait_for_escape()
                 return
 
-            self.show_unified_results(live_results, vod_results, series_results, search_term)
+            self.show_unified_results(
+                live_results, vod_results, series_results, search_term
+            )
             return
-    
-    def show_unified_results(self, live_results, vod_results, series_results, search_term):
+
+    def show_unified_results(
+        self, live_results, vod_results, series_results, search_term
+    ):
         """Show unified search results with live channels, VOD, and series content"""
         # Load EPG data - first check cache, then fetch missing from network
         epg_cache = {}
@@ -549,12 +615,12 @@ class IPTVMenuManager:
             uncached_channels = []
             for result in live_results:
                 epg_data = self.get_now_playing_local(
-                    result['stream_id'],
+                    result["stream_id"],
                     fetch_if_missing=False,
-                    stream_url=result.get('stream_url'),
+                    stream_url=result.get("stream_url"),
                 )
                 if epg_data:
-                    epg_cache[str(result['stream_id'])] = epg_data
+                    epg_cache[str(result["stream_id"])] = epg_data
                 else:
                     uncached_channels.append(result)
 
@@ -562,25 +628,30 @@ class IPTVMenuManager:
             if uncached_channels:
                 console.clear()
                 self.display_header(show_status=False)
-                console.print(Panel.fit(f"Loading EPG for {len(uncached_channels)} channels (caching for next time)...", style="dim white"))
+                console.print(
+                    Panel.fit(
+                        f"Loading EPG for {len(uncached_channels)} channels (caching for next time)...",
+                        style="dim white",
+                    )
+                )
                 for result in uncached_channels:
                     console.print(f"[dim]Fetching: {result['name']}[/dim]")
                     epg_data = self.get_now_playing_local(
-                        result['stream_id'],
-                        result.get('name'),
+                        result["stream_id"],
+                        result.get("name"),
                         fetch_if_missing=True,
-                        stream_url=result.get('stream_url'),
+                        stream_url=result.get("stream_url"),
                     )
-                    epg_cache[str(result['stream_id'])] = epg_data
+                    epg_cache[str(result["stream_id"])] = epg_data
 
         # Build results list
         all_results = []
         for result in live_results:
-            all_results.append(('live', result))
+            all_results.append(("live", result))
         for result in vod_results:
-            all_results.append(('vod', result))
+            all_results.append(("vod", result))
         for result in series_results:
-            all_results.append(('series', result))
+            all_results.append(("series", result))
 
         while True:
             console.clear()
@@ -594,18 +665,22 @@ class IPTVMenuManager:
                 elif age_days < 2:
                     age_str = "[bright_cyan bold]1 day old[/bright_cyan bold]"
                 elif age_days <= 7:
-                    age_str = f"[bright_cyan bold]{age_days:.0f} days old[/bright_cyan bold]"
+                    age_str = (
+                        f"[bright_cyan bold]{age_days:.0f} days old[/bright_cyan bold]"
+                    )
                 else:
                     age_str = f"[bright_yellow bold]{age_days:.0f} days old[/bright_yellow bold]"
                 db_line = f"[green]●[/green] [bright_cyan bold]Database[/bright_cyan bold] | {age_str}"
             else:
-                db_line = "[green]●[/green] [bright_cyan bold]Database[/bright_cyan bold]"
+                db_line = (
+                    "[green]●[/green] [bright_cyan bold]Database[/bright_cyan bold]"
+                )
 
             panel_lines = [
                 db_line,
                 f"  Search Results: '{search_term}' ({len(all_results)} found)",
                 "",
-                f"  [dim]LIVE: (p)lay (r)restream (c)record (t)schedule  |  VOD: (p)lay (c)download  |  SERIES: open to browse episodes  |  ALL: (s)★star (d)✕unstar (i)info  |  ESC=back[/dim]"
+                f"  [dim]LIVE: (p)lay (r)restream (c)record (t)schedule  |  VOD: (p)lay (c)download  |  SERIES: open to browse episodes  |  ALL: (s)★star (d)✕unstar (i)info  |  ESC=back[/dim]",
             ]
             console.print(Panel("\n".join(panel_lines), style="dim white"))
             console.print()
@@ -617,24 +692,28 @@ class IPTVMenuManager:
             # IMPORTANT: Replace | in channel names with - to avoid breaking preview separator
             for idx, (result_type, result) in enumerate(all_results):
                 # Get the right ID field based on result type
-                if result_type == 'series':
-                    item_id = result.get('series_id')
+                if result_type == "series":
+                    item_id = result.get("series_id")
                 else:
-                    item_id = result.get('stream_id')
+                    item_id = result.get("stream_id")
                 is_fav = (item_id, result_type) in favorites_set
                 fav = "⭐ " if is_fav else "   "
 
                 # Replace | with - in names to avoid breaking the preview separator
-                display_name = result['name'].replace('|', '-')
+                display_name = result["name"].replace("|", "-")
 
-                if result_type == 'live':
+                if result_type == "live":
                     opt = f"{fav}[LIVE] {display_name}|{idx}"
-                elif result_type == 'vod':
-                    rating = f"{result['rating']:.1f}" if result.get('rating') else 'N/A'
-                    year = result.get('year') or 'N/A'
+                elif result_type == "vod":
+                    rating = (
+                        f"{result['rating']:.1f}" if result.get("rating") else "N/A"
+                    )
+                    year = result.get("year") or "N/A"
                     opt = f"{fav}[VOD] {rating} {year} {display_name}|{idx}"
                 else:  # series
-                    rating = f"{result['rating']:.1f}" if result.get('rating') else 'N/A'
+                    rating = (
+                        f"{result['rating']:.1f}" if result.get("rating") else "N/A"
+                    )
                     opt = f"{fav}[SERIES] {rating} {display_name}|{idx}"
 
                 options.append(opt)
@@ -644,7 +723,7 @@ class IPTVMenuManager:
 
             # Preview function to show EPG info in side panel
             def preview_info(preview_arg):
-                if preview_arg == 'spacer':
+                if preview_arg == "spacer":
                     return ""
                 try:
                     # preview_arg is now just the index number (pipes removed from names)
@@ -659,59 +738,66 @@ class IPTVMenuManager:
                     except:
                         wrap_width = 100
 
-                    if result_type == 'live':
+                    if result_type == "live":
                         # Get EPG with upcoming info
-                        epg_full = self.get_epg_with_upcoming(result['stream_id'])
-                        now_playing = epg_full.get('now')
-                        upcoming = epg_full.get('next')
+                        epg_full = self.get_epg_with_upcoming(result["stream_id"])
+                        now_playing = epg_full.get("now")
+                        upcoming = epg_full.get("next")
 
                         # Now Playing section
                         lines.append("━━━ Now Playing ━━━")
-                        if now_playing and now_playing.get('title'):
-                            lines.append(now_playing['title'])
+                        if now_playing and now_playing.get("title"):
+                            lines.append(now_playing["title"])
                             lines.append("")
-                            if now_playing.get('description'):
-                                wrapped = textwrap.fill(now_playing['description'], width=wrap_width)
+                            if now_playing.get("description"):
+                                wrapped = textwrap.fill(
+                                    now_playing["description"], width=wrap_width
+                                )
                                 lines.append(wrapped)
                         else:
                             # No EPG data - show full channel name as fallback
                             lines.append("Channel:")
-                            wrapped_name = textwrap.fill(result['name'], width=wrap_width)
+                            wrapped_name = textwrap.fill(
+                                result["name"], width=wrap_width
+                            )
                             lines.append(wrapped_name)
 
                         # Upcoming section
                         lines.append("")
-                        if upcoming and upcoming.get('title'):
+                        if upcoming and upcoming.get("title"):
                             # Format the start time
                             from datetime import datetime
-                            start_dt = datetime.fromtimestamp(upcoming['start_time'])
+
+                            start_dt = datetime.fromtimestamp(upcoming["start_time"])
                             time_str = start_dt.strftime("%H:%M")
                             lines.append(f"━━━ Upcoming at {time_str} ━━━")
-                            lines.append(upcoming['title'])
+                            lines.append(upcoming["title"])
                             lines.append("")
-                            if upcoming.get('description'):
-                                wrapped = textwrap.fill(upcoming['description'], width=wrap_width)
+                            if upcoming.get("description"):
+                                wrapped = textwrap.fill(
+                                    upcoming["description"], width=wrap_width
+                                )
                                 lines.append(wrapped)
                         else:
                             lines.append("━━━ Upcoming ━━━")
                             lines.append("No upcoming program information")
 
-                    elif result_type == 'vod':
+                    elif result_type == "vod":
                         # VOD info
                         lines.append(f"Rating: {result.get('rating', 'N/A')}")
                         lines.append(f"Year: {result.get('year', 'N/A')}")
-                        if result.get('genre'):
+                        if result.get("genre"):
                             lines.append(f"Genre: {result['genre']}")
                     else:
                         # Series info
                         lines.append(f"Rating: {result.get('rating', 'N/A')}")
-                        if result.get('genre'):
+                        if result.get("genre"):
                             lines.append(f"Genre: {result['genre']}")
-                        if result.get('category_name'):
+                        if result.get("category_name"):
                             lines.append(f"Category: {result['category_name']}")
                         lines.append("")
-                        if result.get('plot'):
-                            wrapped = textwrap.fill(result['plot'], width=wrap_width)
+                        if result.get("plot"):
+                            wrapped = textwrap.fill(result["plot"], width=wrap_width)
                             lines.append(wrapped)
 
                     return "\n".join(lines)
@@ -745,86 +831,91 @@ class IPTVMenuManager:
                 result_type, selected = all_results[choice]
 
                 # Handle keyboard shortcuts
-                if key == 'p':  # Play directly
-                    if result_type == 'series':
+                if key == "p":  # Play directly
+                    if result_type == "series":
                         self.show_series_info(selected)
                     else:
                         self.play_with_mpv(selected)
-                elif key == 'enter':  # Open action menu
-                    if result_type == 'live':
+                elif key == "enter":  # Open action menu
+                    if result_type == "live":
                         self.live_stream_action_menu(selected)
-                    elif result_type == 'vod':
+                    elif result_type == "vod":
                         self.vod_action_menu(selected)
                     else:
                         self.show_series_info(selected)
-                elif key == 't':  # Schedule recording (Timer)
-                    if result_type == 'live':
+                elif key == "t":  # Schedule recording (Timer)
+                    if result_type == "live":
                         self.schedule_recording(selected)
                     else:
-                        console.print("[yellow]Schedule recording only available for live channels[/yellow]")
+                        console.print(
+                            "[yellow]Schedule recording only available for live channels[/yellow]"
+                        )
                         self.wait_for_escape()
-                elif key == 'i':
-                    if result_type == 'live':
+                elif key == "i":
+                    if result_type == "live":
                         self.show_live_stream_info(selected)
-                    elif result_type == 'vod':
+                    elif result_type == "vod":
                         self.show_vod_info(selected)
                     else:
                         self.show_series_info(selected)
-                elif key == 's':
+                elif key == "s":
                     res = self.save_to_favorites(selected, result_type)
                     if res == -1:
                         self.flash_message("[yellow]Already in favorites[/yellow]")
                     elif res > 0:
-                        self.flash_message([
-                            f"[green]★[/green] [bright_cyan]Added to favorites![/bright_cyan] ({res} total)",
-                            "[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]",
-                            "[dim]  Import in VLC, Kodi, or your TV app to watch favorites[/dim]",
-                        ], delay=1.0)
+                        self.flash_message(
+                            [
+                                f"[green]★[/green] [bright_cyan]Added to favorites![/bright_cyan] ({res} total)",
+                                "[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]",
+                                "[dim]  Import in VLC, Kodi, or your TV app to watch favorites[/dim]",
+                            ],
+                            delay=1.0,
+                        )
                     else:
                         self.flash_message("[red]Could not add to favorites[/red]")
-                elif key == 'd':
+                elif key == "d":
                     res = self.remove_from_favorites(selected, result_type)
                     if res > 0:
                         self.flash_message("[green]✓[/green] Removed from favorites")
                     else:
                         self.flash_message("[yellow]Not in favorites[/yellow]")
-                elif key == 'r':
-                    if result_type != 'series':
+                elif key == "r":
+                    if result_type != "series":
                         self.quick_restream(selected)
                     else:
                         self.show_series_info(selected)
-                elif key == 'c':
-                    if result_type == 'vod':
+                elif key == "c":
+                    if result_type == "vod":
                         self.download_vod_to_data(selected)
-                    elif result_type == 'live':
+                    elif result_type == "live":
                         self.download_live_to_data(selected)
                     else:
                         self.show_series_info(selected)
-    
+
     def search_live_menu(self):
         """Search live channels menu"""
         if not self.check_database():
             return
-        
+
         console.clear()
         console.print(Panel.fit("Search Live Channels", style="dim white"))
-        
+
         try:
             search_term = input("\nEnter search term: ").strip()
             if not search_term:
                 return
-            
+
             results = self.search_live_channels(search_term)
             if not results:
                 console.print(f"\nNo channels found for '{search_term}'")
                 self.wait_for_escape()
                 return
-            
+
             self.show_live_results(results, search_term)
-            
+
         except KeyboardInterrupt:
             return
-    
+
     def search_live_channels(self, query):
         """Search live channels in database"""
         conn = sqlite3.connect(self.db_path)
@@ -837,8 +928,8 @@ class IPTVMenuManager:
             return []
 
         # Build WHERE clause with AND for each token
-        conditions = ' AND '.join(['name LIKE ?' for _ in tokens])
-        params = [f'%{token}%' for token in tokens]
+        conditions = " AND ".join(["name LIKE ?" for _ in tokens])
+        params = [f"%{token}%" for token in tokens]
 
         sql = f"""
             SELECT name, category_name, stream_id, stream_url, epg_channel_id
@@ -851,8 +942,22 @@ class IPTVMenuManager:
         results = cursor.execute(sql, params).fetchall()
         conn.close()
 
-        return [dict(zip(['name', 'category_name', 'stream_id', 'stream_url', 'epg_channel_id'], row)) for row in results]
-    
+        return [
+            dict(
+                zip(
+                    [
+                        "name",
+                        "category_name",
+                        "stream_id",
+                        "stream_url",
+                        "epg_channel_id",
+                    ],
+                    row,
+                )
+            )
+            for row in results
+        ]
+
     def show_live_results(self, results, search_term):
         """Show live channel results with arrow navigation, keyboard shortcuts and pagination"""
         page_size = 25
@@ -864,38 +969,55 @@ class IPTVMenuManager:
         uncached = []
         for result in results:
             epg_data = self.get_now_playing_local(
-                result['stream_id'],
+                result["stream_id"],
                 fetch_if_missing=False,
-                stream_url=result.get('stream_url'),
+                stream_url=result.get("stream_url"),
             )
             if epg_data:
-                epg_cache[result['stream_id']] = epg_data
+                epg_cache[result["stream_id"]] = epg_data
             else:
                 uncached.append(result)
         if uncached:
             console.clear()
             self.display_header(show_status=False)
-            console.print(Panel.fit(f"Loading EPG for {len(uncached)} channels (caching for next time)...", style="dim white"))
+            console.print(
+                Panel.fit(
+                    f"Loading EPG for {len(uncached)} channels (caching for next time)...",
+                    style="dim white",
+                )
+            )
             for result in uncached:
                 console.print(f"[dim]Fetching: {result['name']}[/dim]")
                 epg_data = self.get_now_playing_local(
-                    result['stream_id'],
-                    result.get('name'),
+                    result["stream_id"],
+                    result.get("name"),
                     fetch_if_missing=True,
-                    stream_url=result.get('stream_url'),
+                    stream_url=result.get("stream_url"),
                 )
-                epg_cache[result['stream_id']] = epg_data
+                epg_cache[result["stream_id"]] = epg_data
 
         while True:
             console.clear()
-            
+
             # Display header with page info
             if total_pages > 1:
-                console.print(Panel.fit(f"Live Channels: '{search_term}' ({len(results)} found) - Page {current_page + 1}/{total_pages}", style="dim white"))
+                console.print(
+                    Panel.fit(
+                        f"Live Channels: '{search_term}' ({len(results)} found) - Page {current_page + 1}/{total_pages}",
+                        style="dim white",
+                    )
+                )
             else:
-                console.print(Panel.fit(f"Live Channels: '{search_term}' ({len(results)} found)", style="dim white"))
-            
-            console.print("[dim white]# (p)lay  (r)restream to NGINX  (c)record now  (t)schedule rec  |  (s)★star  (d)✕unstar  (i)info  |  ESC=back[/dim white]\n")
+                console.print(
+                    Panel.fit(
+                        f"Live Channels: '{search_term}' ({len(results)} found)",
+                        style="dim white",
+                    )
+                )
+
+            console.print(
+                "[dim white]# (p)lay  (r)restream to NGINX  (c)record now  (t)schedule rec  |  (s)★star  (d)✕unstar  (i)info  |  ESC=back[/dim white]\n"
+            )
 
             # Get current favorites for checking
             favorites_set = self.get_favorites_set()
@@ -914,20 +1036,20 @@ class IPTVMenuManager:
 
             # Add current page items
             for result in page_results:
-                is_fav = (result.get('stream_id'), 'live') in favorites_set
+                is_fav = (result.get("stream_id"), "live") in favorites_set
                 fav_indicator = "⭐ " if is_fav else "   "
-                epg = epg_cache.get(result['stream_id'])
-                now_playing = epg['title'] if epg and epg.get('title') else ""
+                epg = epg_cache.get(result["stream_id"])
+                now_playing = epg["title"] if epg and epg.get("title") else ""
                 if now_playing:
                     option = f"{fav_indicator}{result['name']}  —  {now_playing}"
                 else:
                     option = f"{fav_indicator}{result['name']}"
                 options.append(option)
-            
+
             # Add Next Page option if not on last page
             if current_page < total_pages - 1:
                 options.append("Next Page →")
-            
+
             options.append("Back to Search")
 
             terminal_menu = TerminalMenu(
@@ -935,17 +1057,17 @@ class IPTVMenuManager:
                 title="",
                 menu_cursor="> ",
                 accept_keys=("enter", "p", "i", "r", "c", "s", "d", "t"),
-                show_shortcut_hints=False
+                show_shortcut_hints=False,
             )
-            
+
             choice = terminal_menu.show()
             chosen_key = terminal_menu.chosen_accept_key
-            
+
             if choice is None:  # Escape pressed
                 break
-            
+
             selected_option = options[choice] if 0 <= choice < len(options) else None
-            
+
             # Handle navigation options
             if selected_option == "← Previous Page":
                 current_page -= 1
@@ -955,69 +1077,76 @@ class IPTVMenuManager:
                 continue
             elif selected_option == "Back to Search":
                 break
-            
+
             # Calculate actual result index accounting for navigation options
-            result_offset = 1 if current_page > 0 else 0  # Account for "Previous Page" option
+            result_offset = (
+                1 if current_page > 0 else 0
+            )  # Account for "Previous Page" option
             result_idx = choice - result_offset
-            
+
             if 0 <= result_idx < len(page_results):
                 selected = page_results[result_idx]
-                
+
                 # Handle shortcuts
-                if chosen_key == 'p':  # Play directly
+                if chosen_key == "p":  # Play directly
                     self.play_with_mpv(selected)
                     continue  # Stay in menu after playing
-                    
-                elif chosen_key == 'i':  # Show information screen
+
+                elif chosen_key == "i":  # Show information screen
                     self.show_live_stream_info(selected)
                     continue  # Return to menu after viewing info
-                    
-                elif chosen_key == 'r':  # Restream directly
+
+                elif chosen_key == "r":  # Restream directly
                     self.quick_restream(selected)
                     continue  # Stay in menu after restreaming
-                    
-                elif chosen_key == 'c':  # Download (changed from Copy URL)
+
+                elif chosen_key == "c":  # Download (changed from Copy URL)
                     self.download_live_to_data(selected)
                     continue  # Stay in menu after downloading
-                    
-                elif chosen_key == 's':  # Star / Save to favorites
-                    result = self.save_to_favorites(selected, 'live')
+
+                elif chosen_key == "s":  # Star / Save to favorites
+                    result = self.save_to_favorites(selected, "live")
                     if result == -1:
                         self.flash_message("[yellow]⚠[/yellow] Already in favorites")
                     elif result > 0:
-                        self.flash_message([
-                            f"[green]★[/green] [bright_cyan]Added to favorites![/bright_cyan] ({result} total)",
-                            "[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]",
-                            "[dim]  Import in VLC, Kodi, or your TV app[/dim]",
-                        ], delay=1.0)
+                        self.flash_message(
+                            [
+                                f"[green]★[/green] [bright_cyan]Added to favorites![/bright_cyan] ({result} total)",
+                                "[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]",
+                                "[dim]  Import in VLC, Kodi, or your TV app[/dim]",
+                            ],
+                            delay=1.0,
+                        )
                     else:
                         self.flash_message("[red]✗[/red] Failed to add to favorites")
                     continue  # Refresh menu immediately
 
-                elif chosen_key == 'd':  # Unstar / Delete from favorites
-                    result = self.remove_from_favorites(selected, 'live')
+                elif chosen_key == "d":  # Unstar / Delete from favorites
+                    result = self.remove_from_favorites(selected, "live")
                     if result:
                         self.flash_message("[green]✓[/green] Removed from favorites")
                     else:
                         self.flash_message("[yellow]⚠[/yellow] Not in favorites")
                     continue  # Refresh menu immediately
 
-                elif chosen_key == 't':  # Schedule recording (Timer)
+                elif chosen_key == "t":  # Schedule recording (Timer)
                     self.schedule_recording(selected)
                     continue  # Stay in menu after scheduling
 
                 else:  # Enter key - show action menu
                     self.channel_action_menu(selected)
-    
+
     def live_stream_action_menu(self, channel):
         """Menu for live stream actions"""
         while True:
             console.clear()
-            console.print(Panel.fit(f"Live Stream: {channel['name']}", style="dim white"))
+            console.print(
+                Panel.fit(f"Live Stream: {channel['name']}", style="dim white")
+            )
             console.print(f"Category: {channel['category_name'] or 'Unknown'}")
             console.print(f"Stream ID: {channel['stream_id']}")
             console.print()
-            
+
             options = [
                 "Watch Now  (opens MPV player)",
                 "Stream Info  (EPG, category, ID)",
@@ -1025,14 +1154,10 @@ class IPTVMenuManager:
                 "Schedule Recording  (save to Samba share)",
                 "★ Star  (add to playlist)",
                 "Copy Stream URL",
-                "Back"
+                "Back",
             ]
 
-            terminal_menu = TerminalMenu(
-                options,
-                title="",
-                menu_cursor="> "
-            )
+            terminal_menu = TerminalMenu(options, title="", menu_cursor="> ")
 
             choice = terminal_menu.show()
 
@@ -1047,32 +1172,36 @@ class IPTVMenuManager:
             elif choice == 3:  # Schedule Recording
                 self.schedule_recording(channel)
             elif choice == 4:  # Star / Save to Favorites
-                result = self.save_to_favorites(channel, 'live')
+                result = self.save_to_favorites(channel, "live")
                 if result == -1:
                     console.print("[yellow]⚠[/yellow] Already in favorites")
                 elif result > 0:
-                    console.print(f"[green]★[/green] [bright_cyan]Added to favorites![/bright_cyan] ({result} total)")
-                    console.print(f"[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]")
+                    console.print(
+                        f"[green]★[/green] [bright_cyan]Added to favorites![/bright_cyan] ({result} total)"
+                    )
+                    console.print(
+                        f"[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]"
+                    )
                     console.print(f"[dim]  Import in VLC, Kodi, or your TV app[/dim]")
                 else:
                     console.print("[red]✗[/red] Failed to star")
                 self.wait_for_escape()
             elif choice == 5:  # Copy URL
                 self.copy_stream_url(channel)
-    
+
     def vod_action_menu(self, vod_item):
         """Menu for VOD actions"""
         while True:
             console.clear()
             console.print(Panel.fit(f"VOD: {vod_item['name']}", style="dim white"))
-            if vod_item.get('year'):
+            if vod_item.get("year"):
                 console.print(f"Year: {vod_item['year']}")
-            if vod_item.get('rating'):
+            if vod_item.get("rating"):
                 console.print(f"Rating: {vod_item['rating']:.1f}/10")
-            if vod_item.get('genre'):
+            if vod_item.get("genre"):
                 console.print(f"Genre: {vod_item['genre']}")
             console.print()
-            
+
             options = [
                 "Watch Now  (opens MPV player)",
                 "Download to Disk",
@@ -1080,21 +1209,19 @@ class IPTVMenuManager:
                 "Restream to NGINX-RTMP",
                 "★ Star  (add to playlist)",
                 "Copy Stream URL",
-                "Back"
+                "Back",
             ]
-            
-            terminal_menu = TerminalMenu(
-                options,
-                title="",
-                menu_cursor="> "
-            )
-            
+
+            terminal_menu = TerminalMenu(options, title="", menu_cursor="> ")
+
             choice = terminal_menu.show()
-            
+
             if choice is None or choice == 6:  # Back
                 break
             elif choice == 0:  # Watch
-                self.play_with_mpv({'name': vod_item['name'], 'stream_url': vod_item['stream_url']})
+                self.play_with_mpv(
+                    {"name": vod_item["name"], "stream_url": vod_item["stream_url"]}
+                )
             elif choice == 1:  # Download
                 self.download_vod(vod_item)
             elif choice == 2:  # Info
@@ -1102,47 +1229,51 @@ class IPTVMenuManager:
             elif choice == 3:  # Restream
                 self.quick_restream(vod_item)
             elif choice == 4:  # Star / Save to Favorites
-                result = self.save_to_favorites(vod_item, 'vod')
+                result = self.save_to_favorites(vod_item, "vod")
                 if result == -1:
                     console.print("[yellow]⚠[/yellow] Already in favorites")
                 elif result > 0:
-                    console.print(f"[green]★[/green] [bright_cyan]Added to favorites![/bright_cyan] ({result} total)")
-                    console.print(f"[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]")
+                    console.print(
+                        f"[green]★[/green] [bright_cyan]Added to favorites![/bright_cyan] ({result} total)"
+                    )
+                    console.print(
+                        f"[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]"
+                    )
                     console.print(f"[dim]  Import in VLC, Kodi, or your TV app[/dim]")
                 else:
                     console.print("[red]✗[/red] Failed to star")
                 self.wait_for_escape()
             elif choice == 5:  # Copy URL
-                self.copy_stream_url({'stream_url': vod_item['stream_url']})
-    
+                self.copy_stream_url({"stream_url": vod_item["stream_url"]})
+
     def channel_action_menu(self, channel):
         """Legacy menu for channel actions - redirect to new live stream menu"""
         self.live_stream_action_menu(channel)
-    
+
     def search_vod_menu(self):
         """Search VOD content menu"""
         if not self.check_database():
             return
-        
+
         console.clear()
         console.print(Panel.fit("Search VOD Content", style="dim white"))
-        
+
         try:
             search_term = input("\nEnter search term: ").strip()
             if not search_term:
                 return
-            
+
             results = self.search_vod_content(search_term)
             if not results:
                 console.print(f"\nNo VOD content found for '{search_term}'")
                 self.wait_for_escape()
                 return
-            
+
             self.show_vod_results(results, search_term)
-            
+
         except KeyboardInterrupt:
             return
-    
+
     def search_vod_content(self, query):
         """Search VOD content in database"""
         conn = sqlite3.connect(self.db_path)
@@ -1155,8 +1286,8 @@ class IPTVMenuManager:
             return []
 
         # Build WHERE clause with AND for each token
-        conditions = ' AND '.join(['name LIKE ?' for _ in tokens])
-        params = [f'%{token}%' for token in tokens]
+        conditions = " AND ".join(["name LIKE ?" for _ in tokens])
+        params = [f"%{token}%" for token in tokens]
 
         sql = f"""
             SELECT stream_id, name, year, rating, genre, stream_url
@@ -1169,7 +1300,12 @@ class IPTVMenuManager:
         results = cursor.execute(sql, params).fetchall()
         conn.close()
 
-        return [dict(zip(['stream_id', 'name', 'year', 'rating', 'genre', 'stream_url'], row)) for row in results]
+        return [
+            dict(
+                zip(["stream_id", "name", "year", "rating", "genre", "stream_url"], row)
+            )
+            for row in results
+        ]
 
     def search_series_content(self, query):
         """Search series (TV shows) in database"""
@@ -1183,8 +1319,8 @@ class IPTVMenuManager:
             return []
 
         # Build WHERE clause with AND for each token
-        conditions = ' AND '.join(['name LIKE ?' for _ in tokens])
-        params = [f'%{token}%' for token in tokens]
+        conditions = " AND ".join(["name LIKE ?" for _ in tokens])
+        params = [f"%{token}%" for token in tokens]
 
         sql = f"""
             SELECT series_id, name, genre, rating, plot, category_name
@@ -1197,24 +1333,44 @@ class IPTVMenuManager:
         results = cursor.execute(sql, params).fetchall()
         conn.close()
 
-        return [dict(zip(['series_id', 'name', 'genre', 'rating', 'plot', 'category_name'], row)) for row in results]
+        return [
+            dict(
+                zip(
+                    ["series_id", "name", "genre", "rating", "plot", "category_name"],
+                    row,
+                )
+            )
+            for row in results
+        ]
 
     def show_vod_results(self, results, search_term):
         """Show VOD results with arrow navigation and pagination"""
         page_size = 25
         current_page = 0
         total_pages = (len(results) + page_size - 1) // page_size if results else 1
-        
+
         while True:
             console.clear()
-            
+
             # Display header with page info
             if total_pages > 1:
-                console.print(Panel.fit(f"VOD Content: '{search_term}' ({len(results)} found) - Page {current_page + 1}/{total_pages}", style="dim white"))
+                console.print(
+                    Panel.fit(
+                        f"VOD Content: '{search_term}' ({len(results)} found) - Page {current_page + 1}/{total_pages}",
+                        style="dim white",
+                    )
+                )
             else:
-                console.print(Panel.fit(f"VOD Content: '{search_term}' ({len(results)} found)", style="dim white"))
-            
-            console.print("[dim white]# (p)lay  (c)download to disk  (r)restream to NGINX  |  (s)★star  (d)✕unstar  (i)info  |  ESC=back[/dim white]\n")
+                console.print(
+                    Panel.fit(
+                        f"VOD Content: '{search_term}' ({len(results)} found)",
+                        style="dim white",
+                    )
+                )
+
+            console.print(
+                "[dim white]# (p)lay  (c)download to disk  (r)restream to NGINX  |  (s)★star  (d)✕unstar  (i)info  |  ESC=back[/dim white]\n"
+            )
 
             # Get current favorites for checking
             favorites_set = self.get_favorites_set()
@@ -1230,87 +1386,95 @@ class IPTVMenuManager:
             # Add Previous Page option if not on first page
             if current_page > 0:
                 options.append("← Previous Page")
-            
+
             # Add current page items
             for result in page_results:
                 # Extract year from name if not in year field
-                year_match = re.search(r'\((\d{4})\)', result['name'])
+                year_match = re.search(r"\((\d{4})\)", result["name"])
                 if year_match:
                     year = year_match.group(1)
                     # Remove year from display name
-                    display_name = re.sub(r'\s*\(\d{4}\)\s*', '', result['name'])
+                    display_name = re.sub(r"\s*\(\d{4}\)\s*", "", result["name"])
                 else:
-                    year = result.get('year') or 'N/A'
-                    display_name = result['name']
-                
+                    year = result.get("year") or "N/A"
+                    display_name = result["name"]
+
                 # Format rating without star and decimal if .0
-                if result.get('rating'):
+                if result.get("rating"):
                     # Convert to int if it's a whole number, otherwise keep 1 decimal
-                    rating_val = result['rating']
+                    rating_val = result["rating"]
                     if rating_val == int(rating_val):
                         rating = str(int(rating_val))
                     else:
                         rating = f"{rating_val:.1f}"
                 else:
-                    rating = 'N/A'
-                
+                    rating = "N/A"
+
                 # Use category_name as genre since genre field is empty
-                if result.get('category_name'):
+                if result.get("category_name"):
                     # Clean up category name to make it shorter
-                    category = result['category_name']
+                    category = result["category_name"]
                     # Extract main part (e.g., "FR - ACTION" -> "FR-ACTION")
-                    if ' - ' in category:
-                        parts = category.split(' - ')
-                        genre = f"{parts[0][:2]}-{parts[1][:8]}" if len(parts) > 1 else parts[0][:12]
+                    if " - " in category:
+                        parts = category.split(" - ")
+                        genre = (
+                            f"{parts[0][:2]}-{parts[1][:8]}"
+                            if len(parts) > 1
+                            else parts[0][:12]
+                        )
                     else:
                         genre = category[:12]
                 else:
-                    genre = result.get('genre', 'Unknown')[:12] if result.get('genre') else 'Unknown'
-                
+                    genre = (
+                        result.get("genre", "Unknown")[:12]
+                        if result.get("genre")
+                        else "Unknown"
+                    )
+
                 # Store full category for favorites
-                if not result.get('category_name'):
-                    result['category_name'] = f"VOD/{genre}"
-                    
-                is_fav = (result.get('stream_id'), 'vod') in favorites_set
+                if not result.get("category_name"):
+                    result["category_name"] = f"VOD/{genre}"
+
+                is_fav = (result.get("stream_id"), "vod") in favorites_set
                 fav_indicator = "⭐ " if is_fav else "   "
-                
+
                 # Ultra-compact format to avoid truncation
                 # Remove prefixes like "EN -", "FR -", "NF -" from display
                 clean_name = display_name
-                if ' - ' in clean_name:
-                    parts = clean_name.split(' - ', 1)
+                if " - " in clean_name:
+                    parts = clean_name.split(" - ", 1)
                     if len(parts[0]) <= 3:  # If prefix is short (EN, FR, NF, etc.)
                         clean_name = parts[1] if len(parts) > 1 else clean_name
-                
+
                 # Format: score year title (full title)
-                if year != 'N/A':
+                if year != "N/A":
                     option = f"{fav_indicator}{rating:>3} {year} {clean_name}"
                 else:
                     option = f"{fav_indicator}{rating:>3} {clean_name}"
                 options.append(option)
-            
+
             # Add Next Page option if not on last page
             if current_page < total_pages - 1:
                 options.append("Next Page →")
-            
+
             options.append("Back to Search")
-            
+
             terminal_menu = TerminalMenu(
                 options,
                 title="",
                 menu_cursor="> ",
                 accept_keys=("enter", "s", "d", "i", "r", "c", "p"),
-                show_shortcut_hints=False
+                show_shortcut_hints=False,
             )
-            
+
             choice = terminal_menu.show()
             chosen_key = terminal_menu.chosen_accept_key
-            
+
             if choice is None:  # Escape pressed
                 break
-            
+
             selected_option = options[choice] if 0 <= choice < len(options) else None
-            
+
             # Handle navigation options
             if selected_option == "← Previous Page":
                 current_page -= 1
@@ -1320,59 +1484,70 @@ class IPTVMenuManager:
                 continue
             elif selected_option == "Back to Search":
                 break
-            
+
             # Calculate actual result index accounting for navigation options
-            result_offset = 1 if current_page > 0 else 0  # Account for "Previous Page" option
+            result_offset = (
+                1 if current_page > 0 else 0
+            )  # Account for "Previous Page" option
             result_idx = choice - result_offset
-            
+
             if 0 <= result_idx < len(page_results):
                 selected = page_results[result_idx]
-                
+
                 # Handle shortcuts
-                if chosen_key == 's':  # Star / Save to favorites
-                    result = self.save_to_favorites(selected, 'vod')
+                if chosen_key == "s":  # Star / Save to favorites
+                    result = self.save_to_favorites(selected, "vod")
                     if result == -1:
                         self.flash_message("[yellow]⚠[/yellow] Already in favorites")
                     elif result > 0:
-                        self.flash_message([
-                            f"[green]★[/green] [bright_cyan]Added to favorites![/bright_cyan] ({result} total)",
-                            "[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]",
-                            "[dim]  Import in VLC, Kodi, or your TV app[/dim]",
-                        ], delay=1.0)
+                        self.flash_message(
+                            [
+                                f"[green]★[/green] [bright_cyan]Added to favorites![/bright_cyan] ({result} total)",
+                                "[dim]  Playlist URL: http://localhost:8080/iptv.m3u[/dim]",
+                                "[dim]  Import in VLC, Kodi, or your TV app[/dim]",
+                            ],
+                            delay=1.0,
+                        )
                     else:
                         self.flash_message("[red]✗[/red] Failed to add to favorites")
                     continue
 
-                elif chosen_key == 'd':  # Unstar / Delete from favorites
-                    result = self.remove_from_favorites(selected, 'vod')
+                elif chosen_key == "d":  # Unstar / Delete from favorites
+                    result = self.remove_from_favorites(selected, "vod")
                     if result > 0:
-                        self.flash_message(f"[green]✓[/green] Removed from favorites ({result} remaining)")
+                        self.flash_message(
+                            f"[green]✓[/green] Removed from favorites ({result} remaining)"
+                        )
                     else:
                         self.flash_message("[yellow]⚠[/yellow] Not in favorites")
                     continue
-                    
-                elif chosen_key == 'i':  # Show info
+
+                elif chosen_key == "i":  # Show info
                     self.show_vod_info(selected)
                     continue
-                    
-                elif chosen_key == 'r':  # Restream
+
+                elif chosen_key == "r":  # Restream
                     self.quick_restream(selected)
                     continue
-                    
-                elif chosen_key == 'c':  # Download
+
+                elif chosen_key == "c":  # Download
                     self.download_vod_to_data(selected)
                     continue
-                    
-                elif chosen_key == 'p':  # Play
-                    self.play_with_mpv({'name': selected['name'], 'stream_url': selected['stream_url']})
+
+                elif chosen_key == "p":  # Play
+                    self.play_with_mpv(
+                        {"name": selected["name"], "stream_url": selected["stream_url"]}
+                    )
                     continue
-                    
+
                 else:  # Enter key - show action menu or play
-                    self.play_with_mpv({'name': selected['name'], 'stream_url': selected['stream_url']})
-    
+                    self.play_with_mpv(
+                        {"name": selected["name"], "stream_url": selected["stream_url"]}
+                    )
+
     def _favorite_added_timestamp(self, favorite):
         """Parse favorite timestamp for newest-first sorting."""
-        added = favorite.get('added')
+        added = favorite.get("added")
         if isinstance(added, (int, float)):
             return float(added)
 
@@ -1420,9 +1595,9 @@ class IPTVMenuManager:
 
             for stream_id, year, rating, genre in rows:
                 metadata[int(stream_id)] = {
-                    'year': year,
-                    'rating': rating,
-                    'genre': genre,
+                    "year": year,
+                    "rating": rating,
+                    "genre": genre,
                 }
         except Exception:
             return metadata
@@ -1441,14 +1616,14 @@ class IPTVMenuManager:
         vod_ids = []
         for item in refreshed:
             try:
-                sid = int(item.get('stream_id') or 0)
+                sid = int(item.get("stream_id") or 0)
             except (TypeError, ValueError):
                 sid = 0
             if sid <= 0:
                 continue
-            if item.get('type') == 'live':
+            if item.get("type") == "live":
                 live_ids.append(sid)
-            elif item.get('type') == 'vod':
+            elif item.get("type") == "vod":
                 vod_ids.append(sid)
 
         live_rows = {}
@@ -1483,16 +1658,16 @@ class IPTVMenuManager:
             unresolved_live_names = set()
             unresolved_vod_names = set()
             for item in refreshed:
-                name = str(item.get('name') or '').strip()
+                name = str(item.get("name") or "").strip()
                 if not name:
                     continue
                 try:
-                    sid = int(item.get('stream_id') or 0)
+                    sid = int(item.get("stream_id") or 0)
                 except (TypeError, ValueError):
                     sid = 0
-                if item.get('type') == 'live' and (sid <= 0 or sid not in live_rows):
+                if item.get("type") == "live" and (sid <= 0 or sid not in live_rows):
                     unresolved_live_names.add(name)
-                if item.get('type') == 'vod' and (sid <= 0 or sid not in vod_rows):
+                if item.get("type") == "vod" and (sid <= 0 or sid not in vod_rows):
                     unresolved_vod_names.add(name)
 
             for name in unresolved_live_names:
@@ -1527,17 +1702,17 @@ class IPTVMenuManager:
 
         for item in refreshed:
             item_changed = False
-            item_type = item.get('type')
+            item_type = item.get("type")
 
             try:
-                sid = int(item.get('stream_id') or 0)
+                sid = int(item.get("stream_id") or 0)
             except (TypeError, ValueError):
                 sid = 0
 
             row = None
-            name_key = str(item.get('name') or '').strip().lower()
+            name_key = str(item.get("name") or "").strip().lower()
 
-            if item_type == 'live':
+            if item_type == "live":
                 if sid > 0:
                     row = live_rows.get(sid)
                 if row is None and name_key:
@@ -1546,29 +1721,31 @@ class IPTVMenuManager:
                 if row:
                     new_sid, new_name, new_url, new_category = row
                     if sid != int(new_sid):
-                        item['stream_id'] = int(new_sid)
+                        item["stream_id"] = int(new_sid)
                         sid = int(new_sid)
                         item_changed = True
-                    if new_name and item.get('name') != new_name:
-                        item['name'] = new_name
+                    if new_name and item.get("name") != new_name:
+                        item["name"] = new_name
                         item_changed = True
-                    if new_url and item.get('stream_url') != new_url:
-                        item['stream_url'] = new_url
+                    if new_url and item.get("stream_url") != new_url:
+                        item["stream_url"] = new_url
                         item_changed = True
                     if new_category:
-                        if item.get('category') != new_category:
-                            item['category'] = new_category
+                        if item.get("category") != new_category:
+                            item["category"] = new_category
                             item_changed = True
-                        if item.get('category_name') != new_category:
-                            item['category_name'] = new_category
+                        if item.get("category_name") != new_category:
+                            item["category_name"] = new_category
                             item_changed = True
                 elif sid > 0 and self.server and self.username and self.password:
-                    fallback_url = f"{self.server}/live/{self.username}/{self.password}/{sid}.ts"
-                    if item.get('stream_url') != fallback_url:
-                        item['stream_url'] = fallback_url
+                    fallback_url = (
+                        f"{self.server}/live/{self.username}/{self.password}/{sid}.ts"
+                    )
+                    if item.get("stream_url") != fallback_url:
+                        item["stream_url"] = fallback_url
                         item_changed = True
 
-            elif item_type == 'vod':
+            elif item_type == "vod":
                 if sid > 0:
                     row = vod_rows.get(sid)
                 if row is None and name_key:
@@ -1577,29 +1754,29 @@ class IPTVMenuManager:
                 if row:
                     new_sid, new_name, new_url, new_year, new_rating, new_genre = row
                     if sid != int(new_sid):
-                        item['stream_id'] = int(new_sid)
+                        item["stream_id"] = int(new_sid)
                         sid = int(new_sid)
                         item_changed = True
-                    if new_name and item.get('name') != new_name:
-                        item['name'] = new_name
+                    if new_name and item.get("name") != new_name:
+                        item["name"] = new_name
                         item_changed = True
-                    if new_url and item.get('stream_url') != new_url:
-                        item['stream_url'] = new_url
+                    if new_url and item.get("stream_url") != new_url:
+                        item["stream_url"] = new_url
                         item_changed = True
-                    if new_year and item.get('year') != new_year:
-                        item['year'] = new_year
+                    if new_year and item.get("year") != new_year:
+                        item["year"] = new_year
                         item_changed = True
-                    if new_rating is not None and item.get('rating') != new_rating:
-                        item['rating'] = new_rating
+                    if new_rating is not None and item.get("rating") != new_rating:
+                        item["rating"] = new_rating
                         item_changed = True
-                    if new_genre and item.get('genre') != new_genre:
-                        item['genre'] = new_genre
+                    if new_genre and item.get("genre") != new_genre:
+                        item["genre"] = new_genre
                         item_changed = True
                 elif sid > 0 and self.server and self.username and self.password:
-                    extension = self._get_download_extension(item, default='mp4')
+                    extension = self._get_download_extension(item, default="mp4")
                     fallback_url = f"{self.server}/movie/{self.username}/{self.password}/{sid}.{extension}"
-                    if item.get('stream_url') != fallback_url:
-                        item['stream_url'] = fallback_url
+                    if item.get("stream_url") != fallback_url:
+                        item["stream_url"] = fallback_url
                         item_changed = True
 
             if item_changed:
@@ -1607,8 +1784,8 @@ class IPTVMenuManager:
 
         if persist and changed > 0:
             try:
-                favorites_path = os.path.join(self.data_dir, 'favorites.json')
-                with open(favorites_path, 'w', encoding='utf-8') as favorites_file:
+                favorites_path = os.path.join(self.data_dir, "favorites.json")
+                with open(favorites_path, "w", encoding="utf-8") as favorites_file:
                     json.dump(refreshed, favorites_file, indent=2)
                 self.generate_m3u_playlist()
             except Exception:
@@ -1618,10 +1795,10 @@ class IPTVMenuManager:
 
     def _load_vod_description_cache(self):
         """Load cached VOD descriptions from disk."""
-        cache_path = os.path.join(self.data_dir, 'vod_descriptions_cache.json')
+        cache_path = os.path.join(self.data_dir, "vod_descriptions_cache.json")
         try:
             if os.path.exists(cache_path):
-                with open(cache_path, 'r', encoding='utf-8') as cache_file:
+                with open(cache_path, "r", encoding="utf-8") as cache_file:
                     data = json.load(cache_file)
                     if isinstance(data, dict):
                         return data
@@ -1631,9 +1808,9 @@ class IPTVMenuManager:
 
     def _save_vod_description_cache(self, cache_data):
         """Persist cached VOD descriptions to disk."""
-        cache_path = os.path.join(self.data_dir, 'vod_descriptions_cache.json')
+        cache_path = os.path.join(self.data_dir, "vod_descriptions_cache.json")
         try:
-            with open(cache_path, 'w', encoding='utf-8') as cache_file:
+            with open(cache_path, "w", encoding="utf-8") as cache_file:
                 json.dump(cache_data, cache_file, indent=2)
         except Exception:
             pass
@@ -1654,8 +1831,8 @@ class IPTVMenuManager:
 
         entry = cache_data.get(key)
         if isinstance(entry, dict):
-            cached_at = int(entry.get('cached_at', 0) or 0)
-            description = str(entry.get('description', '') or '').strip()
+            cached_at = int(entry.get("cached_at", 0) or 0)
+            description = str(entry.get("description", "") or "").strip()
             age = now_ts - cached_at
             if description and age < max_age:
                 return description
@@ -1663,29 +1840,31 @@ class IPTVMenuManager:
         description = ""
         try:
             url = f"{self.server}/player_api.php"
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
             params = {
-                'username': self.username,
-                'password': self.password,
-                'action': 'get_vod_info',
-                'vod_id': sid,
+                "username": self.username,
+                "password": self.password,
+                "action": "get_vod_info",
+                "vod_id": sid,
             }
             response = requests.get(url, params=params, headers=headers, timeout=10)
             if response.status_code == 200:
                 payload = response.json()
-                info = payload.get('info') if isinstance(payload, dict) else {}
+                info = payload.get("info") if isinstance(payload, dict) else {}
                 if isinstance(info, dict):
-                    description = info.get('plot') or info.get('description') or ""
+                    description = info.get("plot") or info.get("description") or ""
                 if not description and isinstance(payload, dict):
-                    description = payload.get('description') or ""
+                    description = payload.get("description") or ""
                 description = self._decode_base64_if_needed(description)
-                description = re.sub(r'\s+', ' ', str(description or '')).strip()
+                description = re.sub(r"\s+", " ", str(description or "")).strip()
         except Exception:
             pass
 
         cache_data[key] = {
-            'description': description,
-            'cached_at': now_ts,
+            "description": description,
+            "cached_at": now_ts,
         }
         self._save_vod_description_cache(cache_data)
         return description
@@ -1694,10 +1873,10 @@ class IPTVMenuManager:
         """Decide if we should refresh live EPG cache for favorites now."""
         live_ids = []
         for favorite in favorites:
-            if favorite.get('type') != 'live':
+            if favorite.get("type") != "live":
                 continue
             try:
-                sid = int(favorite.get('stream_id') or 0)
+                sid = int(favorite.get("stream_id") or 0)
             except (TypeError, ValueError):
                 continue
             if sid > 0:
@@ -1708,8 +1887,8 @@ class IPTVMenuManager:
 
         sig = tuple(sorted(set(live_ids)))
         now_ts = int(time.time())
-        last_sig = getattr(self, '_favorites_live_epg_sig', None)
-        last_ts = getattr(self, '_favorites_live_epg_prefetch_at', 0)
+        last_sig = getattr(self, "_favorites_live_epg_sig", None)
+        last_ts = getattr(self, "_favorites_live_epg_prefetch_at", 0)
 
         if sig != last_sig:
             return True
@@ -1726,10 +1905,10 @@ class IPTVMenuManager:
         seen = set()
 
         for favorite in favorites:
-            if favorite.get('type') != 'live':
+            if favorite.get("type") != "live":
                 continue
             try:
-                sid = int(favorite.get('stream_id') or 0)
+                sid = int(favorite.get("stream_id") or 0)
             except (TypeError, ValueError):
                 continue
             if sid <= 0 or sid in seen:
@@ -1744,9 +1923,9 @@ class IPTVMenuManager:
             return
 
         def _fetch_one(item):
-            stream_id = item.get('stream_id')
-            channel_name = item.get('name')
-            stream_url = item.get('stream_url')
+            stream_id = item.get("stream_id")
+            channel_name = item.get("name")
+            stream_url = item.get("stream_url")
             # Skip network if already cached for "now"
             cached = self.get_now_playing_local(
                 stream_id,
@@ -1754,7 +1933,7 @@ class IPTVMenuManager:
                 fetch_if_missing=False,
                 stream_url=stream_url,
             )
-            if cached and (cached.get('title') or cached.get('description')):
+            if cached and (cached.get("title") or cached.get("description")):
                 return
             self.get_now_playing_local(
                 stream_id,
@@ -1773,40 +1952,46 @@ class IPTVMenuManager:
         self._favorites_live_epg_sig = tuple(sorted(set(live_ids)))
         self._favorites_live_epg_prefetch_at = int(time.time())
 
-    def _build_favorite_menu_label(self, favorite, vod_metadata, vod_desc_cache, detail_width):
+    def _build_favorite_menu_label(
+        self, favorite, vod_metadata, vod_desc_cache, detail_width
+    ):
         """Build compact one-line row with live-now or VOD description."""
-        item_type = favorite.get('type')
-        name = str(favorite.get('name', 'Unknown')).replace('\n', ' ').strip()
-        name = textwrap.shorten(name, width=34, placeholder='...')
+        item_type = favorite.get("type")
+        name = str(favorite.get("name", "Unknown")).replace("\n", " ").strip()
+        name = textwrap.shorten(name, width=34, placeholder="...")
 
-        if item_type == 'live':
+        if item_type == "live":
             epg = self.get_now_playing_local(
-                favorite.get('stream_id'),
-                channel_name=favorite.get('name'),
+                favorite.get("stream_id"),
+                channel_name=favorite.get("name"),
                 fetch_if_missing=False,
-                stream_url=favorite.get('stream_url'),
+                stream_url=favorite.get("stream_url"),
             )
             detail = ""
             if epg:
-                detail = (epg.get('title') or epg.get('description') or "").strip()
+                detail = (epg.get("title") or epg.get("description") or "").strip()
             if detail:
-                detail = textwrap.shorten(detail, width=detail_width, placeholder='...')
+                detail = textwrap.shorten(detail, width=detail_width, placeholder="...")
                 return f"[L] {name} - {detail}"
             return f"[L] {name} -"
 
         try:
-            stream_id = int(favorite.get('stream_id') or 0)
+            stream_id = int(favorite.get("stream_id") or 0)
         except (TypeError, ValueError):
             stream_id = 0
 
-        detail = self._get_vod_description_cached(stream_id, vod_desc_cache) if stream_id > 0 else ""
+        detail = (
+            self._get_vod_description_cached(stream_id, vod_desc_cache)
+            if stream_id > 0
+            else ""
+        )
         if not detail:
             meta = vod_metadata.get(stream_id, {})
             fallback = []
-            year = meta.get('year') or favorite.get('year')
+            year = meta.get("year") or favorite.get("year")
             if year:
                 fallback.append(str(year))
-            rating = meta.get('rating')
+            rating = meta.get("rating")
             try:
                 if rating is not None and str(rating).strip() != "":
                     fallback.append(f"{float(rating):.1f}/10")
@@ -1814,7 +1999,7 @@ class IPTVMenuManager:
                 pass
             detail = " | ".join(fallback) if fallback else "No description"
 
-        detail = textwrap.shorten(detail, width=detail_width, placeholder='...')
+        detail = textwrap.shorten(detail, width=detail_width, placeholder="...")
         return f"[V] {name} - {detail}"
 
     def _load_sorted_favorites(self):
@@ -1822,16 +2007,18 @@ class IPTVMenuManager:
         normalized = []
         for favorite in self.load_favorites():
             item = dict(favorite)
-            item_type = item.get('type')
-            if item_type not in ('live', 'vod'):
+            item_type = item.get("type")
+            if item_type not in ("live", "vod"):
                 continue
-            if 'category_name' not in item:
-                item['category_name'] = item.get('category', 'Uncategorized')
-            if 'stream_url' not in item:
-                item['stream_url'] = item.get('url', '')
+            if "category_name" not in item:
+                item["category_name"] = item.get("category", "Uncategorized")
+            if "stream_url" not in item:
+                item["stream_url"] = item.get("url", "")
             normalized.append(item)
 
-        normalized, refresh_count = self._hydrate_favorites_with_database(normalized, persist=True)
+        normalized, refresh_count = self._hydrate_favorites_with_database(
+            normalized, persist=True
+        )
         self._favorites_last_refresh_count = refresh_count
 
         normalized.sort(key=self._favorite_added_timestamp, reverse=True)
@@ -1848,12 +2035,14 @@ class IPTVMenuManager:
             if not favorites:
                 console.clear()
                 self.display_header(show_status=False)
-                console.print(Panel.fit(
-                    "Your favorites list is empty.\n\n"
-                    "Add favorites with the (s) key while searching.\n"
-                    "Favorites are saved to a playlist you can import in your TV app.",
-                    style="dim white"
-                ))
+                console.print(
+                    Panel.fit(
+                        "Your favorites list is empty.\n\n"
+                        "Add favorites with the (s) key while searching.\n"
+                        "Favorites are saved to a playlist you can import in your TV app.",
+                        style="dim white",
+                    )
+                )
                 self.wait_for_escape()
                 return
 
@@ -1870,7 +2059,11 @@ class IPTVMenuManager:
             end_idx = min(start_idx + page_size, len(favorites))
             page_items = favorites[start_idx:end_idx]
 
-            vod_ids = [item.get('stream_id') for item in page_items if item.get('type') == 'vod']
+            vod_ids = [
+                item.get("stream_id")
+                for item in page_items
+                if item.get("type") == "vod"
+            ]
             vod_metadata = self._load_vod_favorites_metadata(vod_ids)
 
             term_width = shutil.get_terminal_size(fallback=(120, 30)).columns
@@ -1881,18 +2074,22 @@ class IPTVMenuManager:
 
             if current_page > 0:
                 options.append("< Previous Page")
-                payloads.append(('prev', None))
+                payloads.append(("prev", None))
 
             for item in page_items:
-                options.append(self._build_favorite_menu_label(item, vod_metadata, vod_desc_cache, detail_width))
-                payloads.append(('item', item))
+                options.append(
+                    self._build_favorite_menu_label(
+                        item, vod_metadata, vod_desc_cache, detail_width
+                    )
+                )
+                payloads.append(("item", item))
 
             if current_page < total_pages - 1:
                 options.append("Next Page >")
-                payloads.append(('next', None))
+                payloads.append(("next", None))
 
             options.append("Back")
-            payloads.append(('back', None))
+            payloads.append(("back", None))
 
             console.clear()
             self.display_header(show_status=False)
@@ -1901,42 +2098,51 @@ class IPTVMenuManager:
             if total_pages > 1:
                 title += f"  -  Page {current_page + 1}/{total_pages}"
 
-            console.print(Panel.fit(
-                f"{title}\n"
-                f"[dim]Playlist URL: http://localhost:8080/iptv.m3u[/dim]",
-                style="bright_cyan"
-            ))
+            console.print(
+                Panel.fit(
+                    f"{title}\n[dim]Playlist URL: http://localhost:8080/iptv.m3u[/dim]",
+                    style="bright_cyan",
+                )
+            )
 
-            refresh_count = getattr(self, '_favorites_last_refresh_count', 0)
+            refresh_count = getattr(self, "_favorites_last_refresh_count", 0)
             if refresh_count:
-                console.print(f"[dim]Updated {refresh_count} favorites with latest stream links.[/dim]")
+                console.print(
+                    f"[dim]Updated {refresh_count} favorites with latest stream links.[/dim]"
+                )
 
-            live_items = [item for item in favorites if item.get('type') == 'live']
+            live_items = [item for item in favorites if item.get("type") == "live"]
             live_with_epg = 0
             for live_item in live_items:
                 epg_now = self.get_now_playing_local(
-                    live_item.get('stream_id'),
-                    channel_name=live_item.get('name'),
+                    live_item.get("stream_id"),
+                    channel_name=live_item.get("name"),
                     fetch_if_missing=False,
-                    stream_url=live_item.get('stream_url'),
+                    stream_url=live_item.get("stream_url"),
                 )
-                if epg_now and (epg_now.get('title') or epg_now.get('description')):
+                if epg_now and (epg_now.get("title") or epg_now.get("description")):
                     live_with_epg += 1
 
             if live_items:
                 if live_with_epg < len(live_items):
-                    epg_errors = getattr(self, '_epg_fetch_errors', {})
+                    epg_errors = getattr(self, "_epg_fetch_errors", {})
                     if isinstance(epg_errors, dict) and epg_errors:
                         sample_error = next(iter(epg_errors.values()))
                         console.print(
                             f"[yellow]EPG now: {live_with_epg}/{len(live_items)} channels  ({sample_error})[/yellow]"
                         )
                     else:
-                        console.print(f"[yellow]EPG now: {live_with_epg}/{len(live_items)} channels[/yellow]")
+                        console.print(
+                            f"[yellow]EPG now: {live_with_epg}/{len(live_items)} channels[/yellow]"
+                        )
                 else:
-                    console.print(f"[green]EPG now: {live_with_epg}/{len(live_items)} channels[/green]")
+                    console.print(
+                        f"[green]EPG now: {live_with_epg}/{len(live_items)} channels[/green]"
+                    )
 
-            console.print("[dim]# P play  |  R restream  |  C record/download  |  T schedule live  |  D remove[/dim]\n")
+            console.print(
+                "[dim]# P play  |  R restream  |  C record/download  |  T schedule live  |  D remove[/dim]\n"
+            )
 
             terminal_menu = TerminalMenu(
                 options,
@@ -1953,59 +2159,65 @@ class IPTVMenuManager:
                 choice = choice_raw[0] if choice_raw else None
             else:
                 choice = choice_raw
-            chosen_key = terminal_menu.chosen_accept_key or 'enter'
+            chosen_key = terminal_menu.chosen_accept_key or "enter"
 
             if choice is None:
                 return
 
             selected_kind, selected_item = payloads[choice]
-            if selected_kind == 'prev':
+            if selected_kind == "prev":
                 current_page -= 1
                 continue
-            if selected_kind == 'next':
+            if selected_kind == "next":
                 current_page += 1
                 continue
-            if selected_kind == 'back':
+            if selected_kind == "back":
                 return
 
-            resolved_items, _ = self._hydrate_favorites_with_database([selected_item], persist=False)
+            resolved_items, _ = self._hydrate_favorites_with_database(
+                [selected_item], persist=False
+            )
             if resolved_items:
                 selected_item = resolved_items[0]
 
-            item_type = selected_item.get('type')
-            stream_url = selected_item.get('stream_url')
-            if not stream_url and chosen_key in ('enter', 'p', 'r', 'c', 't'):
+            item_type = selected_item.get("type")
+            stream_url = selected_item.get("stream_url")
+            if not stream_url and chosen_key in ("enter", "p", "r", "c", "t"):
                 console.print("[red]No stream URL available for this favorite.[/red]")
                 self.wait_for_escape()
                 continue
 
-            if chosen_key in ('enter', 'p'):
+            if chosen_key in ("enter", "p"):
                 self.play_with_mpv(selected_item)
                 continue
 
-            if chosen_key == 'r':
+            if chosen_key == "r":
                 self.quick_restream(selected_item)
                 continue
 
-            if chosen_key == 'c':
-                if item_type == 'live':
+            if chosen_key == "c":
+                if item_type == "live":
                     self.download_live_to_data(selected_item)
                 else:
                     self.download_vod_to_data(selected_item)
                 continue
 
-            if chosen_key == 't':
-                if item_type == 'live':
+            if chosen_key == "t":
+                if item_type == "live":
                     self.schedule_recording(selected_item)
                 else:
-                    console.print("[yellow]Schedule recording is only available for live channels.[/yellow]")
+                    console.print(
+                        "[yellow]Schedule recording is only available for live channels.[/yellow]"
+                    )
                     self.wait_for_escape()
                 continue
 
-            if chosen_key == 'd':
+            if chosen_key == "d":
                 result = self.remove_from_favorites(selected_item, item_type)
                 if result == -1:
-                    console.print("[yellow]This item is no longer in your favorites list.[/yellow]")
+                    console.print(
+                        "[yellow]This item is no longer in your favorites list.[/yellow]"
+                    )
                 else:
                     console.print("[green]Removed from favorites.[/green]")
                 time.sleep(1)
@@ -2015,117 +2227,143 @@ class IPTVMenuManager:
         """Discovery Hub - Browse and explore content"""
         if not self.check_database():
             return
-        
+
         console.clear()
         console.print(Panel.fit("🔍 Discovery Hub", style="bright_cyan"))
         console.print()
         console.print("[dim]Explore your IPTV content universe[/dim]")
         console.print()
-        
-        options = [
-            "📺 Live TV Categories",
-            "🎬 VOD Categories",
-            "🎯 Smart VOD Picks"
-        ]
-        
-        terminal_menu = TerminalMenu(
-            options,
-            title="",
-            menu_cursor="> "
-        )
-        
+
+        options = ["📺 Live TV Categories", "🎬 VOD Categories", "🎯 Smart VOD Picks"]
+
+        terminal_menu = TerminalMenu(options, title="", menu_cursor="> ")
+
         choice = terminal_menu.show()
-        
+
         if choice == 0:
             self.show_live_categories()
         elif choice == 1:
             self.show_vod_categories()
         elif choice == 2:
             self.smart_vod_picks_menu()
-    
+
     def smart_vod_picks_menu(self):
         """Smart VOD recommendations menu"""
         if not self.check_database():
             return
-        
+
         while True:
             console.clear()
             console.print(Panel.fit("🎯 Smart VOD Picks", style="bright_cyan"))
             console.print()
             console.print("[dim]Find the perfect movie based on your preferences[/dim]")
             console.print()
-            
+
             options = [
                 "EN Top Rated English Movies (7.0+)",
                 "FR Top Rated French Movies (7.0+)",
                 "Netflix Originals",
                 "Must Watch (9.0+ Rating)",
                 "Recent Highly Rated (2018+, 7.5+)",
-                "I'm Feeling Lucky (Random Pick)"
+                "I'm Feeling Lucky (Random Pick)",
             ]
-            
+
             terminal_menu = TerminalMenu(
                 options,
                 title="",
                 menu_cursor="> ",
                 cycle_cursor=True,
-                clear_screen=False
+                clear_screen=False,
             )
-            
+
             choice = terminal_menu.show()
-            
+
             if choice is None:  # ESC
                 break
             elif choice == 0:  # Top English
-                results = self.get_smart_recommendations(languages=['EN'], min_rating=7.0, include_netflix=False, limit=40)
+                results = self.get_smart_recommendations(
+                    languages=["EN"], min_rating=7.0, include_netflix=False, limit=40
+                )
                 if results:
                     self.show_vod_results(results, "English Movies 7.0+")
                 else:
-                    console.print("[yellow]No English movies found with rating 7.0+[/yellow]")
+                    console.print(
+                        "[yellow]No English movies found with rating 7.0+[/yellow]"
+                    )
                     self.wait_for_escape()
             elif choice == 1:  # Top French
-                results = self.get_smart_recommendations(languages=['FR'], min_rating=7.0, include_netflix=False, limit=40)
+                results = self.get_smart_recommendations(
+                    languages=["FR"], min_rating=7.0, include_netflix=False, limit=40
+                )
                 if results:
                     self.show_vod_results(results, "French Movies 7.0+")
                 else:
-                    console.print("[yellow]No French movies found with rating 7.0+[/yellow]")
+                    console.print(
+                        "[yellow]No French movies found with rating 7.0+[/yellow]"
+                    )
                     self.wait_for_escape()
             elif choice == 2:  # Netflix
-                results = self.get_smart_recommendations(languages=['NETFLIX'], min_rating=6.0, include_netflix=True, limit=40)
+                results = self.get_smart_recommendations(
+                    languages=["NETFLIX"],
+                    min_rating=6.0,
+                    include_netflix=True,
+                    limit=40,
+                )
                 if results:
                     self.show_vod_results(results, "Netflix Originals")
                 else:
                     console.print("[yellow]No Netflix content found[/yellow]")
                     self.wait_for_escape()
             elif choice == 3:  # Must Watch 9.0+
-                results = self.get_smart_recommendations(languages=['EN', 'FR'], min_rating=9.0, include_netflix=True, limit=25)
+                results = self.get_smart_recommendations(
+                    languages=["EN", "FR"],
+                    min_rating=9.0,
+                    include_netflix=True,
+                    limit=25,
+                )
                 if results:
                     self.show_vod_results(results, "Must Watch 9.0+")
                 else:
                     console.print("[yellow]No movies found with rating 9.0+[/yellow]")
                     self.wait_for_escape()
             elif choice == 4:  # Recent Highly Rated
-                results = self.get_smart_recommendations(languages=['EN', 'FR'], min_rating=7.5, include_netflix=True, year_after=2018, limit=40)
+                results = self.get_smart_recommendations(
+                    languages=["EN", "FR"],
+                    min_rating=7.5,
+                    include_netflix=True,
+                    year_after=2018,
+                    limit=40,
+                )
                 if results:
                     self.show_vod_results(results, "Recent Highly Rated 2018+")
                 else:
-                    console.print("[yellow]No recent highly rated movies found[/yellow]")
+                    console.print(
+                        "[yellow]No recent highly rated movies found[/yellow]"
+                    )
                     self.wait_for_escape()
             elif choice == 5:  # Random Pick
                 import random
-                results = self.get_smart_recommendations(languages=['EN', 'FR'], min_rating=7.5, include_netflix=True, limit=200)
+
+                results = self.get_smart_recommendations(
+                    languages=["EN", "FR"],
+                    min_rating=7.5,
+                    include_netflix=True,
+                    limit=200,
+                )
                 if results:
                     random_pick = [random.choice(results)]
                     self.show_vod_results(random_pick, "Your Lucky Pick")
                 else:
-                    console.print("[yellow]No movies available for random selection[/yellow]")
+                    console.print(
+                        "[yellow]No movies available for random selection[/yellow]"
+                    )
                     self.wait_for_escape()
-    
+
     def show_live_categories(self):
         """Show live TV categories"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
+
         sql = """
             SELECT category_name, COUNT(*) as count
             FROM live_streams 
@@ -2134,38 +2372,34 @@ class IPTVMenuManager:
             ORDER BY count DESC, category_name
             LIMIT 30
         """
-        
+
         results = cursor.execute(sql).fetchall()
         conn.close()
-        
+
         if not results:
             console.print("No categories found")
             self.wait_for_escape()
             return
-        
+
         console.clear()
         console.print(Panel.fit("Live TV Categories", style="dim white"))
-        
+
         options = [f"{row[0]} ({row[1]} channels)" for row in results]
         options.append("Back")
-        
-        terminal_menu = TerminalMenu(
-            options,
-            title="",
-            menu_cursor="> "
-        )
-        
+
+        terminal_menu = TerminalMenu(options, title="", menu_cursor="> ")
+
         choice = terminal_menu.show()
-        
+
         if choice is not None and choice < len(results):
             category_name = results[choice][0]
             self.show_category_channels(category_name)
-    
+
     def show_category_channels(self, category_name):
         """Show channels in a specific category"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
+
         sql = """
             SELECT name, stream_id, stream_url, category_name, epg_channel_id
             FROM live_streams 
@@ -2173,16 +2407,30 @@ class IPTVMenuManager:
             ORDER BY name
             LIMIT 100
         """
-        
+
         results = cursor.execute(sql, (category_name,)).fetchall()
         conn.close()
-        
+
         if not results:
             return
-        
-        channels = [dict(zip(['name', 'stream_id', 'stream_url', 'category_name', 'epg_channel_id'], row)) for row in results]
+
+        channels = [
+            dict(
+                zip(
+                    [
+                        "name",
+                        "stream_id",
+                        "stream_url",
+                        "category_name",
+                        "epg_channel_id",
+                    ],
+                    row,
+                )
+            )
+            for row in results
+        ]
         self.show_live_results(channels, f"Category: {category_name}")
-    
+
     def settings_menu(self):
         """Settings menu"""
         while True:
@@ -2197,7 +2445,7 @@ class IPTVMenuManager:
                 "Test MPV Installation",
                 "Database Information",
                 "──────────────────────",
-                "Streaming Infrastructure"
+                "Streaming Infrastructure",
             ]
 
             terminal_menu = TerminalMenu(
@@ -2205,7 +2453,7 @@ class IPTVMenuManager:
                 title="",
                 menu_cursor="> ",
                 cycle_cursor=True,
-                clear_screen=False
+                clear_screen=False,
             )
 
             choice = terminal_menu.show()
@@ -2228,22 +2476,26 @@ class IPTVMenuManager:
                 self.show_database_info()
             elif "Streaming Infrastructure" in selected:
                 self.streaming_infrastructure_menu()
-    
+
     def set_inject_server(self):
         """Set inject server URL"""
         try:
-            url = input(f"\nCurrent inject server: {self.inject_server or 'None'}\nEnter new URL (or Enter to skip): ").strip()
+            url = input(
+                f"\nCurrent inject server: {self.inject_server or 'None'}\nEnter new URL (or Enter to skip): "
+            ).strip()
             if url:
                 self.inject_server = url
                 console.print(f"Inject server set to: {url}")
             self.wait_for_escape()
         except KeyboardInterrupt:
             pass
-    
+
     def test_mpv(self):
         """Test MPV installation"""
         try:
-            result = subprocess.run(['mpv', '--version'], capture_output=True, check=True, timeout=5)
+            result = subprocess.run(
+                ["mpv", "--version"], capture_output=True, check=True, timeout=5
+            )
             console.print("\nMPV is installed and working:")
             console.print(result.stdout.decode()[:200] + "...")
         except (subprocess.CalledProcessError, FileNotFoundError):
@@ -2252,55 +2504,64 @@ class IPTVMenuManager:
             console.print("macOS: brew install mpv")
         except subprocess.TimeoutExpired:
             console.print("\nMPV installation test timed out")
-        
+
         self.wait_for_escape()
-    
+
     def show_database_info(self):
         """Show database information"""
         if not os.path.exists(self.db_path):
             console.print("\nDatabase not found")
             self.wait_for_escape()
             return
-        
+
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
+
             # Get table info
-            tables = cursor.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
-            
+            tables = cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+
             console.print(f"\nDatabase: {self.db_path}")
             console.print(f"Size: {os.path.getsize(self.db_path) / 1024 / 1024:.2f} MB")
             console.print(f"Tables: {len(tables)}")
-            
+
             for table in tables:
                 count = cursor.execute(f"SELECT COUNT(*) FROM {table[0]}").fetchone()[0]
                 console.print(f"  {table[0]}: {count:,} rows")
-            
+
             conn.close()
         except Exception as e:
             console.print(f"\nError reading database: {e}")
-        
+
         self.wait_for_escape()
-    
+
     def check_database(self):
         """Check if database exists"""
         if not os.path.exists(self.db_path):
-            console.print(Panel("Database not found. Use 'Download/Update Database' first.", style="red"))
+            console.print(
+                Panel(
+                    "Database not found. Use 'Download/Update Database' first.",
+                    style="red",
+                )
+            )
             self.wait_for_escape()
             return False
         return True
-    
+
     def play_with_mpv(self, channel):
         """Play channel with MPV"""
         console.clear()
         console.print(Panel.fit(f"Playing: {channel['name']}", style="dim white"))
-        
+
         try:
             # Test MPV availability
-            result = subprocess.run(['mpv', '--version'], capture_output=True, check=True, timeout=5)
+            result = subprocess.run(
+                ["mpv", "--version"], capture_output=True, check=True, timeout=5
+            )
             console.print("[green]✓[/green] MPV is available")
-            
+
         except (subprocess.CalledProcessError, FileNotFoundError):
             console.print("[red]✗[/red] MPV not found. Install MPV to play streams.")
             console.print("\nInstall instructions:")
@@ -2310,60 +2571,68 @@ class IPTVMenuManager:
             self.wait_for_escape()
             return
         except subprocess.TimeoutExpired:
-            console.print("[yellow]⚠[/yellow] MPV check timed out, trying to play anyway...")
-        
+            console.print(
+                "[yellow]⚠[/yellow] MPV check timed out, trying to play anyway..."
+            )
+
         console.print(f"Stream URL: {channel['stream_url']}")
         console.print()
-        
+
         try:
             console.print("Starting MPV player...")
             console.print("[dim]Press 'q' in MPV window to stop playback[/dim]")
             console.print()
 
             # Create MPV command with enhanced buffering and reliability settings
-            mpv_cmd = ['mpv', '--no-ytdl']
+            mpv_cmd = ["mpv", "--no-ytdl"]
 
             # Add platform-specific hardware acceleration
             if self.is_raspberry_pi():
                 # Raspberry Pi 4 with Wayland
-                mpv_cmd.extend([
-                    '--hwdec=v4l2m2m',                   # Pi 4 hardware decoder
-                    '--vo=dmabuf-wayland',               # Native Wayland output
-                    '--gpu-context=wayland',             # Wayland GPU context
-                ])
+                mpv_cmd.extend(
+                    [
+                        "--hwdec=v4l2m2m",  # Pi 4 hardware decoder
+                        "--vo=dmabuf-wayland",  # Native Wayland output
+                        "--gpu-context=wayland",  # Wayland GPU context
+                    ]
+                )
             else:
                 # Other platforms - auto detection
-                mpv_cmd.extend([
-                    '--hwdec=auto',                      # Auto hardware decoding
-                    '--vo=gpu',                          # GPU video output
-                ])
+                mpv_cmd.extend(
+                    [
+                        "--hwdec=auto",  # Auto hardware decoding
+                        "--vo=gpu",  # GPU video output
+                    ]
+                )
 
             # Common settings for all platforms - enhanced for IPTV stability
-            mpv_cmd.extend([
-                '--cache=yes',                           # Enable cache
-                '--cache-secs=30',                       # Cache 30 seconds (increased)
-                '--demuxer-max-bytes=100M',              # Cache up to 100MB (increased)
-                '--demuxer-max-back-bytes=50M',          # Backward cache 50MB (increased)
-                '--demuxer-readahead-secs=20',           # Read ahead 20 seconds
-                '--network-timeout=60',                  # 60 second timeout
-                # Auto-reconnect options - critical for IPTV streams that drop
-                '--stream-lavf-o=reconnect=1',           # Enable reconnection
-                '--stream-lavf-o=reconnect_at_eof=1',    # Reconnect on EOF
-                '--stream-lavf-o=reconnect_streamed=1',  # Reconnect streaming protocols
-                '--stream-lavf-o=reconnect_delay_max=30', # Max 30s retry delay
-                '--keep-open=yes',                       # Keep window open
-                '--osd-level=1',                         # Show OSD messages
-                channel['stream_url']
-            ])
+            mpv_cmd.extend(
+                [
+                    "--cache=yes",  # Enable cache
+                    "--cache-secs=30",  # Cache 30 seconds (increased)
+                    "--demuxer-max-bytes=100M",  # Cache up to 100MB (increased)
+                    "--demuxer-max-back-bytes=50M",  # Backward cache 50MB (increased)
+                    "--demuxer-readahead-secs=20",  # Read ahead 20 seconds
+                    "--network-timeout=60",  # 60 second timeout
+                    # Auto-reconnect options - critical for IPTV streams that drop
+                    "--stream-lavf-o=reconnect=1",  # Enable reconnection
+                    "--stream-lavf-o=reconnect_at_eof=1",  # Reconnect on EOF
+                    "--stream-lavf-o=reconnect_streamed=1",  # Reconnect streaming protocols
+                    "--stream-lavf-o=reconnect_delay_max=30",  # Max 30s retry delay
+                    "--keep-open=yes",  # Keep window open
+                    "--osd-level=1",  # Show OSD messages
+                    channel["stream_url"],
+                ]
+            )
 
             # Start MPV process - fully detached to prevent pipe deadlock
             # Using DEVNULL prevents pipe buffer from filling up and causing freeze
             process = subprocess.Popen(
                 mpv_cmd,
-                stdin=subprocess.DEVNULL,      # MPV can't interfere with our stdin
-                stdout=subprocess.DEVNULL,     # Discard output (no pipe = no deadlock)
-                stderr=subprocess.DEVNULL,     # Discard errors (no pipe = no deadlock)
-                start_new_session=True         # Complete process separation
+                stdin=subprocess.DEVNULL,  # MPV can't interfere with our stdin
+                stdout=subprocess.DEVNULL,  # Discard output (no pipe = no deadlock)
+                stderr=subprocess.DEVNULL,  # Discard errors (no pipe = no deadlock)
+                start_new_session=True,  # Complete process separation
             )
 
             console.print(f"[green]✓[/green] MPV started with PID: {process.pid}")
@@ -2376,7 +2645,9 @@ class IPTVMenuManager:
             console.print("  ↑ / ↓ - Seek forward/backward 60 seconds")
             console.print("  [ / ] - Decrease/Increase playback speed")
             console.print()
-            console.print("[yellow]Press ESC in this terminal to return to menu[/yellow]")
+            console.print(
+                "[yellow]Press ESC in this terminal to return to menu[/yellow]"
+            )
             console.print("[dim](MPV will continue playing in the background)[/dim]")
             console.print()
 
@@ -2386,102 +2657,123 @@ class IPTVMenuManager:
             if process.poll() is None:
                 console.print()
                 console.print("[dim]MPV is still playing in the background.[/dim]")
-                console.print("[dim]Close the MPV window or press 'q' in MPV to stop.[/dim]")
+                console.print(
+                    "[dim]Close the MPV window or press 'q' in MPV to stop.[/dim]"
+                )
                 import time
+
                 time.sleep(1.5)
-            
+
         except Exception as e:
             console.print(f"[red]✗[/red] Failed to start MPV: {e}")
             console.print(f"\nTry running manually: mpv '{channel['stream_url']}'")
             self.wait_for_escape()
-    
+
     def stream_to_inject_server(self, channel):
         """Stream to inject server"""
         if not self.inject_server:
             console.print("\nInject server not configured. Set it in Settings.")
             self.wait_for_escape()
             return
-        
+
         console.print(f"\nStreaming {channel['name']} to inject server...")
-        console.print("This feature needs implementation based on your inject server API")
+        console.print(
+            "This feature needs implementation based on your inject server API"
+        )
         self.wait_for_escape()
-    
+
     def copy_stream_url(self, channel):
         """Copy stream URL to clipboard"""
         console.print(f"\nStream URL: {channel['stream_url']}")
         try:
             # Try to copy to clipboard
-            subprocess.run(['xclip', '-selection', 'clipboard'], input=channel['stream_url'].encode(), check=True)
+            subprocess.run(
+                ["xclip", "-selection", "clipboard"],
+                input=channel["stream_url"].encode(),
+                check=True,
+            )
             console.print("URL copied to clipboard")
         except:
             console.print("Copy to clipboard manually")
-        
+
         self.wait_for_escape()
-    
+
     def show_live_stream_info(self, channel):
         """Show detailed live stream information"""
         console.clear()
         console.print(Panel.fit("Live Stream Information", style="dim white"))
-        
+
         table = Table(show_header=False, box=None)
         table.add_column("Property", style="dim white")
         table.add_column("Value", style="white")
-        
-        table.add_row("Name", channel['name'])
-        table.add_row("Category", channel['category_name'] or 'Unknown')
-        table.add_row("Stream ID", str(channel['stream_id']))
-        table.add_row("Stream URL", channel['stream_url'])
-        
+
+        table.add_row("Name", channel["name"])
+        table.add_row("Category", channel["category_name"] or "Unknown")
+        table.add_row("Stream ID", str(channel["stream_id"]))
+        table.add_row("Stream URL", channel["stream_url"])
+
         console.print(table)
-        
+
         # Fetch and display EPG data
         # Always try to fetch EPG using stream_id and channel name
         console.print("\n[cyan]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/cyan]")
         console.print("[yellow]Fetching EPG data...[/yellow]")
-        
+
         epg_listings = self.get_epg_data(
-            channel['stream_id'],
-            channel_name=channel.get('name'),
-            stream_url=channel.get('stream_url'),
+            channel["stream_id"],
+            channel_name=channel.get("name"),
+            stream_url=channel.get("stream_url"),
         )
-        
+
         if epg_listings:
             console.print("[green]✓[/green] EPG data available\n")
-            
+
             # Display current and upcoming programs
             for i, program in enumerate(epg_listings[:3]):
                 # Get raw values
-                title_raw = program.get('title', 'Unknown Program')
-                start_time = program.get('start', '')
-                end_time = program.get('end', '')
-                description_raw = program.get('description', '')
-                
+                title_raw = program.get("title", "Unknown Program")
+                start_time = program.get("start", "")
+                end_time = program.get("end", "")
+                description_raw = program.get("description", "")
+
                 # Decode base64 if needed
                 try:
                     # Try to decode title if it looks like base64
-                    if title_raw and all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=' for c in title_raw.strip()):
-                        title = base64.b64decode(title_raw).decode('utf-8', errors='ignore')
+                    if title_raw and all(
+                        c
+                        in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+                        for c in title_raw.strip()
+                    ):
+                        title = base64.b64decode(title_raw).decode(
+                            "utf-8", errors="ignore"
+                        )
                     else:
                         title = title_raw
                 except:
                     title = title_raw
-                
+
                 try:
                     # Try to decode description if it looks like base64
-                    if description_raw and all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=' for c in description_raw.strip()):
-                        description = base64.b64decode(description_raw).decode('utf-8', errors='ignore')
+                    if description_raw and all(
+                        c
+                        in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+                        for c in description_raw.strip()
+                    ):
+                        description = base64.b64decode(description_raw).decode(
+                            "utf-8", errors="ignore"
+                        )
                     else:
                         description = description_raw
                 except:
                     description = description_raw
-                
+
                 if i == 0:
                     console.print("[bright_yellow]NOW PLAYING:[/bright_yellow]")
                 elif i == 1:
                     console.print("\n[cyan]UP NEXT:[/cyan]")
                 else:
                     console.print()
-                
+
                 if start_time and end_time:
                     # Format times using provider timezone source, then local display
                     try:
@@ -2494,36 +2786,42 @@ class IPTVMenuManager:
                             time_str = f"{start_time} - {end_time}"
                     except:
                         time_str = f"{start_time} - {end_time}"
-                    
-                    console.print(f"[dim white]{time_str}[/dim white] | [white]{title}[/white]")
+
+                    console.print(
+                        f"[dim white]{time_str}[/dim white] | [white]{title}[/white]"
+                    )
                 else:
                     console.print(f"[white]{title}[/white]")
-                
+
                 if description and i == 0:  # Show description only for current program
-                    console.print(f"[dim white]{description[:150]}...[/dim white]" if len(description) > 150 else f"[dim white]{description}[/dim white]")
+                    console.print(
+                        f"[dim white]{description[:150]}...[/dim white]"
+                        if len(description) > 150
+                        else f"[dim white]{description}[/dim white]"
+                    )
         else:
             console.print("[yellow]No EPG data available for this channel[/yellow]")
-        
+
         self.wait_for_escape()
-    
+
     def show_vod_info(self, vod_item):
         """Show detailed VOD information"""
         console.clear()
         console.print(Panel.fit("VOD Information", style="dim white"))
-        
+
         table = Table(show_header=False, box=None)
         table.add_column("Property", style="dim white")
         table.add_column("Value", style="white")
-        
-        table.add_row("Name", vod_item['name'])
-        if vod_item.get('year'):
-            table.add_row("Year", str(vod_item['year']))
-        if vod_item.get('rating'):
+
+        table.add_row("Name", vod_item["name"])
+        if vod_item.get("year"):
+            table.add_row("Year", str(vod_item["year"]))
+        if vod_item.get("rating"):
             table.add_row("Rating", f"{vod_item['rating']:.1f}/10")
-        if vod_item.get('genre'):
-            table.add_row("Genre", vod_item['genre'])
-        table.add_row("Stream URL", vod_item['stream_url'])
-        
+        if vod_item.get("genre"):
+            table.add_row("Genre", vod_item["genre"])
+        table.add_row("Stream URL", vod_item["stream_url"])
+
         console.print(table)
         console.print("\n[dim white]Additional metadata not available[/dim white]")
         self.wait_for_escape()
@@ -2536,14 +2834,14 @@ class IPTVMenuManager:
             return "Specials"
         return f"Season {season_number}"
 
-    def _get_download_extension(self, item, default='mp4'):
+    def _get_download_extension(self, item, default="mp4"):
         """Pick a download file extension from metadata or URL."""
-        extension = item.get('container_extension')
+        extension = item.get("container_extension")
         if extension:
-            return str(extension).strip('.').lower()
+            return str(extension).strip(".").lower()
 
-        stream_url = item.get('stream_url', '')
-        match = re.search(r'\.([A-Za-z0-9]{2,5})(?:$|\?)', stream_url)
+        stream_url = item.get("stream_url", "")
+        match = re.search(r"\.([A-Za-z0-9]{2,5})(?:$|\?)", stream_url)
         if match:
             return match.group(1).lower()
 
@@ -2551,27 +2849,27 @@ class IPTVMenuManager:
 
     def _safe_path_component(self, value):
         """Sanitize a single path component for local storage."""
-        cleaned = re.sub(r'[\\/:*?"<>|]+', ' ', str(value or '')).strip()
-        cleaned = re.sub(r'\s+', ' ', cleaned)
-        return cleaned or 'Unknown'
+        cleaned = re.sub(r'[\\/:*?"<>|]+', " ", str(value or "")).strip()
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        return cleaned or "Unknown"
 
     def _choose_batch_download_tool(self):
         """Choose the best available resumable download tool."""
-        if shutil.which('curl'):
-            return 'curl'
-        if shutil.which('wget'):
-            return 'wget'
-        return 'python'
+        if shutil.which("curl"):
+            return "curl"
+        if shutil.which("wget"):
+            return "wget"
+        return "python"
 
     def _get_series_download_root(self):
         """Pick the preferred root folder for TV show downloads."""
         candidates = []
 
-        jellyfin_media_path = os.getenv('JELLYFIN_MEDIA_PATH')
+        jellyfin_media_path = os.getenv("JELLYFIN_MEDIA_PATH")
         if jellyfin_media_path:
-            candidates.append(os.path.join(jellyfin_media_path, 'TvShow'))
+            candidates.append(os.path.join(jellyfin_media_path, "TvShow"))
 
-        candidates.append(os.path.join(self.data_dir, 'TvShow'))
+        candidates.append(os.path.join(self.data_dir, "TvShow"))
 
         for path in candidates:
             parent = os.path.dirname(path)
@@ -2581,46 +2879,50 @@ class IPTVMenuManager:
                 os.makedirs(path, exist_ok=True)
                 return path
 
-        fallback = os.path.join(self.data_dir, 'TvShow')
+        fallback = os.path.join(self.data_dir, "TvShow")
         os.makedirs(fallback, exist_ok=True)
         return fallback
 
     def _build_series_download_jobs(self, series_item, episodes):
         """Build local target paths for a series episode batch."""
         root_path = self._get_series_download_root()
-        series_folder = self._safe_path_component(series_item.get('name', 'Series'))
+        series_folder = self._safe_path_component(series_item.get("name", "Series"))
         jobs = []
 
         for episode in episodes:
-            season_label = self._season_label(episode.get('season_number', 0), episode.get('season_name'))
+            season_label = self._season_label(
+                episode.get("season_number", 0), episode.get("season_name")
+            )
             season_folder = self._safe_path_component(season_label)
             extension = self._get_download_extension(episode)
             filename = f"{self._safe_path_component(episode['title'])}.{extension}"
             filepath = os.path.join(root_path, series_folder, season_folder, filename)
 
-            jobs.append({
-                'title': episode['title'],
-                'stream_url': episode['stream_url'],
-                'filepath': filepath,
-            })
+            jobs.append(
+                {
+                    "title": episode["title"],
+                    "stream_url": episode["stream_url"],
+                    "filepath": filepath,
+                }
+            )
 
         return root_path, jobs
 
     def _new_series_batch_state(self, total_jobs=0):
         """Create a fresh in-memory state object for a batch download."""
         return {
-            'total': int(total_jobs or 0),
-            'completed': 0,
-            'skipped': 0,
-            'failed': 0,
-            'current_index': 0,
-            'current_title': '',
-            'last_line': 'Waiting for worker output...',
-            'last_error': '',
-            'started': False,
-            'complete': False,
-            'last_activity_at': time.time(),
-            'remainder': '',
+            "total": int(total_jobs or 0),
+            "completed": 0,
+            "skipped": 0,
+            "failed": 0,
+            "current_index": 0,
+            "current_title": "",
+            "last_line": "Waiting for worker output...",
+            "last_error": "",
+            "started": False,
+            "complete": False,
+            "last_activity_at": time.time(),
+            "remainder": "",
         }
 
     def _read_series_batch_state(self, log_path, total_jobs=0):
@@ -2630,44 +2932,44 @@ class IPTVMenuManager:
             return state
 
         try:
-            with open(log_path, 'r', encoding='utf-8', errors='replace') as log_file:
+            with open(log_path, "r", encoding="utf-8", errors="replace") as log_file:
                 while True:
                     chunk = log_file.read(64 * 1024)
                     if not chunk:
                         break
                     self._ingest_series_batch_log_chunk(chunk, state)
 
-            if state['remainder']:
-                self._ingest_series_batch_log_chunk('\n', state)
+            if state["remainder"]:
+                self._ingest_series_batch_log_chunk("\n", state)
         except Exception as exc:
-            state['last_error'] = f"Could not parse log: {exc}"
+            state["last_error"] = f"Could not parse log: {exc}"
 
         return state
 
     def _series_batch_processed_count(self, state):
         """Return number of episodes already accounted for."""
-        return state['completed'] + state['skipped'] + state['failed']
+        return state["completed"] + state["skipped"] + state["failed"]
 
     def _series_batch_status_label(self, state, process_pid):
         """Return a compact status label for list views."""
-        if state['complete']:
-            if state['failed'] > 0:
+        if state["complete"]:
+            if state["failed"] > 0:
                 return "DONE*"
             return "DONE"
 
         if process_pid and self._is_pid_running(process_pid):
-            if state['started']:
+            if state["started"]:
                 return "RUNNING"
             return "STARTING"
 
-        if state['started'] or self._series_batch_processed_count(state) > 0:
+        if state["started"] or self._series_batch_processed_count(state) > 0:
             return "CRASHED"
 
         return "QUEUED"
 
     def _load_series_batch_manifests(self, limit=40):
         """Return latest series batch manifests for the downloads screen."""
-        manifest_pattern = os.path.join(self.data_dir, 'series_batch_*.json')
+        manifest_pattern = os.path.join(self.data_dir, "series_batch_*.json")
         manifest_paths = sorted(
             glob.glob(manifest_pattern),
             key=lambda path: os.path.getmtime(path),
@@ -2677,45 +2979,53 @@ class IPTVMenuManager:
         jobs = []
         for manifest_path in manifest_paths:
             try:
-                with open(manifest_path, 'r', encoding='utf-8', errors='replace') as manifest_file:
+                with open(
+                    manifest_path, "r", encoding="utf-8", errors="replace"
+                ) as manifest_file:
                     manifest = json.load(manifest_file)
             except Exception:
                 continue
 
-            batch_jobs = manifest.get('jobs') if isinstance(manifest.get('jobs'), list) else []
-            total_jobs = manifest.get('total_jobs', len(batch_jobs))
+            batch_jobs = (
+                manifest.get("jobs") if isinstance(manifest.get("jobs"), list) else []
+            )
+            total_jobs = manifest.get("total_jobs", len(batch_jobs))
             try:
                 total_jobs = int(total_jobs)
             except (TypeError, ValueError):
                 total_jobs = len(batch_jobs)
 
-            process_pid = manifest.get('process_pid', 0)
+            process_pid = manifest.get("process_pid", 0)
             try:
                 process_pid = int(process_pid)
             except (TypeError, ValueError):
                 process_pid = 0
 
-            log_path = manifest.get('log_path')
+            log_path = manifest.get("log_path")
             if not log_path:
                 base = os.path.splitext(os.path.basename(manifest_path))[0]
-                log_path = os.path.join(self.data_dir, 'logs', f"{base}.log")
+                log_path = os.path.join(self.data_dir, "logs", f"{base}.log")
 
-            created_at = manifest.get('created_at')
+            created_at = manifest.get("created_at")
             try:
                 created_at = int(created_at)
             except (TypeError, ValueError):
                 created_at = int(os.path.getmtime(manifest_path))
 
-            jobs.append({
-                'manifest_path': manifest_path,
-                'series_name': manifest.get('series_name', 'Series'),
-                'batch_label': manifest.get('batch_label', 'Series Batch'),
-                'destination': manifest.get('destination', os.path.join(self.data_dir, 'TvShow')),
-                'log_path': log_path,
-                'process_pid': process_pid,
-                'total_jobs': total_jobs,
-                'created_at': created_at,
-            })
+            jobs.append(
+                {
+                    "manifest_path": manifest_path,
+                    "series_name": manifest.get("series_name", "Series"),
+                    "batch_label": manifest.get("batch_label", "Series Batch"),
+                    "destination": manifest.get(
+                        "destination", os.path.join(self.data_dir, "TvShow")
+                    ),
+                    "log_path": log_path,
+                    "process_pid": process_pid,
+                    "total_jobs": total_jobs,
+                    "created_at": created_at,
+                }
+            )
 
             if len(jobs) >= limit:
                 break
@@ -2725,16 +3035,19 @@ class IPTVMenuManager:
     def _get_background_download_summary_cached(self):
         """Return cached background download stats for the header panel."""
         now = time.time()
-        if not hasattr(self, '_bg_download_cache_time') or now - self._bg_download_cache_time > 5:
+        if (
+            not hasattr(self, "_bg_download_cache_time")
+            or now - self._bg_download_cache_time > 5
+        ):
             manifests = self._load_series_batch_manifests(limit=80)
             active = 0
             for job in manifests:
-                if self._is_pid_running(job.get('process_pid', 0)):
+                if self._is_pid_running(job.get("process_pid", 0)):
                     active += 1
 
             self._bg_download_cache = {
-                'active': active,
-                'known_batches': len(manifests),
+                "active": active,
+                "known_batches": len(manifests),
             }
             self._bg_download_cache_time = now
 
@@ -2749,7 +3062,9 @@ class IPTVMenuManager:
             jobs = self._load_series_batch_manifests(limit=50)
             if not jobs:
                 console.print("[dim]No background series downloads found yet.[/dim]")
-                console.print("[dim]Queue a series/season/episode download to populate this list.[/dim]")
+                console.print(
+                    "[dim]Queue a series/season/episode download to populate this list.[/dim]"
+                )
                 self.wait_for_escape()
                 return
 
@@ -2757,11 +3072,15 @@ class IPTVMenuManager:
             hydrated = []
 
             for job in jobs:
-                state = self._read_series_batch_state(job['log_path'], job['total_jobs'])
-                total = max(job['total_jobs'], state['total'])
+                state = self._read_series_batch_state(
+                    job["log_path"], job["total_jobs"]
+                )
+                total = max(job["total_jobs"], state["total"])
                 processed = self._series_batch_processed_count(state)
-                label = self._series_batch_status_label(state, job['process_pid'])
-                batch_text = textwrap.shorten(job['batch_label'], width=44, placeholder='...')
+                label = self._series_batch_status_label(state, job["process_pid"])
+                batch_text = textwrap.shorten(
+                    job["batch_label"], width=44, placeholder="..."
+                )
                 menu_options.append(
                     f"{label:8} {processed:>3}/{total:<3}  fail:{state['failed']:<2}  {batch_text}"
                 )
@@ -2789,15 +3108,21 @@ class IPTVMenuManager:
         """Delete all batch download manifest and log files."""
         console.clear()
         console.print(Panel.fit("Clear Download History", style="dim white"))
-        console.print("[yellow]This will delete all download manifests and log files.[/yellow]")
-        console.print("[dim]Your actual downloaded media files are NOT affected.[/dim]\n")
+        console.print(
+            "[yellow]This will delete all download manifests and log files.[/yellow]"
+        )
+        console.print(
+            "[dim]Your actual downloaded media files are NOT affected.[/dim]\n"
+        )
 
-        confirm = TerminalMenu(["Yes, clear everything", "Cancel"], title="Are you sure?").show()
+        confirm = TerminalMenu(
+            ["Yes, clear everything", "Cancel"], title="Are you sure?"
+        ).show()
         if confirm != 0:
             return
 
-        manifests = glob.glob(os.path.join(self.data_dir, 'series_batch_*.json'))
-        logs = glob.glob(os.path.join(self.data_dir, 'logs', 'series_batch_*.log'))
+        manifests = glob.glob(os.path.join(self.data_dir, "series_batch_*.json"))
+        logs = glob.glob(os.path.join(self.data_dir, "logs", "series_batch_*.log"))
         deleted = 0
         for path in manifests + logs:
             try:
@@ -2813,12 +3138,16 @@ class IPTVMenuManager:
         """Show details for one batch and allow reopening live monitor."""
         while True:
             if state is None:
-                state = self._read_series_batch_state(job['log_path'], job['total_jobs'])
+                state = self._read_series_batch_state(
+                    job["log_path"], job["total_jobs"]
+                )
 
-            total = max(job['total_jobs'], state['total'])
+            total = max(job["total_jobs"], state["total"])
             processed = self._series_batch_processed_count(state)
-            status = self._series_batch_status_label(state, job['process_pid'])
-            created_at = datetime.fromtimestamp(job['created_at']).strftime('%Y-%m-%d %H:%M:%S')
+            status = self._series_batch_status_label(state, job["process_pid"])
+            created_at = datetime.fromtimestamp(job["created_at"]).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
 
             console.clear()
             console.print(Panel.fit("Batch Download Details", style="dim white"))
@@ -2826,7 +3155,9 @@ class IPTVMenuManager:
             console.print(f"[dim]Batch:[/dim] {job['batch_label']}")
             console.print(f"[dim]Created:[/dim] {created_at}")
             console.print(f"[dim]Status:[/dim] {status}")
-            console.print(f"[dim]Progress:[/dim] {self._progress_bar(processed, total)}")
+            console.print(
+                f"[dim]Progress:[/dim] {self._progress_bar(processed, total)}"
+            )
             console.print(
                 f"[dim]Counts:[/dim] done={state['completed']}  skipped={state['skipped']}  failed={state['failed']}"
             )
@@ -2834,11 +3165,15 @@ class IPTVMenuManager:
             console.print(f"[dim]Process PID:[/dim] {job['process_pid']}")
             console.print(f"[dim]Log file:[/dim] {job['log_path']}")
 
-            if state['last_error']:
-                error_text = textwrap.shorten(state['last_error'], width=110, placeholder='...')
+            if state["last_error"]:
+                error_text = textwrap.shorten(
+                    state["last_error"], width=110, placeholder="..."
+                )
                 console.print(f"[red]Last error:[/red] {error_text}")
-            elif state['last_line']:
-                last_line = textwrap.shorten(state['last_line'], width=110, placeholder='...')
+            elif state["last_line"]:
+                last_line = textwrap.shorten(
+                    state["last_line"], width=110, placeholder="..."
+                )
                 console.print(f"[dim]Last log:[/dim] {last_line}")
 
             options = ["Open Live Monitor", "Refresh Details", "Back"]
@@ -2851,12 +3186,12 @@ class IPTVMenuManager:
                 continue
 
             self.monitor_series_batch_download(
-                job['process_pid'],
-                job['log_path'],
+                job["process_pid"],
+                job["log_path"],
                 total,
-                job['batch_label'],
-                job['series_name'],
-                job['destination'],
+                job["batch_label"],
+                job["series_name"],
+                job["destination"],
             )
             state = None
 
@@ -2895,54 +3230,60 @@ class IPTVMenuManager:
         if not chunk:
             return
 
-        merged = state['remainder'] + chunk.replace('\r', '\n')
-        lines = merged.split('\n')
-        state['remainder'] = lines.pop() if lines else ''
+        merged = state["remainder"] + chunk.replace("\r", "\n")
+        lines = merged.split("\n")
+        state["remainder"] = lines.pop() if lines else ""
 
         for raw_line in lines:
             line = raw_line.strip()
             if not line:
                 continue
 
-            state['last_line'] = line
-            state['last_activity_at'] = time.time()
+            state["last_line"] = line
+            state["last_activity_at"] = time.time()
 
             start_match = re.search(r"Starting batch '.+' with (\d+) episodes", line)
             if start_match:
-                state['started'] = True
-                state['total'] = max(state['total'], int(start_match.group(1)))
+                state["started"] = True
+                state["total"] = max(state["total"], int(start_match.group(1)))
                 continue
 
-            step_match = re.search(r"\[(\d+)/(\d+)\]\s+(START|DONE|SKIP|FAIL)\s+(.+)", line)
+            step_match = re.search(
+                r"\[(\d+)/(\d+)\]\s+(START|DONE|SKIP|FAIL)\s+(.+)", line
+            )
             if step_match:
-                state['started'] = True
-                state['current_index'] = int(step_match.group(1))
-                state['total'] = max(state['total'], int(step_match.group(2)))
+                state["started"] = True
+                state["current_index"] = int(step_match.group(1))
+                state["total"] = max(state["total"], int(step_match.group(2)))
                 action = step_match.group(3)
                 payload = step_match.group(4)
 
-                if action == 'START':
-                    state['current_title'] = payload
-                elif action == 'DONE':
-                    state['completed'] += 1
-                    state['current_title'] = ''
-                elif action == 'SKIP':
-                    state['skipped'] += 1
-                    state['current_title'] = ''
-                elif action == 'FAIL':
-                    state['failed'] += 1
-                    state['last_error'] = payload
-                    state['current_title'] = ''
+                if action == "START":
+                    state["current_title"] = payload
+                elif action == "DONE":
+                    state["completed"] += 1
+                    state["current_title"] = ""
+                elif action == "SKIP":
+                    state["skipped"] += 1
+                    state["current_title"] = ""
+                elif action == "FAIL":
+                    state["failed"] += 1
+                    state["last_error"] = payload
+                    state["current_title"] = ""
                 continue
 
-            summary_match = re.search(r"Batch complete:\s*done=(\d+),\s*skipped=(\d+),\s*failed=(\d+)", line)
+            summary_match = re.search(
+                r"Batch complete:\s*done=(\d+),\s*skipped=(\d+),\s*failed=(\d+)", line
+            )
             if summary_match:
-                state['completed'] = int(summary_match.group(1))
-                state['skipped'] = int(summary_match.group(2))
-                state['failed'] = int(summary_match.group(3))
-                state['complete'] = True
+                state["completed"] = int(summary_match.group(1))
+                state["skipped"] = int(summary_match.group(2))
+                state["failed"] = int(summary_match.group(3))
+                state["complete"] = True
 
-    def monitor_series_batch_download(self, process_pid, log_path, total_jobs, batch_label, series_name, destination):
+    def monitor_series_batch_download(
+        self, process_pid, log_path, total_jobs, batch_label, series_name, destination
+    ):
         """Show live status for a background series batch worker."""
         import select
         import termios
@@ -2970,23 +3311,25 @@ class IPTVMenuManager:
         try:
             while True:
                 if os.path.exists(log_path):
-                    with open(log_path, 'r', encoding='utf-8', errors='replace') as log_file:
+                    with open(
+                        log_path, "r", encoding="utf-8", errors="replace"
+                    ) as log_file:
                         log_file.seek(file_offset)
                         chunk = log_file.read()
                         file_offset = log_file.tell()
                     self._ingest_series_batch_log_chunk(chunk, state)
 
-                processed = state['completed'] + state['skipped'] + state['failed']
+                processed = state["completed"] + state["skipped"] + state["failed"]
                 process_alive = self._is_pid_running(process_pid)
 
-                if state['complete']:
-                    if state['failed'] > 0:
+                if state["complete"]:
+                    if state["failed"] > 0:
                         status = "[yellow]Completed (with errors)[/yellow]"
                     else:
                         status = "[green]Completed[/green]"
                     terminal_state = True
                 elif process_alive:
-                    if state['started']:
+                    if state["started"]:
                         status = "[cyan]Running[/cyan]"
                     else:
                         status = "[cyan]Starting[/cyan]"
@@ -2994,30 +3337,40 @@ class IPTVMenuManager:
                 else:
                     status = "[red]Crashed[/red]"
                     terminal_state = True
-                    if not state['last_error']:
-                        state['last_error'] = state['last_line']
+                    if not state["last_error"]:
+                        state["last_error"] = state["last_line"]
 
                 console.clear()
-                console.print(Panel.fit("Series Batch Download Monitor", style="dim white"))
+                console.print(
+                    Panel.fit("Series Batch Download Monitor", style="dim white")
+                )
                 console.print(f"[dim]Series:[/dim] {series_name}")
                 console.print(f"[dim]Batch:[/dim] {batch_label}")
                 console.print(f"[dim]Destination:[/dim] {destination}")
                 console.print(f"[dim]Process PID:[/dim] {process_pid}")
                 console.print(f"[dim]Status:[/dim] {status}")
-                console.print(f"[dim]Progress:[/dim] {self._progress_bar(processed, state['total'])}")
+                console.print(
+                    f"[dim]Progress:[/dim] {self._progress_bar(processed, state['total'])}"
+                )
                 console.print(
                     f"[dim]Counts:[/dim] done={state['completed']}  skipped={state['skipped']}  failed={state['failed']}"
                 )
 
-                if state['current_title']:
-                    current = textwrap.shorten(state['current_title'], width=100, placeholder='...')
+                if state["current_title"]:
+                    current = textwrap.shorten(
+                        state["current_title"], width=100, placeholder="..."
+                    )
                     console.print(f"[dim]Current:[/dim] {current}")
 
-                if state['last_error']:
-                    error_text = textwrap.shorten(state['last_error'], width=110, placeholder='...')
+                if state["last_error"]:
+                    error_text = textwrap.shorten(
+                        state["last_error"], width=110, placeholder="..."
+                    )
                     console.print(f"[red]Last error:[/red] {error_text}")
-                elif state['last_line']:
-                    last_line = textwrap.shorten(state['last_line'], width=110, placeholder='...')
+                elif state["last_line"]:
+                    last_line = textwrap.shorten(
+                        state["last_line"], width=110, placeholder="..."
+                    )
                     console.print(f"[dim]Last log:[/dim] {last_line}")
 
                 console.print(f"[dim]Log file:[/dim] {log_path}")
@@ -3034,7 +3387,11 @@ class IPTVMenuManager:
                             break
                 else:
                     time.sleep(refresh_interval)
-                    if terminal_state and final_state_since and (time.time() - final_state_since) >= 3:
+                    if (
+                        terminal_state
+                        and final_state_since
+                        and (time.time() - final_state_since) >= 3
+                    ):
                         break
                     if (time.time() - monitor_started_at) >= 5:
                         break
@@ -3055,25 +3412,29 @@ class IPTVMenuManager:
         root_path, jobs = self._build_series_download_jobs(series_item, episodes)
         tool = self._choose_batch_download_tool()
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_series = self._safe_path_component(series_item.get('name', 'series')).replace(' ', '_')
-        manifest_path = os.path.join(self.data_dir, f"series_batch_{safe_series}_{timestamp}.json")
-        logs_dir = os.path.join(self.data_dir, 'logs')
+        safe_series = self._safe_path_component(
+            series_item.get("name", "series")
+        ).replace(" ", "_")
+        manifest_path = os.path.join(
+            self.data_dir, f"series_batch_{safe_series}_{timestamp}.json"
+        )
+        logs_dir = os.path.join(self.data_dir, "logs")
         os.makedirs(logs_dir, exist_ok=True)
         log_path = os.path.join(logs_dir, f"series_batch_{safe_series}_{timestamp}.log")
 
         manifest_payload = {
-            'tool': tool,
-            'jobs': jobs,
-            'batch_label': batch_label,
-            'series_name': series_item.get('name', 'Series'),
-            'destination': root_path,
-            'log_path': log_path,
-            'total_jobs': len(jobs),
-            'created_at': int(time.time()),
-            'process_pid': 0,
+            "tool": tool,
+            "jobs": jobs,
+            "batch_label": batch_label,
+            "series_name": series_item.get("name", "Series"),
+            "destination": root_path,
+            "log_path": log_path,
+            "total_jobs": len(jobs),
+            "created_at": int(time.time()),
+            "process_pid": 0,
         }
 
-        with open(manifest_path, 'w') as manifest_file:
+        with open(manifest_path, "w") as manifest_file:
             json.dump(manifest_payload, manifest_file, indent=2)
 
         worker_code = """
@@ -3180,9 +3541,9 @@ if __name__ == '__main__':
 """
 
         try:
-            with open(log_path, 'a') as log_handle:
+            with open(log_path, "a") as log_handle:
                 process = subprocess.Popen(
-                    [sys.executable, '-c', worker_code, manifest_path, log_path],
+                    [sys.executable, "-c", worker_code, manifest_path, log_path],
                     stdout=log_handle,
                     stderr=subprocess.STDOUT,
                     stdin=subprocess.DEVNULL,
@@ -3193,15 +3554,17 @@ if __name__ == '__main__':
             self.wait_for_escape()
             return
 
-        manifest_payload['process_pid'] = process.pid
-        manifest_payload['started_at'] = int(time.time())
+        manifest_payload["process_pid"] = process.pid
+        manifest_payload["started_at"] = int(time.time())
         try:
-            with open(manifest_path, 'w') as manifest_file:
+            with open(manifest_path, "w") as manifest_file:
                 json.dump(manifest_payload, manifest_file, indent=2)
         except Exception:
             pass
 
-        console.print(f"[green]✓[/green] Queued {len(episodes)} episode(s) for background download")
+        console.print(
+            f"[green]✓[/green] Queued {len(episodes)} episode(s) for background download"
+        )
         console.print(f"[dim]Series:[/dim] {series_item.get('name', 'Series')}")
         console.print(f"[dim]Batch:[/dim] {batch_label}")
         console.print(f"[dim]Destination:[/dim] {root_path}")
@@ -3213,7 +3576,7 @@ if __name__ == '__main__':
             log_path,
             len(jobs),
             batch_label,
-            series_item.get('name', 'Series'),
+            series_item.get("name", "Series"),
             root_path,
         )
 
@@ -3221,20 +3584,34 @@ if __name__ == '__main__':
         """Load cached episodes for a series from SQLite."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        rows = cursor.execute('''
+        rows = cursor.execute(
+            """
             SELECT episode_id, series_id, season_number, season_name, episode_num,
                    title, container_extension, stream_url, air_date, duration,
                    duration_secs, rating, added, direct_source
             FROM series_episodes
             WHERE series_id = ?
             ORDER BY season_number, episode_num, title
-        ''', (series_id,)).fetchall()
+        """,
+            (series_id,),
+        ).fetchall()
         conn.close()
 
         keys = [
-            'episode_id', 'series_id', 'season_number', 'season_name', 'episode_num',
-            'title', 'container_extension', 'stream_url', 'air_date', 'duration',
-            'duration_secs', 'rating', 'added', 'direct_source'
+            "episode_id",
+            "series_id",
+            "season_number",
+            "season_name",
+            "episode_num",
+            "title",
+            "container_extension",
+            "stream_url",
+            "air_date",
+            "duration",
+            "duration_secs",
+            "rating",
+            "added",
+            "direct_source",
         ]
         return [dict(zip(keys, row)) for row in rows]
 
@@ -3244,37 +3621,43 @@ if __name__ == '__main__':
         cursor = conn.cursor()
         cached_at = int(time.time())
 
-        cursor.execute('DELETE FROM series_episodes WHERE series_id = ?', (series_id,))
-        cursor.executemany('''
+        cursor.execute("DELETE FROM series_episodes WHERE series_id = ?", (series_id,))
+        cursor.executemany(
+            """
             INSERT INTO series_episodes (
                 episode_id, series_id, season_number, season_name, episode_num,
                 title, container_extension, stream_url, air_date, duration,
                 duration_secs, rating, added, direct_source, last_cached_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', [(
-            episode['episode_id'],
-            episode['series_id'],
-            episode['season_number'],
-            episode.get('season_name', ''),
-            episode['episode_num'],
-            episode['title'],
-            episode.get('container_extension', ''),
-            episode['stream_url'],
-            episode.get('air_date', ''),
-            episode.get('duration', ''),
-            episode.get('duration_secs', 0),
-            episode.get('rating'),
-            episode.get('added', ''),
-            episode.get('direct_source', ''),
-            cached_at,
-        ) for episode in episodes])
+        """,
+            [
+                (
+                    episode["episode_id"],
+                    episode["series_id"],
+                    episode["season_number"],
+                    episode.get("season_name", ""),
+                    episode["episode_num"],
+                    episode["title"],
+                    episode.get("container_extension", ""),
+                    episode["stream_url"],
+                    episode.get("air_date", ""),
+                    episode.get("duration", ""),
+                    episode.get("duration_secs", 0),
+                    episode.get("rating"),
+                    episode.get("added", ""),
+                    episode.get("direct_source", ""),
+                    cached_at,
+                )
+                for episode in episodes
+            ],
+        )
 
         conn.commit()
         conn.close()
 
     def _fetch_series_episodes_from_api(self, series_item):
         """Fetch episode metadata for a single series and build stream URLs."""
-        series_id = series_item.get('series_id')
+        series_id = series_item.get("series_id")
         if not series_id:
             return []
 
@@ -3282,12 +3665,16 @@ if __name__ == '__main__':
             f"{self.server}/player_api.php?username={self.username}&password={self.password}"
             f"&action=get_series_info&series_id={series_id}"
         )
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
 
         try:
             response = requests.get(url, headers=headers, timeout=30)
             if response.status_code != 200:
-                console.print(f"[red]Could not fetch series episodes (HTTP {response.status_code})[/red]")
+                console.print(
+                    f"[red]Could not fetch series episodes (HTTP {response.status_code})[/red]"
+                )
                 return []
 
             data = response.json()
@@ -3299,42 +3686,48 @@ if __name__ == '__main__':
             return []
 
         season_names = {}
-        for season in data.get('seasons') or []:
+        for season in data.get("seasons") or []:
             try:
-                season_number = int(season.get('season_number', season.get('season', 0)))
+                season_number = int(
+                    season.get("season_number", season.get("season", 0))
+                )
             except (TypeError, ValueError):
                 continue
-            season_names[season_number] = season.get('name') or self._season_label(season_number)
+            season_names[season_number] = season.get("name") or self._season_label(
+                season_number
+            )
 
         episodes = []
-        for season_key, season_episodes in (data.get('episodes') or {}).items():
+        for season_key, season_episodes in (data.get("episodes") or {}).items():
             try:
                 fallback_season = int(season_key)
             except (TypeError, ValueError):
                 fallback_season = 0
 
             for episode in season_episodes or []:
-                episode_id = episode.get('id') or episode.get('stream_id')
+                episode_id = episode.get("id") or episode.get("stream_id")
                 if not episode_id:
                     continue
 
                 try:
-                    season_number = int(episode.get('season', fallback_season))
+                    season_number = int(episode.get("season", fallback_season))
                 except (TypeError, ValueError):
                     season_number = fallback_season
 
                 try:
-                    episode_num = int(episode.get('episode_num', 0))
+                    episode_num = int(episode.get("episode_num", 0))
                 except (TypeError, ValueError):
                     episode_num = 0
 
-                info = episode.get('info') if isinstance(episode.get('info'), dict) else {}
-                container_extension = episode.get('container_extension') or 'mp4'
-                rating = info.get('rating')
-                duration_secs = info.get('duration_secs') or 0
+                info = (
+                    episode.get("info") if isinstance(episode.get("info"), dict) else {}
+                )
+                container_extension = episode.get("container_extension") or "mp4"
+                rating = info.get("rating")
+                duration_secs = info.get("duration_secs") or 0
 
                 try:
-                    rating = float(rating) if rating not in (None, '') else None
+                    rating = float(rating) if rating not in (None, "") else None
                 except (TypeError, ValueError):
                     rating = None
 
@@ -3343,38 +3736,44 @@ if __name__ == '__main__':
                 except (TypeError, ValueError):
                     duration_secs = 0
 
-                title = episode.get('title') or (
+                title = episode.get("title") or (
                     f"{series_item['name']} - S{season_number:02d}E{episode_num:02d}"
                 )
 
-                episodes.append({
-                    'episode_id': str(episode_id),
-                    'series_id': series_id,
-                    'series_name': series_item['name'],
-                    'season_number': season_number,
-                    'season_name': season_names.get(season_number, self._season_label(season_number)),
-                    'episode_num': episode_num,
-                    'title': title,
-                    'name': title,
-                    'container_extension': container_extension,
-                    'stream_url': (
-                        f"{self.server}/series/{self.username}/{self.password}/"
-                        f"{episode_id}.{container_extension}"
-                    ),
-                    'air_date': info.get('air_date') or episode.get('air_date', ''),
-                    'duration': info.get('duration', ''),
-                    'duration_secs': duration_secs,
-                    'rating': rating,
-                    'added': episode.get('added', ''),
-                    'direct_source': episode.get('direct_source', ''),
-                })
+                episodes.append(
+                    {
+                        "episode_id": str(episode_id),
+                        "series_id": series_id,
+                        "series_name": series_item["name"],
+                        "season_number": season_number,
+                        "season_name": season_names.get(
+                            season_number, self._season_label(season_number)
+                        ),
+                        "episode_num": episode_num,
+                        "title": title,
+                        "name": title,
+                        "container_extension": container_extension,
+                        "stream_url": (
+                            f"{self.server}/series/{self.username}/{self.password}/"
+                            f"{episode_id}.{container_extension}"
+                        ),
+                        "air_date": info.get("air_date") or episode.get("air_date", ""),
+                        "duration": info.get("duration", ""),
+                        "duration_secs": duration_secs,
+                        "rating": rating,
+                        "added": episode.get("added", ""),
+                        "direct_source": episode.get("direct_source", ""),
+                    }
+                )
 
-        episodes.sort(key=lambda item: (item['season_number'], item['episode_num'], item['title']))
+        episodes.sort(
+            key=lambda item: (item["season_number"], item["episode_num"], item["title"])
+        )
         return episodes
 
     def get_series_episodes(self, series_item, force_refresh=False):
         """Return episode list for a series, using cache when available."""
-        series_id = series_item.get('series_id')
+        series_id = series_item.get("series_id")
         if not series_id:
             return []
 
@@ -3398,23 +3797,28 @@ if __name__ == '__main__':
         table.add_column("Property", style="dim white")
         table.add_column("Value", style="white")
 
-        table.add_row("Series", episode.get('series_name', 'Unknown'))
-        table.add_row("Title", episode['title'])
-        table.add_row("Season", self._season_label(episode.get('season_number', 0), episode.get('season_name')))
-        table.add_row("Episode", str(episode.get('episode_num', 'N/A')))
-        if episode.get('air_date'):
-            table.add_row("Air Date", episode['air_date'])
-        if episode.get('duration'):
-            table.add_row("Duration", episode['duration'])
-        if episode.get('rating') is not None:
+        table.add_row("Series", episode.get("series_name", "Unknown"))
+        table.add_row("Title", episode["title"])
+        table.add_row(
+            "Season",
+            self._season_label(
+                episode.get("season_number", 0), episode.get("season_name")
+            ),
+        )
+        table.add_row("Episode", str(episode.get("episode_num", "N/A")))
+        if episode.get("air_date"):
+            table.add_row("Air Date", episode["air_date"])
+        if episode.get("duration"):
+            table.add_row("Duration", episode["duration"])
+        if episode.get("rating") is not None:
             table.add_row("Rating", f"{episode['rating']:.1f}/10")
-        table.add_row("Stream URL", episode['stream_url'])
+        table.add_row("Stream URL", episode["stream_url"])
 
         console.print(table)
 
-        if episode.get('direct_source'):
+        if episode.get("direct_source"):
             console.print("\n[dim white]Direct Source:[/dim white]")
-            console.print(episode['direct_source'])
+            console.print(episode["direct_source"])
 
         self.wait_for_escape()
 
@@ -3424,9 +3828,11 @@ if __name__ == '__main__':
             console.clear()
             console.print(Panel.fit(f"Episode: {episode['title']}", style="dim white"))
             console.print(f"Series: {episode.get('series_name', 'Unknown')}")
-            console.print(f"Season: {self._season_label(episode.get('season_number', 0), episode.get('season_name'))}")
+            console.print(
+                f"Season: {self._season_label(episode.get('season_number', 0), episode.get('season_name'))}"
+            )
             console.print(f"Episode: {episode.get('episode_num', 'N/A')}")
-            if episode.get('duration'):
+            if episode.get("duration"):
                 console.print(f"Duration: {episode['duration']}")
             console.print()
 
@@ -3437,7 +3843,7 @@ if __name__ == '__main__':
                 "Episode Info  (including stream URL)",
                 "Restream to NGINX-RTMP",
                 "Copy Stream URL",
-                "Back"
+                "Back",
             ]
 
             choice = TerminalMenu(options, title="", menu_cursor="> ").show()
@@ -3447,17 +3853,20 @@ if __name__ == '__main__':
             elif choice == 0:
                 self.play_with_mpv(episode)
             elif choice == 1:
-                self.queue_series_batch_download(series_item, [episode], f"{series_item['name']} - single episode")
+                self.queue_series_batch_download(
+                    series_item, [episode], f"{series_item['name']} - single episode"
+                )
             elif choice == 2:
                 season_episodes = self.get_series_episodes(series_item)
                 season_episodes = [
-                    item for item in season_episodes
-                    if item.get('season_number') == episode.get('season_number')
+                    item
+                    for item in season_episodes
+                    if item.get("season_number") == episode.get("season_number")
                 ]
                 self.queue_series_batch_download(
                     series_item,
                     season_episodes,
-                    f"{series_item['name']} - {self._season_label(episode.get('season_number', 0), episode.get('season_name'))}"
+                    f"{series_item['name']} - {self._season_label(episode.get('season_number', 0), episode.get('season_name'))}",
                 )
             elif choice == 3:
                 self.show_series_episode_info(episode)
@@ -3470,15 +3879,21 @@ if __name__ == '__main__':
         """Browse episodes for a specific season."""
         while True:
             console.clear()
-            season_label = self._season_label(season_number, episodes[0].get('season_name') if episodes else None)
-            console.print(Panel.fit(f"{series_item['name']} | {season_label}", style="dim white"))
-            console.print("[dim white]# (p)lay  (d)download  (b)batch season  (r)restream  (i)info  |  Enter=actions  ESC=back[/dim white]\n")
+            season_label = self._season_label(
+                season_number, episodes[0].get("season_name") if episodes else None
+            )
+            console.print(
+                Panel.fit(f"{series_item['name']} | {season_label}", style="dim white")
+            )
+            console.print(
+                "[dim white]# (p)lay  (d)download  (b)batch season  (r)restream  (i)info  |  Enter=actions  ESC=back[/dim white]\n"
+            )
 
             options = []
             for episode in episodes:
                 episode_label = f"E{episode.get('episode_num', 0):02d}"
-                duration = episode.get('duration') or ''
-                suffix = f" [{duration}]" if duration else ''
+                duration = episode.get("duration") or ""
+                suffix = f" [{duration}]" if duration else ""
                 options.append(f"{episode_label} {episode['title']}{suffix}")
             options.append("Back")
 
@@ -3496,15 +3911,19 @@ if __name__ == '__main__':
                 break
 
             selected = episodes[choice]
-            if key == 'p':
+            if key == "p":
                 self.play_with_mpv(selected)
-            elif key in ('c', 'd'):
-                self.queue_series_batch_download(series_item, [selected], f"{series_item['name']} - single episode")
-            elif key == 'b':
-                self.queue_series_batch_download(series_item, episodes, f"{series_item['name']} - {season_label}")
-            elif key == 'r':
+            elif key in ("c", "d"):
+                self.queue_series_batch_download(
+                    series_item, [selected], f"{series_item['name']} - single episode"
+                )
+            elif key == "b":
+                self.queue_series_batch_download(
+                    series_item, episodes, f"{series_item['name']} - {season_label}"
+                )
+            elif key == "r":
                 self.quick_restream(selected)
-            elif key == 'i':
+            elif key == "i":
                 self.show_series_episode_info(selected)
             else:
                 self.series_episode_action_menu(series_item, selected)
@@ -3515,7 +3934,7 @@ if __name__ == '__main__':
             episodes = self.get_series_episodes(series_item)
             seasons = {}
             for episode in episodes:
-                seasons.setdefault(episode['season_number'], []).append(episode)
+                seasons.setdefault(episode["season_number"], []).append(episode)
 
             console.clear()
             console.print(Panel.fit("Series Information", style="dim white"))
@@ -3524,30 +3943,34 @@ if __name__ == '__main__':
             table.add_column("Property", style="dim white")
             table.add_column("Value", style="white")
 
-            table.add_row("Name", series_item['name'])
-            if series_item.get('rating'):
+            table.add_row("Name", series_item["name"])
+            if series_item.get("rating"):
                 table.add_row("Rating", f"{series_item['rating']:.1f}/10")
-            if series_item.get('genre'):
-                table.add_row("Genre", series_item['genre'])
-            if series_item.get('category_name'):
-                table.add_row("Category", series_item['category_name'])
-            table.add_row("Series ID", str(series_item.get('series_id', 'N/A')))
+            if series_item.get("genre"):
+                table.add_row("Genre", series_item["genre"])
+            if series_item.get("category_name"):
+                table.add_row("Category", series_item["category_name"])
+            table.add_row("Series ID", str(series_item.get("series_id", "N/A")))
             if episodes:
                 table.add_row("Episodes Cached", str(len(episodes)))
 
             console.print(table)
 
-            if series_item.get('plot'):
+            if series_item.get("plot"):
                 console.print("\n[dim white]Plot:[/dim white]")
-                console.print(series_item['plot'])
+                console.print(series_item["plot"])
 
             console.print()
             if not seasons:
-                console.print("[yellow]No episode metadata available for this series yet.[/yellow]")
+                console.print(
+                    "[yellow]No episode metadata available for this series yet.[/yellow]"
+                )
                 options = ["Retry Episode Fetch", "Back"]
                 choice = TerminalMenu(options, title="", menu_cursor="> ").show()
                 if choice == 0:
-                    refreshed = self.get_series_episodes(series_item, force_refresh=True)
+                    refreshed = self.get_series_episodes(
+                        series_item, force_refresh=True
+                    )
                     if not refreshed:
                         self.wait_for_escape()
                     continue
@@ -3558,7 +3981,9 @@ if __name__ == '__main__':
                 f"{self._season_label(number, seasons[number][0].get('season_name'))} ({len(seasons[number])} episodes)"
                 for number in season_numbers
             ]
-            options.extend(["Queue Full Series Download", "Refresh Episode Cache", "Back"])
+            options.extend(
+                ["Queue Full Series Download", "Refresh Episode Cache", "Back"]
+            )
 
             choice = TerminalMenu(options, title="", menu_cursor="> ").show()
 
@@ -3566,7 +3991,9 @@ if __name__ == '__main__':
                 break
 
             if choice == len(options) - 3:
-                self.queue_series_batch_download(series_item, episodes, f"{series_item['name']} - full series")
+                self.queue_series_batch_download(
+                    series_item, episodes, f"{series_item['name']} - full series"
+                )
                 continue
 
             if choice == len(options) - 2:
@@ -3576,274 +4003,333 @@ if __name__ == '__main__':
                 continue
 
             season_number = season_numbers[choice]
-            self.show_series_episode_results(series_item, season_number, seasons[season_number])
+            self.show_series_episode_results(
+                series_item, season_number, seasons[season_number]
+            )
 
     def download_live_to_data(self, live_item):
         """Download/Record live stream to USB records folder (Samba share), fallback to data/"""
         console.clear()
-        console.print(Panel.fit(f"Download Live: {live_item['name']}", style="dim white"))
+        console.print(
+            Panel.fit(f"Download Live: {live_item['name']}", style="dim white")
+        )
 
         # Try USB_RECORDS_PATH first (Samba share), fall back to data/
-        records_path = os.getenv('USB_RECORDS_PATH', '')
-        if records_path and os.path.exists(records_path) and os.access(records_path, os.W_OK):
+        records_path = os.getenv("USB_RECORDS_PATH", "")
+        if (
+            records_path
+            and os.path.exists(records_path)
+            and os.access(records_path, os.W_OK)
+        ):
             save_folder = records_path
             console.print(f"[green]✓[/green] Saving to USB/Samba share: {save_folder}")
         else:
             save_folder = self.data_dir
             if records_path:
-                console.print(f"[yellow]⚠[/yellow] USB path not available ({records_path}), using local data/ folder")
+                console.print(
+                    f"[yellow]⚠[/yellow] USB path not available ({records_path}), using local data/ folder"
+                )
             os.makedirs(save_folder, exist_ok=True)
 
         # Generate filename with timestamp
         from datetime import datetime
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_filename = "".join(c for c in live_item['name'] if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        safe_filename = "".join(
+            c for c in live_item["name"] if c.isalnum() or c in (" ", "-", "_")
+        ).rstrip()
         filename = f"{safe_filename}_{timestamp}.ts".replace("  ", " ")
         filepath = os.path.join(save_folder, filename)
 
         console.print(f"Recording to: {filepath}")
         console.print(f"Source: {live_item['stream_url']}")
         console.print()
-        
+
         # Use ffmpeg to record live stream
         try:
             # Check if ffmpeg is installed
-            subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
-            
+            subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
+
             # Start ffmpeg recording in background
             ffmpeg_cmd = [
-                'ffmpeg',
-                '-i', live_item['stream_url'],
-                '-c', 'copy',  # Copy codec, no transcoding
-                '-t', '3600',  # Max 1 hour recording
-                filepath
+                "ffmpeg",
+                "-i",
+                live_item["stream_url"],
+                "-c",
+                "copy",  # Copy codec, no transcoding
+                "-t",
+                "3600",  # Max 1 hour recording
+                filepath,
             ]
-            
+
             process = subprocess.Popen(
-                ffmpeg_cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+                ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
-            
+
             console.print(f"[green]✓[/green] Recording started (PID: {process.pid})")
-            console.print("Recording for max 1 hour or press Ctrl+C in terminal to stop")
+            console.print(
+                "Recording for max 1 hour or press Ctrl+C in terminal to stop"
+            )
             console.print(f"File will be saved to: {filepath}")
-            
+
         except FileNotFoundError:
             console.print("[red]✗[/red] FFmpeg not installed")
             console.print("Install with: sudo apt install ffmpeg")
         except Exception as e:
             console.print(f"[red]✗[/red] Recording failed: {e}")
-        
+
         console.print("\n[dim white]Press any key to return...[/dim white]")
         input()
-    
+
     def download_vod_to_data(self, vod_item):
         """Download VOD content to data folder (simplified version for shortcut)"""
         console.clear()
         console.print(Panel.fit(f"Download: {vod_item['name']}", style="dim white"))
-        
+
         # Create data folder if it doesn't exist
         import os
+
         data_folder = "data"
         if not os.path.exists(data_folder):
             os.makedirs(data_folder)
             console.print(f"[green]✓[/green] Created {data_folder} folder")
-        
+
         # Generate filename
-        safe_filename = "".join(c for c in vod_item['name'] if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        safe_filename = "".join(
+            c for c in vod_item["name"] if c.isalnum() or c in (" ", "-", "_")
+        ).rstrip()
         extension = self._get_download_extension(vod_item)
         filename = f"{safe_filename}.{extension}".replace("  ", " ")
         filepath = os.path.join(data_folder, filename)
-        
+
         console.print(f"Downloading to: {filepath}")
         console.print(f"Source: {vod_item['stream_url']}")
         console.print()
-        
+
         # Determine download method priority: wget > curl > python-requests
         download_cmd = None
         try:
-            subprocess.run(['wget', '--version'], capture_output=True, check=True)
-            download_cmd = 'wget'
+            subprocess.run(["wget", "--version"], capture_output=True, check=True)
+            download_cmd = "wget"
         except (subprocess.CalledProcessError, FileNotFoundError):
             try:
-                subprocess.run(['curl', '--version'], capture_output=True, check=True)
-                download_cmd = 'curl'
+                subprocess.run(["curl", "--version"], capture_output=True, check=True)
+                download_cmd = "curl"
             except (subprocess.CalledProcessError, FileNotFoundError):
-                download_cmd = 'python'
-        
+                download_cmd = "python"
+
         console.print(f"Using: {download_cmd}")
         console.print()
-        
+
         try:
-            if download_cmd == 'wget':
+            if download_cmd == "wget":
                 # Start wget in background
-                process = subprocess.Popen([
-                    'wget', 
-                    '-O', filepath,
-                    '--user-agent=VLC/3.0.0 LibVLC/3.0.0',
-                    '--timeout=30',
-                    '--tries=3',
-                    vod_item['stream_url']
-                ])
+                process = subprocess.Popen(
+                    [
+                        "wget",
+                        "-O",
+                        filepath,
+                        "--user-agent=VLC/3.0.0 LibVLC/3.0.0",
+                        "--timeout=30",
+                        "--tries=3",
+                        vod_item["stream_url"],
+                    ]
+                )
                 console.print(f"[green]✓[/green] Download started (PID: {process.pid})")
-                
-            elif download_cmd == 'curl':
+
+            elif download_cmd == "curl":
                 # Start curl in background
-                process = subprocess.Popen([
-                    'curl', 
-                    '-o', filepath,
-                    '-A', 'VLC/3.0.0 LibVLC/3.0.0',
-                    '--connect-timeout', '30',
-                    '--max-time', '0',
-                    '-L',  # Follow redirects
-                    vod_item['stream_url']
-                ])
+                process = subprocess.Popen(
+                    [
+                        "curl",
+                        "-o",
+                        filepath,
+                        "-A",
+                        "VLC/3.0.0 LibVLC/3.0.0",
+                        "--connect-timeout",
+                        "30",
+                        "--max-time",
+                        "0",
+                        "-L",  # Follow redirects
+                        vod_item["stream_url"],
+                    ]
+                )
                 console.print(f"[green]✓[/green] Download started (PID: {process.pid})")
-                
+
             else:  # python requests
                 console.print("[yellow]⚠[/yellow] Using Python requests (slower)")
                 # Quick start message, then download in background
                 import threading
+
                 def download_thread():
                     try:
-                        headers = {'User-Agent': 'VLC/3.0.0 LibVLC/3.0.0'}
-                        response = requests.get(vod_item['stream_url'], headers=headers, stream=True, timeout=30)
+                        headers = {"User-Agent": "VLC/3.0.0 LibVLC/3.0.0"}
+                        response = requests.get(
+                            vod_item["stream_url"],
+                            headers=headers,
+                            stream=True,
+                            timeout=30,
+                        )
                         response.raise_for_status()
-                        
-                        with open(filepath, 'wb') as f:
+
+                        with open(filepath, "wb") as f:
                             for chunk in response.iter_content(chunk_size=8192):
                                 if chunk:
                                     f.write(chunk)
                     except Exception as e:
                         console.print(f"[red]✗[/red] Download failed: {e}")
-                
+
                 thread = threading.Thread(target=download_thread)
                 thread.daemon = True
                 thread.start()
                 console.print("[green]✓[/green] Download started in background")
-            
+
             console.print(f"File will be saved to: {filepath}")
             console.print("Download is running in background...")
-            
+
         except Exception as e:
             console.print(f"[red]✗[/red] Download failed: {e}")
-        
-        console.print("\n[dim white]Press any key to return to search results...[/dim white]")
+
+        console.print(
+            "\n[dim white]Press any key to return to search results...[/dim white]"
+        )
         input()
 
     def download_vod(self, vod_item):
         """Download VOD content"""
         console.clear()
         console.print(Panel.fit(f"Download: {vod_item['name']}", style="dim white"))
-        
+
         # Determine download method priority: wget > curl > python-requests
         download_cmd = None
         try:
-            subprocess.run(['wget', '--version'], capture_output=True, check=True)
-            download_cmd = 'wget'
+            subprocess.run(["wget", "--version"], capture_output=True, check=True)
+            download_cmd = "wget"
         except (subprocess.CalledProcessError, FileNotFoundError):
             try:
-                subprocess.run(['curl', '--version'], capture_output=True, check=True)
-                download_cmd = 'curl'
+                subprocess.run(["curl", "--version"], capture_output=True, check=True)
+                download_cmd = "curl"
             except (subprocess.CalledProcessError, FileNotFoundError):
                 # Fall back to Python requests
-                download_cmd = 'python'
-        
+                download_cmd = "python"
+
         # Get filename from URL or use default
         extension = self._get_download_extension(vod_item)
-        filename = vod_item['name'].replace(" ", "_").replace("/", "_") + f".{extension}"
-        
+        filename = (
+            vod_item["name"].replace(" ", "_").replace("/", "_") + f".{extension}"
+        )
+
         console.print(f"Download tool: {download_cmd}")
         console.print(f"Filename: {filename}")
         console.print(f"URL: {vod_item['stream_url']}")
         console.print()
-        
-        if download_cmd == 'wget':
-            console.print(f"Command: wget -O '{filename}' --user-agent='VLC/3.0.0' '{vod_item['stream_url']}'")
-        elif download_cmd == 'curl':
-            console.print(f"Command: curl -o '{filename}' -A 'VLC/3.0.0' '{vod_item['stream_url']}'")
+
+        if download_cmd == "wget":
+            console.print(
+                f"Command: wget -O '{filename}' --user-agent='VLC/3.0.0' '{vod_item['stream_url']}'"
+            )
+        elif download_cmd == "curl":
+            console.print(
+                f"Command: curl -o '{filename}' -A 'VLC/3.0.0' '{vod_item['stream_url']}'"
+            )
         else:  # python
             console.print(f"Using Python requests with proper headers")
-        
+
         console.print("\n[yellow]Warning: Large file download will start![/yellow]")
-        
+
         # Simple confirmation
         try:
             key = input()
-            if key == '\x1b':  # ESC key
+            if key == "\x1b":  # ESC key
                 console.print("Download cancelled")
                 self.wait_for_escape()
                 return
         except:
             pass
-        
+
         console.print("\nStarting download...")
         try:
-            if download_cmd == 'wget':
+            if download_cmd == "wget":
                 # Add headers for wget to mimic a browser/player
-                process = subprocess.Popen([
-                    'wget', 
-                    '-O', filename,
-                    '--user-agent=VLC/3.0.0 LibVLC/3.0.0',
-                    '--header=Accept: */*',
-                    '--header=Connection: keep-alive',
-                    '--timeout=30',
-                    '--tries=3',
-                    vod_item['stream_url']
-                ])
+                process = subprocess.Popen(
+                    [
+                        "wget",
+                        "-O",
+                        filename,
+                        "--user-agent=VLC/3.0.0 LibVLC/3.0.0",
+                        "--header=Accept: */*",
+                        "--header=Connection: keep-alive",
+                        "--timeout=30",
+                        "--tries=3",
+                        vod_item["stream_url"],
+                    ]
+                )
                 console.print(f"Download started with PID: {process.pid}")
                 console.print("Download is running in the background...")
-                
-            elif download_cmd == 'curl':
+
+            elif download_cmd == "curl":
                 # Add headers for curl to mimic a browser/player
-                process = subprocess.Popen([
-                    'curl', 
-                    '-o', filename,
-                    '-A', 'VLC/3.0.0 LibVLC/3.0.0',
-                    '-H', 'Accept: */*',
-                    '-H', 'Connection: keep-alive',
-                    '--connect-timeout', '30',
-                    '--max-time', '0',
-                    '-L',  # Follow redirects
-                    vod_item['stream_url']
-                ])
+                process = subprocess.Popen(
+                    [
+                        "curl",
+                        "-o",
+                        filename,
+                        "-A",
+                        "VLC/3.0.0 LibVLC/3.0.0",
+                        "-H",
+                        "Accept: */*",
+                        "-H",
+                        "Connection: keep-alive",
+                        "--connect-timeout",
+                        "30",
+                        "--max-time",
+                        "0",
+                        "-L",  # Follow redirects
+                        vod_item["stream_url"],
+                    ]
+                )
                 console.print(f"Download started with PID: {process.pid}")
                 console.print("Download is running in the background...")
-                
+
             else:  # python requests
                 self._download_with_requests(vod_item, filename)
-            
+
             console.print()
             console.print("Note: If download fails with authentication errors,")
             console.print("the server may require streaming-only access.")
-            
+
         except Exception as e:
             console.print(f"[red]Download failed: {e}[/red]")
-        
+
         self.wait_for_escape()
-    
+
     def _download_with_requests(self, vod_item, filename):
         """Download using Python requests with proper headers"""
         import threading
-        
+
         def download_thread():
             try:
                 headers = {
-                    'User-Agent': 'VLC/3.0.0 LibVLC/3.0.0',
-                    'Accept': '*/*',
-                    'Connection': 'keep-alive',
-                    'Range': 'bytes=0-'
+                    "User-Agent": "VLC/3.0.0 LibVLC/3.0.0",
+                    "Accept": "*/*",
+                    "Connection": "keep-alive",
+                    "Range": "bytes=0-",
                 }
-                
+
                 console.print("Starting Python requests download...")
-                response = requests.get(vod_item['stream_url'], headers=headers, stream=True, timeout=30)
+                response = requests.get(
+                    vod_item["stream_url"], headers=headers, stream=True, timeout=30
+                )
                 response.raise_for_status()
-                
-                total_size = int(response.headers.get('content-length', 0))
-                console.print(f"File size: {total_size / (1024*1024):.2f} MB" if total_size > 0 else "File size: Unknown")
-                
-                with open(filename, 'wb') as f:
+
+                total_size = int(response.headers.get("content-length", 0))
+                console.print(
+                    f"File size: {total_size / (1024 * 1024):.2f} MB"
+                    if total_size > 0
+                    else "File size: Unknown"
+                )
+
+                with open(filename, "wb") as f:
                     downloaded = 0
                     for chunk in response.iter_content(chunk_size=8192):
                         if chunk:
@@ -3851,13 +4337,15 @@ if __name__ == '__main__':
                             downloaded += len(chunk)
                             if total_size > 0:
                                 progress = (downloaded / total_size) * 100
-                                console.print(f"\rDownload progress: {progress:.1f}%", end="")
-                
+                                console.print(
+                                    f"\rDownload progress: {progress:.1f}%", end=""
+                                )
+
                 console.print(f"\n[green]✓[/green] Download completed: {filename}")
-                
+
             except Exception as e:
                 console.print(f"\n[red]✗[/red] Download failed: {e}")
-        
+
         # Start download in background thread
         thread = threading.Thread(target=download_thread)
         thread.daemon = True
@@ -3867,36 +4355,46 @@ if __name__ == '__main__':
     def schedule_recording(self, live_item):
         """Schedule a recording for a live channel at a specific time"""
         console.clear()
-        console.print(Panel.fit(f"Schedule Recording: {live_item['name']}", style="cyan"))
+        console.print(
+            Panel.fit(f"Schedule Recording: {live_item['name']}", style="cyan")
+        )
         console.print()
 
         # Get USB_RECORDS_PATH from environment
-        records_path = os.getenv('USB_RECORDS_PATH', '/mnt/media/RECORDS')
+        records_path = os.getenv("USB_RECORDS_PATH", "/mnt/media/RECORDS")
 
         # Check if records path exists and is writable
         if not os.path.exists(records_path):
-            console.print(f"[yellow]Warning:[/yellow] Records path does not exist: {records_path}")
+            console.print(
+                f"[yellow]Warning:[/yellow] Records path does not exist: {records_path}"
+            )
             console.print("Attempting to create directory...")
             try:
                 os.makedirs(records_path, exist_ok=True)
                 console.print(f"[green]✓[/green] Created {records_path}")
             except Exception as e:
                 console.print(f"[red]✗[/red] Cannot create records path: {e}")
-                console.print("\nPlease ensure USB_RECORDS_PATH is set correctly in .env")
+                console.print(
+                    "\nPlease ensure USB_RECORDS_PATH is set correctly in .env"
+                )
                 self.wait_for_escape()
                 return
 
         # Test write permission
         test_file = os.path.join(records_path, ".write_test")
         try:
-            with open(test_file, 'w') as f:
+            with open(test_file, "w") as f:
                 f.write("test")
             os.remove(test_file)
         except Exception as e:
-            console.print(f"[yellow]⚠[/yellow] Cannot write to [bold]{records_path}[/bold]")
+            console.print(
+                f"[yellow]⚠[/yellow] Cannot write to [bold]{records_path}[/bold]"
+            )
             console.print(f"[dim]  Reason: {e}[/dim]")
             console.print()
-            console.print("[dim]This usually means the drive is mounted read-only or owned by root.[/dim]")
+            console.print(
+                "[dim]This usually means the drive is mounted read-only or owned by root.[/dim]"
+            )
             console.print("[dim]Fix: remount with your user's uid, or run:[/dim]")
             console.print(f"[dim]  sudo chown -R $USER {records_path}[/dim]")
             console.print()
@@ -3904,7 +4402,7 @@ if __name__ == '__main__':
             fix_menu = TerminalMenu(
                 [f"Record to {fallback_path} instead  (local fallback)", "Cancel"],
                 title="Samba share not writable",
-                menu_cursor="> "
+                menu_cursor="> ",
             )
             if fix_menu.show() == 0:
                 os.makedirs(fallback_path, exist_ok=True)
@@ -3918,7 +4416,9 @@ if __name__ == '__main__':
 
         # Get start time from user
         console.print("[bold]Enter start date/time:[/bold]")
-        console.print("[dim]Formats: 'now', '19:00', 'tomorrow 19:00', '2024-12-09 19:00'[/dim]")
+        console.print(
+            "[dim]Formats: 'now', '19:00', 'tomorrow 19:00', '2024-12-09 19:00'[/dim]"
+        )
         console.print()
 
         try:
@@ -3935,16 +4435,16 @@ if __name__ == '__main__':
         import time
 
         try:
-            if start_input.lower() == 'now':
+            if start_input.lower() == "now":
                 start_time = datetime.now()
-            elif ':' in start_input and len(start_input) <= 5:
+            elif ":" in start_input and len(start_input) <= 5:
                 # Just time like "19:00" - ALWAYS assume today
                 today = datetime.now().date()
                 parsed_time = datetime.strptime(start_input, "%H:%M").time()
                 start_time = datetime.combine(today, parsed_time)
-            elif start_input.lower().startswith('tomorrow'):
+            elif start_input.lower().startswith("tomorrow"):
                 # "tomorrow 19:00"
-                time_part = start_input.lower().replace('tomorrow', '').strip()
+                time_part = start_input.lower().replace("tomorrow", "").strip()
                 tomorrow = datetime.now().date() + timedelta(days=1)
                 if time_part:
                     parsed_time = datetime.strptime(time_part, "%H:%M").time()
@@ -3958,7 +4458,9 @@ if __name__ == '__main__':
                     raise ValueError("Could not parse date")
         except Exception as e:
             console.print(f"[red]✗[/red] Invalid date format: {e}")
-            console.print("Try formats like: 'now', '19:00', 'tomorrow 19:00', '2024-12-09 19:00'")
+            console.print(
+                "Try formats like: 'now', '19:00', 'tomorrow 19:00', '2024-12-09 19:00'"
+            )
             self.wait_for_escape()
             return
 
@@ -3969,12 +4471,16 @@ if __name__ == '__main__':
             return
 
         # Track if user wants to start "now" - we'll set actual time after confirmation
-        start_now = start_input.lower() == 'now'
+        start_now = start_input.lower() == "now"
 
         if start_now:
-            console.print(f"[green]✓[/green] Start time: NOW (immediately after confirmation)")
+            console.print(
+                f"[green]✓[/green] Start time: NOW (immediately after confirmation)"
+            )
         else:
-            console.print(f"[green]✓[/green] Start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            console.print(
+                f"[green]✓[/green] Start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}"
+            )
         console.print()
 
         # Get duration
@@ -3988,12 +4494,11 @@ if __name__ == '__main__':
             ("3 hours", 3 * 60 * 60),
             ("4 hours", 4 * 60 * 60),
             ("Custom duration", None),
-            ("Cancel", None)
+            ("Cancel", None),
         ]
 
         duration_menu = TerminalMenu(
-            [opt[0] for opt in duration_options],
-            title="Duration"
+            [opt[0] for opt in duration_options], title="Duration"
         )
         duration_idx = duration_menu.show()
 
@@ -4019,7 +4524,9 @@ if __name__ == '__main__':
             duration_seconds = duration_options[duration_idx][1]
 
         duration_hours = duration_seconds / 3600
-        console.print(f"[green]✓[/green] Duration: {duration_hours:.1f} hours ({duration_seconds} seconds)")
+        console.print(
+            f"[green]✓[/green] Duration: {duration_hours:.1f} hours ({duration_seconds} seconds)"
+        )
         console.print()
 
         # Generate output filename - try to use EPG program title if available
@@ -4029,12 +4536,19 @@ if __name__ == '__main__':
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             # For "now", use current time; otherwise use scheduled start_time
-            lookup_time = int(datetime.now().timestamp()) if start_now else int(start_time.timestamp())
-            cursor.execute('''
+            lookup_time = (
+                int(datetime.now().timestamp())
+                if start_now
+                else int(start_time.timestamp())
+            )
+            cursor.execute(
+                """
                 SELECT title FROM epg
                 WHERE stream_id = ? AND start_time <= ? AND end_time > ?
                 LIMIT 1
-            ''', (live_item.get('stream_id'), lookup_time, lookup_time))
+            """,
+                (live_item.get("stream_id"), lookup_time, lookup_time),
+            )
             row = cursor.fetchone()
             if row and row[0]:
                 program_title = row[0]
@@ -4047,12 +4561,18 @@ if __name__ == '__main__':
             base_name = program_title
             console.print(f"[green]✓[/green] EPG Program: {program_title}")
         else:
-            base_name = live_item['name']
+            base_name = live_item["name"]
             console.print(f"[dim]No EPG data - using channel name[/dim]")
 
-        safe_name = "".join(c for c in base_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
-        safe_name = safe_name.replace(' ', '_').lower()[:50]
-        date_str = start_time.strftime('%Y-%m-%d_%H%M') if not start_now else datetime.now().strftime('%Y-%m-%d_%H%M')
+        safe_name = "".join(
+            c for c in base_name if c.isalnum() or c in (" ", "-", "_")
+        ).rstrip()
+        safe_name = safe_name.replace(" ", "_").lower()[:50]
+        date_str = (
+            start_time.strftime("%Y-%m-%d_%H%M")
+            if not start_now
+            else datetime.now().strftime("%Y-%m-%d_%H%M")
+        )
         output_filename = f"{safe_name}_{date_str}.ts"
         output_path = os.path.join(records_path, output_filename)
 
@@ -4062,9 +4582,11 @@ if __name__ == '__main__':
         # Create systemd timer command
         # Format: systemd-run --user --on-calendar="YYYY-MM-DD HH:MM:SS" --unit=NAME COMMAND
         timer_unit = f"iptv-record-{int(time.time())}"
-        calendar_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
+        calendar_str = start_time.strftime("%Y-%m-%d %H:%M:%S")
 
-        wrapper_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "record_wrapper.sh")
+        wrapper_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "record_wrapper.sh"
+        )
 
         # Build the systemd-run command
         systemd_cmd = [
@@ -4075,10 +4597,14 @@ if __name__ == '__main__':
             "--description=IPTV Scheduled Recording",
             "/bin/bash",
             wrapper_path,
-            "--stream-id", str(live_item.get('stream_id', 0)),
-            "--duration", str(duration_seconds),
-            "--output", output_path,
-            "--channel-name", live_item['name']
+            "--stream-id",
+            str(live_item.get("stream_id", 0)),
+            "--duration",
+            str(duration_seconds),
+            "--output",
+            output_path,
+            "--channel-name",
+            live_item["name"],
         ]
 
         console.print("[bold]Confirm recording schedule:[/bold]")
@@ -4087,23 +4613,29 @@ if __name__ == '__main__':
         table = Table(show_header=False, box=None)
         table.add_column("Field", style="dim")
         table.add_column("Value", style="cyan")
-        table.add_row("Channel", live_item['name'])
+        table.add_row("Channel", live_item["name"])
         # For "now", show that it starts immediately; otherwise show the scheduled time
         if start_now:
             table.add_row("Start", "NOW (immediately)")
         else:
-            table.add_row("Start", f"{start_time.strftime('%Y-%m-%d %H:%M:%S')} (local time)")
+            table.add_row(
+                "Start", f"{start_time.strftime('%Y-%m-%d %H:%M:%S')} (local time)"
+            )
         table.add_row("Duration", f"{duration_hours:.1f} hours")
         if not start_now:
-            table.add_row("End (approx)", (start_time + timedelta(seconds=duration_seconds)).strftime('%Y-%m-%d %H:%M:%S'))
+            table.add_row(
+                "End (approx)",
+                (start_time + timedelta(seconds=duration_seconds)).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                ),
+            )
         table.add_row("Output", output_path)
         table.add_row("Timer", timer_unit)
         console.print(table)
         console.print()
 
         confirm_menu = TerminalMenu(
-            ["Confirm and Schedule", "Cancel"],
-            title="Schedule this recording?"
+            ["Confirm and Schedule", "Cancel"], title="Schedule this recording?"
         )
         confirm_idx = confirm_menu.show()
 
@@ -4115,13 +4647,17 @@ if __name__ == '__main__':
         # If "now" was selected, use --on-active for relative time (more reliable)
         if start_now:
             start_time = datetime.now() + timedelta(seconds=10)
-            console.print(f"[dim]Actual start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')} (local)[/dim]")
+            console.print(
+                f"[dim]Actual start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')} (local)[/dim]"
+            )
             # Use --on-active for "now" which is relative (avoids timezone issues)
             systemd_cmd[2] = "--on-active=10s"
         else:
             # For scheduled times, use local timezone explicitly
             # Format: "YYYY-MM-DD HH:MM:SS TZ" - systemd needs local time specification
-            local_tz = datetime.now().astimezone().strftime('%Z')  # Get local timezone like "EST"
+            local_tz = (
+                datetime.now().astimezone().strftime("%Z")
+            )  # Get local timezone like "EST"
             calendar_str = f"{start_time.strftime('%Y-%m-%d %H:%M:%S')} {local_tz}"
             console.print(f"[dim]Scheduled time: {calendar_str}[/dim]")
             systemd_cmd[2] = f"--on-calendar={calendar_str}"
@@ -4132,10 +4668,7 @@ if __name__ == '__main__':
             console.print(f"[dim]Running: {' '.join(systemd_cmd)}[/dim]")
 
             result = subprocess.run(
-                systemd_cmd,
-                capture_output=True,
-                text=True,
-                timeout=10
+                systemd_cmd, capture_output=True, text=True, timeout=10
             )
 
             # Debug: show result
@@ -4150,38 +4683,45 @@ if __name__ == '__main__':
                 try:
                     conn = sqlite3.connect(self.db_path)
                     cursor = conn.cursor()
-                    cursor.execute('''
+                    cursor.execute(
+                        """
                         INSERT INTO scheduled_recordings
                         (stream_id, channel_name, start_time, duration, output_path, timer_unit, status, created_at)
                         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
-                    ''', (
-                        live_item.get('stream_id', 0),
-                        live_item['name'],
-                        int(start_time.timestamp()),
-                        duration_seconds,
-                        output_path,
-                        timer_unit,
-                        int(datetime.now().timestamp())
-                    ))
+                    """,
+                        (
+                            live_item.get("stream_id", 0),
+                            live_item["name"],
+                            int(start_time.timestamp()),
+                            duration_seconds,
+                            output_path,
+                            timer_unit,
+                            int(datetime.now().timestamp()),
+                        ),
+                    )
                     recording_id = cursor.lastrowid
                     conn.commit()
                     conn.close()
                 except Exception as db_err:
-                    console.print(f"[yellow]Warning: Could not save to database: {db_err}[/yellow]")
+                    console.print(
+                        f"[yellow]Warning: Could not save to database: {db_err}[/yellow]"
+                    )
                     recording_id = None
 
                 console.print()
-                console.print(Panel.fit(
-                    "[green]Recording Scheduled Successfully![/green]\n\n"
-                    f"Channel: {live_item['name']}\n"
-                    f"Start: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
-                    f"Duration: {duration_hours:.1f} hours\n"
-                    f"Output: {output_path}\n"
-                    f"Timer: {timer_unit}\n\n"
-                    "[dim]Recording will execute even if this app is closed.[/dim]\n"
-                    "[dim]View timers: systemctl --user list-timers | grep iptv[/dim]",
-                    style="green"
-                ))
+                console.print(
+                    Panel.fit(
+                        "[green]Recording Scheduled Successfully![/green]\n\n"
+                        f"Channel: {live_item['name']}\n"
+                        f"Start: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                        f"Duration: {duration_hours:.1f} hours\n"
+                        f"Output: {output_path}\n"
+                        f"Timer: {timer_unit}\n\n"
+                        "[dim]Recording will execute even if this app is closed.[/dim]\n"
+                        "[dim]View timers: systemctl --user list-timers | grep iptv[/dim]",
+                        style="green",
+                    )
+                )
             else:
                 console.print(f"[red]✗[/red] Failed to schedule recording")
                 console.print(f"Error: {result.stderr}")
@@ -4189,7 +4729,9 @@ if __name__ == '__main__':
                 # Check for common issues
                 if "linger" in result.stderr.lower():
                     console.print()
-                    console.print("[yellow]Tip: Enable lingering for your user:[/yellow]")
+                    console.print(
+                        "[yellow]Tip: Enable lingering for your user:[/yellow]"
+                    )
                     console.print(f"  sudo loginctl enable-linger {os.getenv('USER')}")
 
         except subprocess.TimeoutExpired:
@@ -4213,12 +4755,12 @@ if __name__ == '__main__':
             try:
                 conn = sqlite3.connect(self.db_path)
                 cursor = conn.cursor()
-                cursor.execute('''
+                cursor.execute("""
                     SELECT id, channel_name, start_time, duration, output_path, timer_unit, status
                     FROM scheduled_recordings
                     ORDER BY start_time DESC
                     LIMIT 50
-                ''')
+                """)
                 recordings = cursor.fetchall()
                 conn.close()
             except Exception as e:
@@ -4244,15 +4786,22 @@ if __name__ == '__main__':
                 duration_hrs = duration / 3600
 
                 # Status indicator
-                if status == 'pending':
+                if status == "pending":
                     if start_dt > datetime.now():
                         status_icon = "[cyan]⏰[/cyan]"  # Scheduled future
                     else:
                         # Check if the systemd service is actually running
                         try:
                             r = subprocess.run(
-                                ["systemctl", "--user", "is-active", f"{timer}.service"],
-                                capture_output=True, text=True, timeout=3
+                                [
+                                    "systemctl",
+                                    "--user",
+                                    "is-active",
+                                    f"{timer}.service",
+                                ],
+                                capture_output=True,
+                                text=True,
+                                timeout=3,
                             )
                             if r.stdout.strip() == "active":
                                 status_icon = "[red]●[/red]"  # Actively recording
@@ -4260,11 +4809,11 @@ if __name__ == '__main__':
                                 status_icon = "[yellow]?[/yellow]"  # Unknown
                         except Exception:
                             status_icon = "[yellow]?[/yellow]"
-                elif status == 'recording':
+                elif status == "recording":
                     status_icon = "[red]●[/red]"  # Recording
-                elif status == 'completed':
+                elif status == "completed":
                     status_icon = "[green]✓[/green]"  # Done
-                elif status == 'cancelled':
+                elif status == "cancelled":
                     status_icon = "[dim]✗[/dim]"  # Cancelled
                 else:
                     status_icon = "[red]![/red]"  # Failed/unknown
@@ -4278,8 +4827,7 @@ if __name__ == '__main__':
             menu_options.append("Back")
 
             menu = TerminalMenu(
-                menu_options,
-                title="Select recording to view details or cancel"
+                menu_options, title="Select recording to view details or cancel"
             )
 
             idx = menu.show()
@@ -4295,9 +4843,13 @@ if __name__ == '__main__':
                 rec = recordings[idx]
                 rec_id, channel, start_ts, duration, output, timer, status = rec
 
-                self._show_recording_details(rec_id, channel, start_ts, duration, output, timer, status)
+                self._show_recording_details(
+                    rec_id, channel, start_ts, duration, output, timer, status
+                )
 
-    def _show_recording_details(self, rec_id, channel, start_ts, duration, output, timer, status):
+    def _show_recording_details(
+        self, rec_id, channel, start_ts, duration, output, timer, status
+    ):
         """Show details for a scheduled recording and allow cancellation"""
         console.clear()
         console.print(Panel.fit(f"Recording Details", style="cyan"))
@@ -4313,8 +4865,8 @@ if __name__ == '__main__':
 
         table.add_row("ID", str(rec_id))
         table.add_row("Channel", channel)
-        table.add_row("Start Time", start_dt.strftime('%Y-%m-%d %H:%M:%S'))
-        table.add_row("End Time", end_dt.strftime('%Y-%m-%d %H:%M:%S'))
+        table.add_row("Start Time", start_dt.strftime("%Y-%m-%d %H:%M:%S"))
+        table.add_row("End Time", end_dt.strftime("%Y-%m-%d %H:%M:%S"))
         table.add_row("Duration", f"{duration_hrs:.1f} hours ({duration} seconds)")
         table.add_row("Output", output)
         table.add_row("Timer Unit", timer)
@@ -4327,17 +4879,17 @@ if __name__ == '__main__':
         if os.path.exists(output):
             size_mb = os.path.getsize(output) / (1024 * 1024)
             console.print(f"[green]✓[/green] Output file exists: {size_mb:.1f} MB")
-        elif status == 'completed':
+        elif status == "completed":
             console.print(f"[yellow]⚠[/yellow] Output file not found")
 
         # Check systemd timer status
-        if status == 'pending':
+        if status == "pending":
             try:
                 result = subprocess.run(
                     ["systemctl", "--user", "status", f"{timer}.timer"],
                     capture_output=True,
                     text=True,
-                    timeout=5
+                    timeout=5,
                 )
                 if result.returncode == 0:
                     console.print(f"[green]✓[/green] Timer is active")
@@ -4350,7 +4902,7 @@ if __name__ == '__main__':
 
         # Options
         options = []
-        if status == 'pending':
+        if status == "pending":
             options.append("Stop/Cancel Recording")
         if os.path.exists(output):
             options.append("Play Recording")
@@ -4366,15 +4918,17 @@ if __name__ == '__main__':
             self._cancel_scheduled_recording(rec_id, timer)
         elif options[action_idx] == "Play Recording":
             subprocess.Popen(
-                ['mpv', output],
+                ["mpv", output],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                start_new_session=True
+                start_new_session=True,
             )
             console.print("[green]✓[/green] Playing recording in MPV")
             self.wait_for_escape()
         elif options[action_idx] == "Delete Recording File":
-            confirm = TerminalMenu(["Yes, delete", "No, keep"], title="Delete recording file?")
+            confirm = TerminalMenu(
+                ["Yes, delete", "No, keep"], title="Delete recording file?"
+            )
             if confirm.show() == 0:
                 try:
                     os.remove(output)
@@ -4394,12 +4948,12 @@ if __name__ == '__main__':
             subprocess.run(
                 ["systemctl", "--user", "stop", f"{timer_unit}.timer"],
                 capture_output=True,
-                timeout=10
+                timeout=10,
             )
             subprocess.run(
                 ["systemctl", "--user", "stop", f"{timer_unit}.service"],
                 capture_output=True,
-                timeout=10
+                timeout=10,
             )
             console.print(f"[green]✓[/green] Stopped systemd timer")
         except Exception as e:
@@ -4411,7 +4965,7 @@ if __name__ == '__main__':
             cursor = conn.cursor()
             cursor.execute(
                 "UPDATE scheduled_recordings SET status = 'cancelled' WHERE id = ?",
-                (rec_id,)
+                (rec_id,),
             )
             conn.commit()
             conn.close()
@@ -4427,49 +4981,47 @@ if __name__ == '__main__':
         """Restream content through NGINX-RTMP server"""
         console.clear()
         console.print(Panel.fit(f"Restream: {item['name']}", style="dim white"))
-        
+
         # Check if NGINX container is running
         if "[green]" not in self.check_container_status():
             console.print("[red]✗[/red] NGINX-RTMP container is not running")
             console.print("Start the container from 'Build NGINX Container' menu first")
             self.wait_for_escape()
             return
-        
+
         # Check FFmpeg availability
         try:
-            subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True, timeout=5)
+            subprocess.run(
+                ["ffmpeg", "-version"], capture_output=True, check=True, timeout=5
+            )
         except:
             console.print("[red]✗[/red] FFmpeg not found. Install with:")
             console.print("Ubuntu/Debian: sudo apt install ffmpeg")
             console.print("macOS: brew install ffmpeg")
             self.wait_for_escape()
             return
-        
+
         # Generate stream key from item name
-        stream_key = self._generate_stream_key(item['name'])
-        
+        stream_key = self._generate_stream_key(item["name"])
+
         console.print(f"Source: {item.get('stream_url', 'N/A')}")
         console.print(f"Stream Key: {stream_key}")
         console.print(f"RTMP Target: rtmp://localhost:1935/live/{stream_key}")
         console.print(f"View URL: http://localhost:8080/hls/{stream_key}.m3u8")
         console.print()
-        
+
         options = [
             "Start Restream",
             "Start with Transcoding (Lower Bandwidth)",
             "View Stream URLs",
             "Stop Active Restream",
-            "Back"
+            "Back",
         ]
-        
-        terminal_menu = TerminalMenu(
-            options,
-            title="",
-            menu_cursor="> "
-        )
-        
+
+        terminal_menu = TerminalMenu(options, title="", menu_cursor="> ")
+
         choice = terminal_menu.show()
-        
+
         if choice == 0:  # Start restream
             self._start_restream(item, stream_key, transcode=False)
         elif choice == 1:  # Start with transcoding
@@ -4478,12 +5030,12 @@ if __name__ == '__main__':
             self._show_stream_urls(stream_key)
         elif choice == 3:  # Stop restream
             self._stop_restream()
-    
+
     def _generate_stream_key(self, name):
         """Generate a stream key from content name"""
         # Clean name for use as stream key
-        key = re.sub(r'[^a-zA-Z0-9_-]', '_', name.lower())
-        key = re.sub(r'_+', '_', key)  # Remove multiple underscores
+        key = re.sub(r"[^a-zA-Z0-9_-]", "_", name.lower())
+        key = re.sub(r"_+", "_", key)  # Remove multiple underscores
         return key[:50]  # Limit length
 
     def detect_running_restream(self):
@@ -4497,21 +5049,21 @@ if __name__ == '__main__':
         try:
             # Use pgrep to find ffmpeg processes, then inspect their command lines
             result = subprocess.run(
-                ['pgrep', '-a', 'ffmpeg'],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ["pgrep", "-a", "ffmpeg"], capture_output=True, text=True, timeout=5
             )
 
             if result.returncode != 0:
                 return None
 
-            for line in result.stdout.strip().split('\n'):
+            for line in result.stdout.strip().split("\n"):
                 if not line:
                     continue
 
                 # Check if this FFmpeg is streaming to our RTMP server
-                if 'rtmp://localhost:1935/live/' in line or 'rtmp://127.0.0.1:1935/live/' in line:
+                if (
+                    "rtmp://localhost:1935/live/" in line
+                    or "rtmp://127.0.0.1:1935/live/" in line
+                ):
                     parts = line.split(None, 1)
                     if len(parts) < 2:
                         continue
@@ -4525,6 +5077,7 @@ if __name__ == '__main__':
 
                     # Parse command line arguments
                     import shlex
+
                     try:
                         args = shlex.split(cmd)
                     except:
@@ -4532,12 +5085,15 @@ if __name__ == '__main__':
 
                     for i, arg in enumerate(args):
                         # Find source URL (after -i)
-                        if arg == '-i' and i + 1 < len(args):
+                        if arg == "-i" and i + 1 < len(args):
                             source_url = args[i + 1]
                         # Find RTMP target URL
-                        if 'rtmp://localhost:1935/live/' in arg or 'rtmp://127.0.0.1:1935/live/' in arg:
+                        if (
+                            "rtmp://localhost:1935/live/" in arg
+                            or "rtmp://127.0.0.1:1935/live/" in arg
+                        ):
                             # Extract stream key from URL
-                            stream_key = arg.split('/live/')[-1]
+                            stream_key = arg.split("/live/")[-1]
 
                     if stream_key:
                         return {
@@ -4546,7 +5102,7 @@ if __name__ == '__main__':
                             "pid": pid,
                             "source_url": source_url or "Unknown",
                             "started_at": None,
-                            "recovered": True  # Flag indicating this was detected, not tracked
+                            "recovered": True,  # Flag indicating this was detected, not tracked
                         }
 
             return None
@@ -4565,12 +5121,17 @@ if __name__ == '__main__':
         # First try: check our metadata file
         if os.path.exists(meta_file):
             try:
-                with open(meta_file, 'r') as f:
+                with open(meta_file, "r") as f:
                     data = json.load(f)
                 # Verify process is still running
-                os.kill(data['pid'], 0)
+                os.kill(data["pid"], 0)
                 return data
-            except (ProcessLookupError, json.JSONDecodeError, KeyError, FileNotFoundError):
+            except (
+                ProcessLookupError,
+                json.JSONDecodeError,
+                KeyError,
+                FileNotFoundError,
+            ):
                 # Process dead or file corrupt, clean up
                 try:
                     os.remove(meta_file)
@@ -4582,10 +5143,10 @@ if __name__ == '__main__':
         if detected:
             # Save the recovered metadata so we can track it properly now
             self.save_restream_meta(
-                detected['stream_key'],
-                detected['channel_name'],
-                detected['pid'],
-                detected['source_url']
+                detected["stream_key"],
+                detected["channel_name"],
+                detected["pid"],
+                detected["source_url"],
             )
             return detected
 
@@ -4599,9 +5160,9 @@ if __name__ == '__main__':
             "channel_name": channel_name,
             "pid": pid,
             "source_url": source_url,
-            "started_at": datetime.now().isoformat()
+            "started_at": datetime.now().isoformat(),
         }
-        with open(meta_file, 'w') as f:
+        with open(meta_file, "w") as f:
             json.dump(data, f)
 
     def clear_restream_meta(self):
@@ -4620,9 +5181,11 @@ if __name__ == '__main__':
             return False
 
         try:
-            os.kill(active['pid'], signal.SIGTERM)
+            os.kill(active["pid"], signal.SIGTERM)
             self.clear_restream_meta()
-            console.print(f"[green]✓[/green] Stopped restreaming: {active['channel_name']}")
+            console.print(
+                f"[green]✓[/green] Stopped restreaming: {active['channel_name']}"
+            )
             time.sleep(1)
             return True
         except ProcessLookupError:
@@ -4639,13 +5202,14 @@ if __name__ == '__main__':
             fix_menu = TerminalMenu(
                 ["Start NGINX-RTMP and then restream", "Cancel"],
                 title="NGINX-RTMP is offline",
-                menu_cursor="> "
+                menu_cursor="> ",
             )
             if fix_menu.show() == 0:
                 console.print("[dim]Starting NGINX-RTMP...[/dim]")
                 start_result = subprocess.run(
-                    ['docker-compose', 'up', '-d', 'nginx-rtmp'],
-                    capture_output=True, timeout=60
+                    ["docker-compose", "up", "-d", "nginx-rtmp"],
+                    capture_output=True,
+                    timeout=60,
                 )
                 if start_result.returncode != 0:
                     console.print("[red]✗[/red] Failed to start NGINX-RTMP")
@@ -4653,20 +5217,22 @@ if __name__ == '__main__':
                     return
                 # Invalidate service status cache
                 self._svc_cache_time = 0
-                console.print("[green]✓[/green] NGINX-RTMP started. Launching restream...")
+                console.print(
+                    "[green]✓[/green] NGINX-RTMP started. Launching restream..."
+                )
             else:
                 return
 
         # Check if ffmpeg is available
         try:
-            subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
+            subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
         except (subprocess.CalledProcessError, FileNotFoundError):
             console.print("[red]✗[/red] FFmpeg not found")
             self.wait_for_escape()
             return
 
-        channel_name = item.get('name', 'Unknown')
-        source_url = item.get('stream_url')
+        channel_name = item.get("name", "Unknown")
+        source_url = item.get("stream_url")
 
         if not source_url:
             console.print("[red]✗[/red] No stream URL available")
@@ -4677,24 +5243,34 @@ if __name__ == '__main__':
         active = self.get_active_restream()
 
         if active:
-            if active['channel_name'] == channel_name:
+            if active["channel_name"] == channel_name:
                 # Same channel - show info
                 console.clear()
-                console.print(Panel.fit(f"Already Restreaming: {channel_name}", style="green"))
+                console.print(
+                    Panel.fit(f"Already Restreaming: {channel_name}", style="green")
+                )
                 console.print()
-                console.print(f"[bright_yellow]HLS:[/bright_yellow] http://localhost:8080/hls/{active['stream_key']}.m3u8")
-                console.print(f"[bright_yellow]RTMP:[/bright_yellow] rtmp://localhost:1935/live/{active['stream_key']}")
+                console.print(
+                    f"[bright_yellow]HLS:[/bright_yellow] http://localhost:8080/hls/{active['stream_key']}.m3u8"
+                )
+                console.print(
+                    f"[bright_yellow]RTMP:[/bright_yellow] rtmp://localhost:1935/live/{active['stream_key']}"
+                )
                 self.wait_for_escape()
                 return
             else:
                 # Different channel - ask to switch
                 console.print()
-                console.print(f"[yellow]Currently restreaming:[/yellow] {active['channel_name']}")
+                console.print(
+                    f"[yellow]Currently restreaming:[/yellow] {active['channel_name']}"
+                )
                 try:
-                    confirm = input(f"Switch to '{channel_name}'? [Y/n]: ").strip().lower()
+                    confirm = (
+                        input(f"Switch to '{channel_name}'? [Y/n]: ").strip().lower()
+                    )
                 except KeyboardInterrupt:
                     return
-                if confirm not in ['y', 'yes', '']:
+                if confirm not in ["y", "yes", ""]:
                     return
                 # Stop current restream
                 self.stop_restream_quick()
@@ -4709,25 +5285,40 @@ if __name__ == '__main__':
         # Video: copy (no re-encoding for best quality)
         # Audio: transcode to AAC (required for RTMP/FLV - AC3/EAC3 not supported)
         ffmpeg_cmd = [
-            'ffmpeg',
+            "ffmpeg",
             # Input options - reconnect and buffering (MUST come before -i)
-            '-reconnect', '1',                    # Enable reconnection
-            '-reconnect_at_eof', '1',             # Reconnect on EOF
-            '-reconnect_streamed', '1',           # Reconnect for streaming protocols
-            '-reconnect_delay_max', '30',         # Max 30s retry delay
-            '-fflags', '+genpts+discardcorrupt',  # Generate timestamps, discard corrupt
-            '-rtbufsize', '15M',                  # Input buffer size
-            '-analyzeduration', '10M',            # Analyze duration for format detection
-            '-probesize', '10M',                  # Probe size for format detection
-            '-i', source_url,
+            "-reconnect",
+            "1",  # Enable reconnection
+            "-reconnect_at_eof",
+            "1",  # Reconnect on EOF
+            "-reconnect_streamed",
+            "1",  # Reconnect for streaming protocols
+            "-reconnect_delay_max",
+            "30",  # Max 30s retry delay
+            "-fflags",
+            "+genpts+discardcorrupt",  # Generate timestamps, discard corrupt
+            "-rtbufsize",
+            "15M",  # Input buffer size
+            "-analyzeduration",
+            "10M",  # Analyze duration for format detection
+            "-probesize",
+            "10M",  # Probe size for format detection
+            "-i",
+            source_url,
             # Output options
-            '-c:v', 'copy',
-            '-c:a', 'aac',
-            '-b:a', '192k',
-            '-ac', '2',                           # Downmix to stereo for compatibility
-            '-max_muxing_queue_size', '9999',     # Prevent muxing queue overflow
-            '-f', 'flv',
-            target_url
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-ac",
+            "2",  # Downmix to stereo for compatibility
+            "-max_muxing_queue_size",
+            "9999",  # Prevent muxing queue overflow
+            "-f",
+            "flv",
+            target_url,
         ]
 
         try:
@@ -4735,7 +5326,7 @@ if __name__ == '__main__':
                 ffmpeg_cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                start_new_session=True
+                start_new_session=True,
             )
 
             # Give it a moment to fail if it's going to
@@ -4751,8 +5342,12 @@ if __name__ == '__main__':
             # Show success
             console.print(f"[green]✓[/green] Restreaming: {channel_name}")
             console.print()
-            console.print(f"[bright_yellow]HLS:[/bright_yellow] http://localhost:8080/hls/{stream_key}.m3u8")
-            console.print(f"[bright_yellow]RTMP:[/bright_yellow] rtmp://localhost:1935/live/{stream_key}")
+            console.print(
+                f"[bright_yellow]HLS:[/bright_yellow] http://localhost:8080/hls/{stream_key}.m3u8"
+            )
+            console.print(
+                f"[bright_yellow]RTMP:[/bright_yellow] rtmp://localhost:1935/live/{stream_key}"
+            )
             time.sleep(2)
 
         except Exception as e:
@@ -4762,80 +5357,110 @@ if __name__ == '__main__':
     def _start_restream(self, item, stream_key, transcode=False):
         """Start restreaming with FFmpeg"""
         console.clear()
-        console.print(Panel.fit(f"Starting Restream: {item['name']}", style="dim white"))
-        
-        source_url = item.get('stream_url')
+        console.print(
+            Panel.fit(f"Starting Restream: {item['name']}", style="dim white")
+        )
+
+        source_url = item.get("stream_url")
         if not source_url:
             console.print("[red]✗[/red] No stream URL available")
             self.wait_for_escape()
             return
-        
+
         target_url = f"rtmp://localhost:1935/live/{stream_key}"
-        
+
         if transcode:
             # Auto-detect platform and use appropriate encoder
             if self.is_raspberry_pi():
                 # Raspberry Pi: Use hardware acceleration
                 ffmpeg_cmd = [
-                    'ffmpeg',
-                    '-hwaccel', 'v4l2m2m',                   # Hardware decoding
-                    '-i', source_url,
-                    '-c:v', 'h264_v4l2m2m',                  # Hardware H264 encoding for Pi
-                    '-b:v', '1M',
-                    '-maxrate', '1M',
-                    '-bufsize', '2M',
-                    '-vf', 'scale=854:480',
-                    '-c:a', 'aac',
-                    '-b:a', '128k',
-                    '-f', 'flv',
-                    target_url
+                    "ffmpeg",
+                    "-hwaccel",
+                    "v4l2m2m",  # Hardware decoding
+                    "-i",
+                    source_url,
+                    "-c:v",
+                    "h264_v4l2m2m",  # Hardware H264 encoding for Pi
+                    "-b:v",
+                    "1M",
+                    "-maxrate",
+                    "1M",
+                    "-bufsize",
+                    "2M",
+                    "-vf",
+                    "scale=854:480",
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "128k",
+                    "-f",
+                    "flv",
+                    target_url,
                 ]
-                console.print("Mode: Transcoding with Hardware Acceleration (Raspberry Pi)")
+                console.print(
+                    "Mode: Transcoding with Hardware Acceleration (Raspberry Pi)"
+                )
             else:
                 # Other platforms: Use software encoding
                 ffmpeg_cmd = [
-                    'ffmpeg',
-                    '-i', source_url,
-                    '-c:v', 'libx264',
-                    '-preset', 'superfast',
-                    '-tune', 'zerolatency',
-                    '-b:v', '1M',
-                    '-maxrate', '1M',
-                    '-bufsize', '2M',
-                    '-vf', 'scale=854:480',
-                    '-c:a', 'aac',
-                    '-b:a', '128k',
-                    '-f', 'flv',
-                    target_url
+                    "ffmpeg",
+                    "-i",
+                    source_url,
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "superfast",
+                    "-tune",
+                    "zerolatency",
+                    "-b:v",
+                    "1M",
+                    "-maxrate",
+                    "1M",
+                    "-bufsize",
+                    "2M",
+                    "-vf",
+                    "scale=854:480",
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "128k",
+                    "-f",
+                    "flv",
+                    target_url,
                 ]
                 console.print("Mode: Transcoding (Software Encoding)")
         else:
             # Copy without transcoding for best quality
             ffmpeg_cmd = [
-                'ffmpeg',
-                '-i', source_url,
-                '-c', 'copy',
-                '-f', 'flv',
-                target_url
+                "ffmpeg",
+                "-i",
+                source_url,
+                "-c",
+                "copy",
+                "-f",
+                "flv",
+                target_url,
             ]
             console.print("Mode: Copy (Best Quality)")
-        
+
         console.print(f"Source: {source_url}")
         console.print(f"Target: {target_url}")
         console.print(f"View at: http://localhost:8080/hls/{stream_key}.m3u8")
         console.print()
-        console.print("[yellow]Starting restream... This will run in the background.[/yellow]")
+        console.print(
+            "[yellow]Starting restream... This will run in the background.[/yellow]"
+        )
         console.print()
-        
+
         try:
             # Start FFmpeg process in background
             process = subprocess.Popen(
                 ffmpeg_cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                start_new_session=True
+                start_new_session=True,
             )
-            
+
             console.print(f"[green]✓[/green] Restream started with PID: {process.pid}")
             console.print()
             console.print("URLs for sharing:")
@@ -4846,19 +5471,21 @@ if __name__ == '__main__':
             console.print("Check 'Container Status & URLs' for monitoring.")
 
             # Save restream metadata
-            source_url = item.get('stream_url') or item.get('url', '')
-            self.save_restream_meta(stream_key, item.get('name', 'Unknown'), process.pid, source_url)
-                
+            source_url = item.get("stream_url") or item.get("url", "")
+            self.save_restream_meta(
+                stream_key, item.get("name", "Unknown"), process.pid, source_url
+            )
+
         except Exception as e:
             console.print(f"[red]✗[/red] Failed to start restream: {e}")
-        
+
         self.wait_for_escape()
-    
+
     def _show_stream_urls(self, stream_key):
         """Show stream URLs for sharing"""
         console.clear()
         console.print(Panel.fit("Stream URLs", style="dim white"))
-        
+
         console.print(f"[bright_yellow]Stream Key:[/bright_yellow] {stream_key}")
         console.print()
         console.print("[bright_yellow]📺 Viewing URLs:[/bright_yellow]")
@@ -4870,9 +5497,9 @@ if __name__ == '__main__':
         console.print("• Browser: Use HLS.js player or native support")
         console.print("• OBS: Add Media Source → Paste HLS URL")
         console.print("• FFplay: ffplay 'http://localhost:8080/hls/{stream_key}.m3u8'")
-        
+
         self.wait_for_escape()
-    
+
     def _stop_restream(self):
         """Stop active restream processes"""
         console.clear()
@@ -4883,10 +5510,14 @@ if __name__ == '__main__':
 
         if active:
             try:
-                os.kill(active['pid'], signal.SIGTERM)
-                console.print(f"[green]✓[/green] Stopped restream: {active['channel_name']}")
+                os.kill(active["pid"], signal.SIGTERM)
+                console.print(
+                    f"[green]✓[/green] Stopped restream: {active['channel_name']}"
+                )
             except ProcessLookupError:
-                console.print(f"[yellow]Restream already stopped: {active['channel_name']}[/yellow]")
+                console.print(
+                    f"[yellow]Restream already stopped: {active['channel_name']}[/yellow]"
+                )
             self.clear_restream_meta()
             self.wait_for_escape()
             return
@@ -4924,23 +5555,23 @@ if __name__ == '__main__':
             console.print("[yellow]No active restreams to stop[/yellow]")
 
         self.wait_for_escape()
-    
+
     def show_channel_details(self, channel):
         """Legacy method - redirect to new live stream info"""
         self.show_live_stream_info(channel)
-    
+
     def preview_channel(self, channel_option):
         """Preview function for channel selection"""
         return f"Preview: {channel_option[:60]}..."
-    
+
     def show_vod_categories(self):
         """Show VOD categories"""
         if not self.check_database():
             return
-            
+
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
+
         sql = """
             SELECT vc.category_name, COUNT(*) as count
             FROM vod_categories vc
@@ -4949,38 +5580,34 @@ if __name__ == '__main__':
             ORDER BY count DESC, vc.category_name
             LIMIT 30
         """
-        
+
         results = cursor.execute(sql).fetchall()
         conn.close()
-        
+
         if not results:
             console.print("No VOD categories found")
             self.wait_for_escape()
             return
-        
+
         console.clear()
         console.print(Panel.fit("VOD Categories", style="dim white"))
-        
+
         options = [f"{row[0]} ({row[1]} movies/shows)" for row in results]
         options.append("Back")
-        
-        terminal_menu = TerminalMenu(
-            options,
-            title="",
-            menu_cursor="> "
-        )
-        
+
+        terminal_menu = TerminalMenu(options, title="", menu_cursor="> ")
+
         choice = terminal_menu.show()
-        
+
         if choice is not None and choice < len(results):
             category_name = results[choice][0]
             self.show_vod_by_category(category_name)
-    
+
     def show_vod_by_category(self, category_name):
         """Show VOD content in a specific category"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
+
         sql = """
             SELECT vs.name, vs.stream_id, vs.stream_url, vs.year, vs.rating, vs.genre
             FROM vod_streams vs
@@ -4989,75 +5616,97 @@ if __name__ == '__main__':
             ORDER BY CAST(vs.rating AS REAL) DESC, vs.name
             LIMIT 100
         """
-        
+
         results = cursor.execute(sql, (category_name,)).fetchall()
         conn.close()
-        
+
         if not results:
             console.print(f"No content found in category: {category_name}")
             self.wait_for_escape()
             return
-        
+
         # Convert to dict format for show_vod_results
         vod_list = []
         for row in results:
             vod_dict = {
-                'name': row[0],
-                'stream_id': row[1], 
-                'stream_url': row[2],
-                'year': row[3],
-                'rating': row[4],
-                'genre': row[5]
+                "name": row[0],
+                "stream_id": row[1],
+                "stream_url": row[2],
+                "year": row[3],
+                "rating": row[4],
+                "genre": row[5],
             }
             vod_list.append(vod_dict)
-        
+
         self.show_vod_results(vod_list, f"Category: {category_name}")
-    
-    def get_smart_recommendations(self, languages=['EN', 'FR'], min_rating=7.0, include_netflix=True, year_after=None, limit=50, sort_by_rating=True):
+
+    def get_smart_recommendations(
+        self,
+        languages=["EN", "FR"],
+        min_rating=7.0,
+        include_netflix=True,
+        year_after=None,
+        limit=50,
+        sort_by_rating=True,
+    ):
         """Get smart VOD recommendations based on language, rating, and other filters"""
         if not self.check_database():
             return []
-            
+
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
+
         # Build dynamic WHERE clause
         where_conditions = []
         params = []
-        
+
         # Language filtering
         if languages:
             language_conditions = []
             for lang in languages:
-                if lang.upper() == 'NETFLIX':
-                    language_conditions.append("(vc.category_name LIKE '%NETFLIX%' OR vc.category_name LIKE 'NF -%')")
+                if lang.upper() == "NETFLIX":
+                    language_conditions.append(
+                        "(vc.category_name LIKE '%NETFLIX%' OR vc.category_name LIKE 'NF -%')"
+                    )
                 else:
                     language_conditions.append("vc.category_name LIKE ?")
                     params.append(f"{lang.upper()} -%")
-            
-            if include_netflix and 'NETFLIX' not in [lang.upper() for lang in languages]:
-                language_conditions.append("(vc.category_name LIKE '%NETFLIX%' OR vc.category_name LIKE 'NF -%')")
-                
+
+            if include_netflix and "NETFLIX" not in [
+                lang.upper() for lang in languages
+            ]:
+                language_conditions.append(
+                    "(vc.category_name LIKE '%NETFLIX%' OR vc.category_name LIKE 'NF -%')"
+                )
+
             where_conditions.append(f"({' OR '.join(language_conditions)})")
-        
+
         # Rating filter
         if min_rating:
-            where_conditions.append("vs.rating IS NOT NULL AND vs.rating <> '' AND CAST(vs.rating AS REAL) >= ?")
+            where_conditions.append(
+                "vs.rating IS NOT NULL AND vs.rating <> '' AND CAST(vs.rating AS REAL) >= ?"
+            )
             params.append(min_rating)
-        
+
         # Year filter
         if year_after:
-            where_conditions.append("vs.year IS NOT NULL AND vs.year <> '' AND CAST(vs.year AS INTEGER) > ?")
+            where_conditions.append(
+                "vs.year IS NOT NULL AND vs.year <> '' AND CAST(vs.year AS INTEGER) > ?"
+            )
             params.append(year_after)
-        
+
         # Build final SQL query
         where_clause = " AND ".join(where_conditions) if where_conditions else "1=1"
-        
+
         if sort_by_rating:
-            order_clause = "ORDER BY CAST(vs.rating AS REAL) DESC, CAST(vs.year AS INTEGER) DESC"
+            order_clause = (
+                "ORDER BY CAST(vs.rating AS REAL) DESC, CAST(vs.year AS INTEGER) DESC"
+            )
         else:
-            order_clause = "ORDER BY CAST(vs.year AS INTEGER) DESC, CAST(vs.rating AS REAL) DESC"
-        
+            order_clause = (
+                "ORDER BY CAST(vs.year AS INTEGER) DESC, CAST(vs.rating AS REAL) DESC"
+            )
+
         sql = f"""
             SELECT vs.name, vs.stream_id, vs.stream_url, vs.year, vs.rating, vs.genre, vc.category_name
             FROM vod_streams vs
@@ -5066,45 +5715,50 @@ if __name__ == '__main__':
             {order_clause}
             LIMIT ?
         """
-        
+
         params.append(limit)
-        
+
         try:
             results = cursor.execute(sql, params).fetchall()
             conn.close()
-            
+
             # Convert to dict format for show_vod_results
             vod_list = []
             for row in results:
                 vod_dict = {
-                    'name': row[0],
-                    'stream_id': row[1], 
-                    'stream_url': row[2],
-                    'year': row[3],
-                    'rating': row[4],
-                    'genre': row[5],
-                    'category_name': row[6]
+                    "name": row[0],
+                    "stream_id": row[1],
+                    "stream_url": row[2],
+                    "year": row[3],
+                    "rating": row[4],
+                    "genre": row[5],
+                    "category_name": row[6],
                 }
                 vod_list.append(vod_dict)
-            
+
             return vod_list
-            
+
         except Exception as e:
             console.print(f"[red]Error getting smart recommendations: {e}[/red]")
             conn.close()
             return []
-    
+
     def streaming_infrastructure_menu(self):
         """Streaming Infrastructure menu - manage Docker services"""
         while True:
             console.clear()
             self.display_header(show_status=False)
-            console.print(Panel.fit("Streaming Infrastructure\n[dim white]Dashboard: http://localhost:8080[/dim white]", style="bright_cyan"))
-            
+            console.print(
+                Panel.fit(
+                    "Streaming Infrastructure\n[dim white]Dashboard: http://localhost:8080[/dim white]",
+                    style="bright_cyan",
+                )
+            )
+
             # Check installation status
             docker_installed = self.is_docker_installed()
             lazydocker_installed = self.is_lazydocker_installed()
-            compose_exists = os.path.exists('docker-compose.yml')
+            compose_exists = os.path.exists("docker-compose.yml")
 
             # Build simplified menu options - Lazydocker handles most management
             options = []
@@ -5117,7 +5771,9 @@ if __name__ == '__main__':
             if docker_installed:
                 running_count = self.get_running_container_count()
                 total_count = 3  # NGINX-RTMP, Jellyfin, Samba
-                options.append(f"Container Status & URLs [{running_count}/{total_count} Running]")
+                options.append(
+                    f"Container Status & URLs [{running_count}/{total_count} Running]"
+                )
 
                 # Start/Stop container options
                 if compose_exists:
@@ -5138,28 +5794,31 @@ if __name__ == '__main__':
                 options.append("Install Docker [Required]")
             if not lazydocker_installed:
                 options.append("Install Lazydocker")
-            
+
             terminal_menu = TerminalMenu(
                 options,
                 title="",
                 menu_cursor="> ",
                 cycle_cursor=True,
-                clear_screen=False
+                clear_screen=False,
             )
-            
+
             choice = terminal_menu.show()
-            
+
             if choice is None:  # ESC pressed
                 break
-                
+
             selected_option = options[choice]
-            
+
             # Handle selections based on option text
             if "Launch Lazydocker" in selected_option:
                 self.launch_lazydocker()
             elif "Container Status & URLs" in selected_option:
                 self.show_container_status_and_urls()
-            elif "Review/Edit docker-compose.yml" in selected_option or "Create docker-compose.yml" in selected_option:
+            elif (
+                "Review/Edit docker-compose.yml" in selected_option
+                or "Create docker-compose.yml" in selected_option
+            ):
                 self.edit_docker_compose()
             elif "Start All Containers" in selected_option:
                 self.start_all_containers()
@@ -5169,33 +5828,35 @@ if __name__ == '__main__':
                 self.install_docker()
             elif "Install Lazydocker" in selected_option:
                 self.install_lazydocker()
-    
+
     def container_management_menu(self):
         """Legacy redirect to new menu"""
         self.streaming_infrastructure_menu()
-    
+
     def show_container_status_and_urls(self):
         """Show combined container status and URLs for both NGINX and Jellyfin"""
         console.clear()
         self.display_header(show_status=False)
         console.print(Panel.fit("Container Status & URLs", style="dim white"))
-        
+
         # Check Docker status first
         docker_status = self.check_docker_status()
         console.print(f"Docker: {docker_status}")
-        
+
         if "[green]" not in docker_status:
-            console.print("\n[red]Docker is not running. Please install/start Docker first.[/red]")
+            console.print(
+                "\n[red]Docker is not running. Please install/start Docker first.[/red]"
+            )
             self.wait_for_escape()
             return
-        
+
         console.print()
-        
+
         # NGINX-RTMP Status
         nginx_status = self.check_container_status()
         console.print(f"[bright_yellow]NGINX-RTMP Container:[/bright_yellow]")
         console.print(f"  Status: {nginx_status}")
-        
+
         if "[green]" in nginx_status:
             console.print("\n  [dim white]📡 RTMP Input:[/dim white]")
             console.print("    • rtmp://localhost:1935/live/[stream_key]")
@@ -5205,14 +5866,14 @@ if __name__ == '__main__':
             console.print("    • Player: http://localhost:8080")
             console.print("    • Stats: http://localhost:8080/stat")
             console.print("    • Admin: http://localhost:8081")
-        
+
         console.print()
-        
+
         # Jellyfin Status
         jellyfin_status = self.check_jellyfin_status()
         console.print(f"[bright_yellow]Jellyfin Media Server:[/bright_yellow]")
         console.print(f"  Status: {jellyfin_status}")
-        
+
         if "[green]" in jellyfin_status:
             console.print("\n  [dim white]🌐 Web Interface:[/dim white]")
             console.print("    • http://localhost:8096")
@@ -5221,18 +5882,19 @@ if __name__ == '__main__':
             console.print("    • Android: Jellyfin (Google Play)")
             console.print("\n  [dim white]📺 TV Apps:[/dim white]")
             console.print("    • Roku, Fire TV, Android TV, Apple TV")
-        
+
         console.print()
-        
+
         # Samba Status
         samba_status = self.check_samba_status()
         console.print(f"[bright_yellow]Samba Network Share:[/bright_yellow]")
         console.print(f"  Status: {samba_status}")
-        
+
         if "[green]" in samba_status:
             console.print("\n  [dim white]📁 Network Shares:[/dim white]")
             try:
                 import socket
+
                 hostname = socket.gethostname()
                 server_ip = socket.gethostbyname(hostname)
                 console.print(f"    • \\\\{server_ip}\\recordings")
@@ -5245,147 +5907,188 @@ if __name__ == '__main__':
             console.print("\n  [dim white]📱 Compatible TV Apps:[/dim white]")
             console.print("    • X-plore File Manager, Total Commander")
             console.print("    • Most built-in TV file managers")
-        
+
         console.print()
-        console.print("[dim white]Tip: Use 'Launch Lazydocker' for detailed container management[/dim white]")
-        
+        console.print(
+            "[dim white]Tip: Use 'Launch Lazydocker' for detailed container management[/dim white]"
+        )
+
         self.wait_for_escape()
-    
+
     def build_and_start_all_containers(self):
         """Build and start all containers with docker-compose"""
         console.clear()
         console.print(Panel.fit("Build & Start All Containers", style="dim white"))
-        
+
         # Check if Docker is available
         docker_status = self.check_docker_status()
         if "[green]" not in docker_status:
             console.print("[red]✗[/red] Docker is not available")
-            console.print("Please install Docker first using the 'Install Docker' option")
+            console.print(
+                "Please install Docker first using the 'Install Docker' option"
+            )
             self.wait_for_escape()
             return
-        
+
         console.print("[bright_yellow]This will build and start:[/bright_yellow]")
         console.print("• NGINX-RTMP Restreaming Server")
         console.print("• Jellyfin Media Server")
         console.print("• Samba Network Share")
         console.print()
-        
+
         try:
             key = input()
-            if key == '\x1b':  # ESC
+            if key == "\x1b":  # ESC
                 return
         except:
             pass
-        
-        console.print("\n[bright_yellow]Building and starting containers...[/bright_yellow]")
+
+        console.print(
+            "\n[bright_yellow]Building and starting containers...[/bright_yellow]"
+        )
         console.print("This may take a few minutes on first run...")
-        
+
         try:
             # Create necessary directories
             os.makedirs("jellyfin/config", exist_ok=True)
             os.makedirs("jellyfin/cache", exist_ok=True)
             os.makedirs("media", exist_ok=True)
-            
+
             # Build and start with docker-compose
             with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
-                transient=True
+                transient=True,
             ) as progress:
                 task = progress.add_task("Building containers...", total=None)
-                
-                result = subprocess.run(['docker-compose', 'build', '--no-cache'], 
-                                      capture_output=True, check=True, timeout=600)
-                
+
+                result = subprocess.run(
+                    ["docker-compose", "build", "--no-cache"],
+                    capture_output=True,
+                    check=True,
+                    timeout=600,
+                )
+
                 progress.update(task, description="Starting containers...")
-                
-                result = subprocess.run(['docker-compose', 'up', '-d'], 
-                                      capture_output=True, check=True, timeout=300)
-            
-            console.print("\n[green]✓[/green] All containers built and started successfully!")
+
+                result = subprocess.run(
+                    ["docker-compose", "up", "-d"],
+                    capture_output=True,
+                    check=True,
+                    timeout=300,
+                )
+
+            console.print(
+                "\n[green]✓[/green] All containers built and started successfully!"
+            )
             console.print("\n[bright_yellow]Access URLs:[/bright_yellow]")
             console.print("• NGINX-RTMP Player: http://localhost:8080")
             console.print("• Jellyfin: http://localhost:8096")
-            console.print("\n[dim white]Tip: Use 'Launch Lazydocker' to monitor containers[/dim white]")
-            
+            console.print(
+                "\n[dim white]Tip: Use 'Launch Lazydocker' to monitor containers[/dim white]"
+            )
+
         except subprocess.CalledProcessError as e:
             console.print(f"\n[red]✗[/red] Error building/starting containers")
             if e.stderr:
                 error_msg = e.stderr.decode()
                 if "docker-compose: command not found" in error_msg:
-                    console.print("Docker Compose is not installed. Please install Docker first.")
+                    console.print(
+                        "Docker Compose is not installed. Please install Docker first."
+                    )
                 else:
                     console.print(f"Error: {error_msg[:500]}...")
         except Exception as e:
             console.print(f"\n[red]✗[/red] Unexpected error: {e}")
-        
+
         self.wait_for_escape()
-    
+
     # The following container menu methods are deprecated - replaced by Launch Lazydocker
     # def nginx_container_menu(self):
     #     """NGINX Container management menu - DEPRECATED"""
     #     pass
-    
-    # def jellyfin_container_menu(self):  
+
+    # def jellyfin_container_menu(self):
     #     """Jellyfin Container management menu - DEPRECATED"""
     #     pass
-    
+
     def check_docker_status(self):
         """Check if Docker is available"""
         try:
-            result = subprocess.run(['docker', '--version'], capture_output=True, check=True, timeout=5)
+            result = subprocess.run(
+                ["docker", "--version"], capture_output=True, check=True, timeout=5
+            )
             return "[green]✓ Available[/green]"
-        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        except (
+            subprocess.CalledProcessError,
+            FileNotFoundError,
+            subprocess.TimeoutExpired,
+        ):
             return "[red]✗ Not available[/red]"
-    
+
     def is_docker_installed(self):
         """Check if Docker is installed (returns boolean)"""
         try:
-            subprocess.run(['docker', '--version'], capture_output=True, check=True, timeout=5)
+            subprocess.run(
+                ["docker", "--version"], capture_output=True, check=True, timeout=5
+            )
             return True
         except:
             return False
-    
+
     def is_lazydocker_installed(self):
         """Check if lazydocker is installed (returns boolean)"""
         try:
-            subprocess.run(['which', 'lazydocker'], capture_output=True, check=True, timeout=5)
+            subprocess.run(
+                ["which", "lazydocker"], capture_output=True, check=True, timeout=5
+            )
             return True
         except:
             return False
-    
+
     def get_running_container_count(self):
         """Get count of running containers (NGINX, Jellyfin, Samba)"""
         count = 0
-        containers = ['iptv-nginx-rtmp', 'iptv-jellyfin', 'iptv-samba']
-        
+        containers = ["iptv-nginx-rtmp", "iptv-jellyfin", "iptv-samba"]
+
         for container in containers:
             try:
-                result = subprocess.run(['docker', 'ps', '--filter', f'name={container}', '--format', '{{.Status}}'],
-                                      capture_output=True, check=True, timeout=5)
-                if 'Up' in result.stdout.decode():
+                result = subprocess.run(
+                    [
+                        "docker",
+                        "ps",
+                        "--filter",
+                        f"name={container}",
+                        "--format",
+                        "{{.Status}}",
+                    ],
+                    capture_output=True,
+                    check=True,
+                    timeout=5,
+                )
+                if "Up" in result.stdout.decode():
                     count += 1
             except:
                 pass
-        
+
         return count
-    
+
     def edit_docker_compose(self):
         """Edit or create docker-compose.yml file"""
         console.clear()
         self.display_header(show_status=False)
         console.print(Panel.fit("Edit docker-compose.yml", style="dim white"))
-        
+
         compose_file = "docker-compose.yml"
-        
+
         # Check if file exists
         if not os.path.exists(compose_file):
             console.print("[yellow]⚠[/yellow] docker-compose.yml not found")
             console.print("Would you like to create a default one? (y/n): ", end="")
-            
+
             try:
                 response = input().strip().lower()
-                if response == 'y':
+                if response == "y":
                     self.create_default_docker_compose()
                 else:
                     console.print("Cancelled")
@@ -5393,25 +6096,26 @@ if __name__ == '__main__':
                     return
             except KeyboardInterrupt:
                 return
-        
+
         # Open in nano editor
         console.print(f"Opening {compose_file} in nano editor...")
         console.print("[dim]Press Ctrl+X to exit, Y to save changes[/dim]")
         console.print()
-        
+
         try:
             # Check for preferred editor
-            editor = os.environ.get('EDITOR', 'nano')
+            editor = os.environ.get("EDITOR", "nano")
             subprocess.run([editor, compose_file])
-            
+
             console.print()
             console.print("[green]✓[/green] Editor closed")
-            
+
             # Validate docker-compose file
             console.print("Validating docker-compose.yml...")
-            result = subprocess.run(['docker-compose', 'config', '-q'], 
-                                  capture_output=True, timeout=10)
-            
+            result = subprocess.run(
+                ["docker-compose", "config", "-q"], capture_output=True, timeout=10
+            )
+
             if result.returncode == 0:
                 console.print("[green]Configuration is valid![/green]")
                 console.print()
@@ -5419,12 +6123,14 @@ if __name__ == '__main__':
             else:
                 console.print("[red]✗[/red] docker-compose.yml has errors:")
                 console.print(result.stderr.decode())
-                
+
         except FileNotFoundError:
-            console.print(f"[red]✗[/red] Editor '{editor}' not found. Install nano or set EDITOR environment variable.")
+            console.print(
+                f"[red]✗[/red] Editor '{editor}' not found. Install nano or set EDITOR environment variable."
+            )
         except Exception as e:
             console.print(f"[red]✗[/red] Error editing file: {e}")
-        
+
         self.wait_for_escape()
 
     def validate_docker_compose(self):
@@ -5433,7 +6139,7 @@ if __name__ == '__main__':
         self.display_header(show_status=False)
         console.print(Panel.fit("Validate docker-compose.yml", style="dim white"))
 
-        if not os.path.exists('docker-compose.yml'):
+        if not os.path.exists("docker-compose.yml"):
             console.print("[red]docker-compose.yml not found[/red]")
             self.wait_for_escape()
             return
@@ -5443,10 +6149,7 @@ if __name__ == '__main__':
 
         try:
             result = subprocess.run(
-                ['docker-compose', 'config'],
-                capture_output=True,
-                text=True,
-                timeout=30
+                ["docker-compose", "config"], capture_output=True, text=True, timeout=30
             )
 
             if result.returncode == 0:
@@ -5462,7 +6165,9 @@ if __name__ == '__main__':
                 console.print("[red]Configuration has errors:[/red]")
                 console.print(result.stderr)
         except FileNotFoundError:
-            console.print("[red]docker-compose not found. Please install Docker Compose.[/red]")
+            console.print(
+                "[red]docker-compose not found. Please install Docker Compose.[/red]"
+            )
         except subprocess.TimeoutExpired:
             console.print("[yellow]Validation timed out[/yellow]")
         except Exception as e:
@@ -5481,9 +6186,9 @@ if __name__ == '__main__':
             console.print("[dim]Running docker-compose up -d --build...[/dim]")
             console.print()
             result = subprocess.run(
-                ['docker-compose', 'up', '-d', '--build'],
+                ["docker-compose", "up", "-d", "--build"],
                 capture_output=False,
-                timeout=300
+                timeout=300,
             )
             console.print()
             if result.returncode == 0:
@@ -5493,7 +6198,9 @@ if __name__ == '__main__':
         except subprocess.TimeoutExpired:
             console.print("[yellow]Operation timed out (5 min limit)[/yellow]")
         except FileNotFoundError:
-            console.print("[red]docker-compose not found. Please install Docker Compose.[/red]")
+            console.print(
+                "[red]docker-compose not found. Please install Docker Compose.[/red]"
+            )
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")
 
@@ -5510,19 +6217,21 @@ if __name__ == '__main__':
             console.print("[dim]Running docker-compose down...[/dim]")
             console.print()
             result = subprocess.run(
-                ['docker-compose', 'down'],
-                capture_output=False,
-                timeout=60
+                ["docker-compose", "down"], capture_output=False, timeout=60
             )
             console.print()
             if result.returncode == 0:
                 console.print("[green]All containers stopped successfully![/green]")
             else:
-                console.print("[yellow]Some containers may not have stopped cleanly[/yellow]")
+                console.print(
+                    "[yellow]Some containers may not have stopped cleanly[/yellow]"
+                )
         except subprocess.TimeoutExpired:
             console.print("[yellow]Operation timed out (60 sec limit)[/yellow]")
         except FileNotFoundError:
-            console.print("[red]docker-compose not found. Please install Docker Compose.[/red]")
+            console.print(
+                "[red]docker-compose not found. Please install Docker Compose.[/red]"
+            )
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")
 
@@ -5586,26 +6295,49 @@ networks:
   default:
     name: iptv-network
 """
-        
+
         try:
-            with open('docker-compose.yml', 'w') as f:
+            with open("docker-compose.yml", "w") as f:
                 f.write(default_compose)
             console.print("[green]✓[/green] Created default docker-compose.yml")
         except Exception as e:
             console.print(f"[red]✗[/red] Failed to create docker-compose.yml: {e}")
-    
+
     def check_container_status(self):
         """Check NGINX container status"""
         try:
-            result = subprocess.run(['docker', 'ps', '--filter', 'name=iptv-nginx-rtmp', '--format', 'table {{.Status}}'], 
-                                  capture_output=True, check=True, timeout=5)
+            result = subprocess.run(
+                [
+                    "docker",
+                    "ps",
+                    "--filter",
+                    "name=iptv-nginx-rtmp",
+                    "--format",
+                    "table {{.Status}}",
+                ],
+                capture_output=True,
+                check=True,
+                timeout=5,
+            )
             output = result.stdout.decode().strip()
-            if 'Up' in output:
+            if "Up" in output:
                 return "[green]✓ Running[/green]"
             else:
                 # Check if container exists but stopped
-                result = subprocess.run(['docker', 'ps', '-a', '--filter', 'name=iptv-nginx-rtmp', '--format', 'table {{.Status}}'], 
-                                      capture_output=True, check=True, timeout=5)
+                result = subprocess.run(
+                    [
+                        "docker",
+                        "ps",
+                        "-a",
+                        "--filter",
+                        "name=iptv-nginx-rtmp",
+                        "--format",
+                        "table {{.Status}}",
+                    ],
+                    capture_output=True,
+                    check=True,
+                    timeout=5,
+                )
                 output = result.stdout.decode().strip()
                 if output and output != "STATUS":
                     return "[yellow]○ Stopped[/yellow]"
@@ -5613,61 +6345,70 @@ networks:
                     return "[dim white]○ Not created[/dim white]"
         except:
             return "[dim white]○ Unknown[/dim white]"
-    
+
     def build_nginx_container(self):
         """Build and start NGINX container"""
         console.clear()
         console.print(Panel.fit("Building NGINX-RTMP Container", style="dim white"))
-        
+
         # Check if Docker is available
         if "[red]" in self.check_docker_status():
-            console.print("[red]✗[/red] Docker is not available. Please install Docker and Docker Compose.")
+            console.print(
+                "[red]✗[/red] Docker is not available. Please install Docker and Docker Compose."
+            )
             console.print("Installation: https://docs.docker.com/get-docker/")
             self.wait_for_escape()
             return
-        
+
         try:
             console.print("Building and starting containers...")
-            
+
             # Use docker-compose to build and start
             process = subprocess.Popen(
-                ['docker-compose', 'up', '-d', '--build'],
+                ["docker-compose", "up", "-d", "--build"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                universal_newlines=True
+                universal_newlines=True,
             )
-            
+
             # Show output in real-time
             for line in process.stdout:
                 console.print(f"[dim white]{line.strip()}[/dim white]")
-            
+
             process.wait()
-            
+
             if process.returncode == 0:
                 console.print("\n[green]✓[/green] Container started successfully!")
                 console.print("\nServer URLs:")
                 console.print("• Web Interface: http://localhost:8080")
                 console.print("• RTMP Input: rtmp://localhost:1935/live/[stream_key]")
-                console.print("• HLS Output: http://localhost:8080/hls/[stream_key].m3u8")
+                console.print(
+                    "• HLS Output: http://localhost:8080/hls/[stream_key].m3u8"
+                )
                 console.print("• Statistics: http://localhost:8080/stat")
             else:
-                console.print(f"[red]✗[/red] Container build failed with exit code: {process.returncode}")
-                
+                console.print(
+                    f"[red]✗[/red] Container build failed with exit code: {process.returncode}"
+                )
+
         except FileNotFoundError:
-            console.print("[red]✗[/red] docker-compose not found. Please install Docker Compose.")
+            console.print(
+                "[red]✗[/red] docker-compose not found. Please install Docker Compose."
+            )
         except Exception as e:
             console.print(f"[red]✗[/red] Error building container: {e}")
-        
+
         self.wait_for_escape()
-    
+
     def stop_nginx_container(self):
         """Stop NGINX container"""
         console.clear()
         console.print(Panel.fit("Stopping NGINX Container", style="dim white"))
-        
+
         try:
-            result = subprocess.run(['docker-compose', 'down'], 
-                                  capture_output=True, check=True, timeout=30)
+            result = subprocess.run(
+                ["docker-compose", "down"], capture_output=True, check=True, timeout=30
+            )
             console.print("[green]✓[/green] Container stopped successfully")
             console.print(result.stdout.decode())
         except subprocess.CalledProcessError as e:
@@ -5677,17 +6418,21 @@ networks:
             console.print("[red]✗[/red] docker-compose not found")
         except Exception as e:
             console.print(f"[red]✗[/red] Error: {e}")
-        
+
         self.wait_for_escape()
-    
+
     def show_container_logs(self):
         """Show container logs"""
         console.clear()
         console.print(Panel.fit("Container Logs", style="dim white"))
-        
+
         try:
-            result = subprocess.run(['docker', 'logs', 'iptv-nginx-rtmp', '--tail', '50'], 
-                                  capture_output=True, check=True, timeout=10)
+            result = subprocess.run(
+                ["docker", "logs", "iptv-nginx-rtmp", "--tail", "50"],
+                capture_output=True,
+                check=True,
+                timeout=10,
+            )
             console.print(result.stdout.decode())
             if result.stderr.decode():
                 console.print(f"[yellow]Stderr:[/yellow] {result.stderr.decode()}")
@@ -5695,51 +6440,55 @@ networks:
             console.print("[yellow]Container not found or not running[/yellow]")
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")
-        
+
         self.wait_for_escape()
-    
+
     def show_container_status(self):
         """Show detailed container status and URLs"""
         console.clear()
         console.print(Panel.fit("Container Status & Information", style="dim white"))
-        
+
         # Container status
         status = self.check_container_status()
         console.print(f"Status: {status}")
-        
+
         if "[green]" not in status:
-            console.print("\nContainer is not running. Use 'Build & Start NGINX Container' first.")
+            console.print(
+                "\nContainer is not running. Use 'Build & Start NGINX Container' first."
+            )
             self.wait_for_escape()
             return
-        
+
         console.print("\n[bright_yellow]📡 RTMP Input Endpoints:[/bright_yellow]")
         console.print("• Main: rtmp://localhost:1935/live/[stream_key]")
         console.print("• Example: rtmp://localhost:1935/live/cnn_news")
-        
+
         console.print("\n[bright_yellow]📺 HLS Output URLs:[/bright_yellow]")
         console.print("• Base: http://localhost:8080/hls/[stream_key].m3u8")
         console.print("• Example: http://localhost:8080/hls/cnn_news.m3u8")
-        
+
         console.print("\n[bright_yellow]🌐 Web Interfaces:[/bright_yellow]")
         console.print("• Main: http://localhost:8080")
         console.print("• Statistics: http://localhost:8080/stat")
         console.print("• Admin: http://localhost:8081")
-        
+
         console.print("\n[bright_yellow]📊 Quality Variants:[/bright_yellow]")
         console.print("• Source: Original quality")
         console.print("• Mid: 854x480 @ 768k")
         console.print("• Low: 480x270 @ 256k")
-        
+
         self.wait_for_escape()
-    
+
     def test_restream_setup(self):
         """Test the restreaming setup"""
         console.clear()
         console.print(Panel.fit("Test Restream Setup", style="dim white"))
-        
+
         # Check if FFmpeg is available
         try:
-            subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True, timeout=5)
+            subprocess.run(
+                ["ffmpeg", "-version"], capture_output=True, check=True, timeout=5
+            )
             console.print("[green]✓[/green] FFmpeg is available")
         except:
             console.print("[red]✗[/red] FFmpeg not found. Install with:")
@@ -5747,103 +6496,128 @@ networks:
             console.print("macOS: brew install ffmpeg")
             self.wait_for_escape()
             return
-        
+
         # Check container status
         if "[green]" not in self.check_container_status():
             console.print("[red]✗[/red] NGINX container is not running")
-            console.print("Start the container first using 'Build & Start NGINX Container'")
+            console.print(
+                "Start the container first using 'Build & Start NGINX Container'"
+            )
             self.wait_for_escape()
             return
-        
+
         console.print("\n[bright_yellow]Testing with sample stream...[/bright_yellow]")
-        console.print("This will test the restream setup with a color bar test pattern.")
+        console.print(
+            "This will test the restream setup with a color bar test pattern."
+        )
         console.print("Press Enter to start test, or Escape to cancel...")
-        
+
         try:
             key = input()
-            if key == '\x1b':  # ESC
+            if key == "\x1b":  # ESC
                 return
         except:
             pass
-        
+
         try:
             # Create a test stream with FFmpeg
             console.print("Starting test stream...")
             test_cmd = [
-                'ffmpeg',
-                '-f', 'lavfi',
-                '-i', 'testsrc2=size=640x480:rate=1',
-                '-f', 'lavfi', 
-                '-i', 'sine=frequency=1000',
-                '-c:v', 'libx264',
-                '-preset', 'ultrafast',
-                '-tune', 'zerolatency', 
-                '-c:a', 'aac',
-                '-f', 'flv',
-                '-t', '10',  # 10 second test
-                'rtmp://localhost:1935/live/test_stream'
+                "ffmpeg",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc2=size=640x480:rate=1",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=1000",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-tune",
+                "zerolatency",
+                "-c:a",
+                "aac",
+                "-f",
+                "flv",
+                "-t",
+                "10",  # 10 second test
+                "rtmp://localhost:1935/live/test_stream",
             ]
-            
-            process = subprocess.Popen(test_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+            process = subprocess.Popen(
+                test_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
             console.print("Test stream running for 10 seconds...")
-            console.print("You can view it at: http://localhost:8080/hls/test_stream.m3u8")
-            
+            console.print(
+                "You can view it at: http://localhost:8080/hls/test_stream.m3u8"
+            )
+
             stdout, stderr = process.communicate(timeout=15)
-            
+
             if process.returncode == 0:
                 console.print("[green]✓[/green] Test stream completed successfully!")
             else:
                 console.print(f"[yellow]⚠[/yellow] Test completed with warnings")
                 if stderr:
                     console.print(f"Details: {stderr.decode()[:200]}...")
-                    
+
         except subprocess.TimeoutExpired:
             process.kill()
             console.print("[yellow]⚠[/yellow] Test stream timed out (this is normal)")
         except Exception as e:
             console.print(f"[red]✗[/red] Test failed: {e}")
-        
+
         self.wait_for_escape()
-    
+
     def download_full(self):
         """Download full database"""
         console.print("\nStarting full database download...")
-        success = self._download_and_create_db([
-            "account_info", "live_categories", "live_streams",
-            "vod_categories", "vod_streams", "series_categories", "series_streams"
-        ])
-        
+        success = self._download_and_create_db(
+            [
+                "account_info",
+                "live_categories",
+                "live_streams",
+                "vod_categories",
+                "vod_streams",
+                "series_categories",
+                "series_streams",
+            ]
+        )
+
         if success:
             console.print("Database download completed successfully!")
         else:
             console.print("Database download failed!")
-        
+
         self.wait_for_escape()
-    
+
     def download_live_only(self):
         """Download live streams only"""
         console.print("\nUpdating live streams...")
         success = self._download_and_create_db(["live_categories", "live_streams"])
-        
+
         if success:
             console.print("Live streams updated successfully!")
         else:
             console.print("Live streams update failed!")
-        
+
         self.wait_for_escape()
-    
+
     def download_vod_only(self):
         """Download VOD content only"""
         console.print("\nDownloading VOD content...")
         success = self._download_and_create_db(["vod_categories", "vod_streams"])
-        
+
         if success:
             console.print("VOD content downloaded successfully!")
         else:
             console.print("VOD content download failed!")
-        
+
         self.wait_for_escape()
-    
+
     def _download_and_create_db(self, components):
         """Download specified components and update database"""
         try:
@@ -5852,15 +6626,16 @@ networks:
                 TextColumn("[progress.description]{task.description}"),
                 BarColumn(),
                 TaskProgressColumn(),
-                console=console
+                console=console,
             ) as progress:
-                
-                main_task = progress.add_task("Downloading...", total=len(components) + 1)
-                
+                main_task = progress.add_task(
+                    "Downloading...", total=len(components) + 1
+                )
+
                 # Download each component
                 for component in components:
                     task = progress.add_task(f"Downloading {component}", total=1)
-                    
+
                     if component == "account_info":
                         success = self._download_account_info()
                     elif component == "live_categories":
@@ -5877,13 +6652,13 @@ networks:
                         success = self._download_series_streams()
                     else:
                         success = False
-                    
+
                     if not success:
                         return False
-                    
+
                     progress.update(task, completed=1)
                     progress.advance(main_task)
-                
+
                 # Create/update database
                 db_task = progress.add_task("Creating database", total=1)
                 success = self._create_database()
@@ -5892,16 +6667,18 @@ networks:
 
             # EPG is now lazy-loaded on demand, not during update
             return success
-                
+
         except Exception as e:
             console.print(f"Download error: {e}")
             return False
-    
+
     def _download_account_info(self):
         """Download account info"""
         try:
             url = f"{self.server}/player_api.php?username={self.username}&password={self.password}"
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
             response = requests.get(url, headers=headers, timeout=30)
             if response.status_code == 200:
                 data = response.json()
@@ -5920,26 +6697,32 @@ networks:
         except Exception as e:
             console.print(f"[red]✗[/red] Unexpected error: {e}")
             return False
-    
+
     def _download_live_categories(self):
         """Download live categories"""
         try:
             url = f"{self.server}/player_api.php?username={self.username}&password={self.password}&action=get_live_categories"
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
             response = requests.get(url, headers=headers, timeout=30)
             if response.status_code == 200:
-                with open(os.path.join(self.data_dir, "live_categories.json"), "w") as f:
+                with open(
+                    os.path.join(self.data_dir, "live_categories.json"), "w"
+                ) as f:
                     json.dump(response.json(), f, indent=2)
                 return True
         except:
             pass
         return False
-    
+
     def _download_live_streams(self):
         """Download live streams"""
         try:
             url = f"{self.server}/player_api.php?username={self.username}&password={self.password}&action=get_live_streams"
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
             response = requests.get(url, headers=headers, timeout=120)
             if response.status_code == 200:
                 with open(os.path.join(self.data_dir, "live_streams.json"), "w") as f:
@@ -5948,12 +6731,14 @@ networks:
         except:
             pass
         return False
-    
+
     def _download_vod_categories(self):
         """Download VOD categories"""
         try:
             url = f"{self.server}/player_api.php?username={self.username}&password={self.password}&action=get_vod_categories"
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
             response = requests.get(url, headers=headers, timeout=30)
             if response.status_code == 200:
                 with open(os.path.join(self.data_dir, "vod_categories.json"), "w") as f:
@@ -5962,12 +6747,14 @@ networks:
         except:
             pass
         return False
-    
+
     def _download_vod_streams(self):
         """Download VOD streams"""
         try:
             url = f"{self.server}/player_api.php?username={self.username}&password={self.password}&action=get_vod_streams"
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
             response = requests.get(url, headers=headers, timeout=120)
             if response.status_code == 200:
                 with open(os.path.join(self.data_dir, "vod_streams.json"), "w") as f:
@@ -5976,15 +6763,19 @@ networks:
         except:
             pass
         return False
-    
+
     def _download_series_categories(self):
         """Download series categories"""
         try:
             url = f"{self.server}/player_api.php?username={self.username}&password={self.password}&action=get_series_categories"
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
             response = requests.get(url, headers=headers, timeout=30)
             if response.status_code == 200:
-                with open(os.path.join(self.data_dir, "series_categories.json"), "w") as f:
+                with open(
+                    os.path.join(self.data_dir, "series_categories.json"), "w"
+                ) as f:
                     json.dump(response.json(), f, indent=2)
                 return True
         except:
@@ -5995,7 +6786,9 @@ networks:
         """Download series streams (TV shows)"""
         try:
             url = f"{self.server}/player_api.php?username={self.username}&password={self.password}&action=get_series"
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
             response = requests.get(url, headers=headers, timeout=120)
             if response.status_code == 200:
                 with open(os.path.join(self.data_dir, "series_streams.json"), "w") as f:
@@ -6019,9 +6812,13 @@ networks:
                 conn.close()
                 return True
 
-            console.print(f"\n[cyan]Downloading EPG for {len(channels)} channels...[/cyan]")
+            console.print(
+                f"\n[cyan]Downloading EPG for {len(channels)} channels...[/cyan]"
+            )
 
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
             success_count = 0
             error_count = 0
 
@@ -6030,7 +6827,7 @@ networks:
                 TextColumn("[progress.description]{task.description}"),
                 BarColumn(),
                 TaskProgressColumn(),
-                console=console
+                console=console,
             ) as progress:
                 task = progress.add_task("Downloading EPG", total=len(channels))
 
@@ -6041,19 +6838,38 @@ networks:
 
                         if response.status_code == 200:
                             epg_data = response.json()
-                            listings = epg_data.get('epg_listings', []) if isinstance(epg_data, dict) else []
+                            listings = (
+                                epg_data.get("epg_listings", [])
+                                if isinstance(epg_data, dict)
+                                else []
+                            )
 
                             for listing in listings:
                                 try:
-                                    start_time, end_time = self._extract_epg_window(listing)
-                                    title = self._decode_base64_if_needed(listing.get('title', '')) or listing.get('title', '')
-                                    description = self._decode_base64_if_needed(listing.get('description', '')) or listing.get('description', '')
+                                    start_time, end_time = self._extract_epg_window(
+                                        listing
+                                    )
+                                    title = self._decode_base64_if_needed(
+                                        listing.get("title", "")
+                                    ) or listing.get("title", "")
+                                    description = self._decode_base64_if_needed(
+                                        listing.get("description", "")
+                                    ) or listing.get("description", "")
 
                                     if start_time and end_time:
-                                        cursor.execute('''
+                                        cursor.execute(
+                                            """
                                             INSERT OR REPLACE INTO epg (stream_id, start_time, end_time, title, description)
                                             VALUES (?, ?, ?, ?, ?)
-                                        ''', (stream_id, start_time, end_time, title, description))
+                                        """,
+                                            (
+                                                stream_id,
+                                                start_time,
+                                                end_time,
+                                                title,
+                                                description,
+                                            ),
+                                        )
                                 except:
                                     pass
 
@@ -6067,7 +6883,9 @@ networks:
             conn.commit()
             conn.close()
 
-            console.print(f"[green]EPG downloaded: {success_count} channels with data, {error_count} errors[/green]")
+            console.print(
+                f"[green]EPG downloaded: {success_count} channels with data, {error_count} errors[/green]"
+            )
             return True
 
         except Exception as e:
@@ -6080,12 +6898,12 @@ networks:
             # Remove old database for fresh creation
             if os.path.exists(self.db_path):
                 os.remove(self.db_path)
-            
+
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
+
             # Create tables
-            cursor.execute('''
+            cursor.execute("""
                 CREATE TABLE live_streams (
                     stream_id INTEGER PRIMARY KEY,
                     name TEXT,
@@ -6094,9 +6912,9 @@ networks:
                     category_name TEXT,
                     epg_channel_id TEXT
                 )
-            ''')
-            
-            cursor.execute('''
+            """)
+
+            cursor.execute("""
                 CREATE TABLE vod_streams (
                     stream_id INTEGER PRIMARY KEY,
                     name TEXT,
@@ -6106,26 +6924,26 @@ networks:
                     rating REAL,
                     genre TEXT
                 )
-            ''')
-            
-            cursor.execute('''
+            """)
+
+            cursor.execute("""
                 CREATE TABLE vod_categories (
                     category_id INTEGER PRIMARY KEY,
                     category_name TEXT,
                     parent_id INTEGER
                 )
-            ''')
-            
-            cursor.execute('''
+            """)
+
+            cursor.execute("""
                 CREATE TABLE account_info (
                     username TEXT,
                     status TEXT,
                     exp_date INTEGER,
                     max_connections TEXT
                 )
-            ''')
+            """)
 
-            cursor.execute('''
+            cursor.execute("""
                 CREATE TABLE epg (
                     stream_id INTEGER,
                     start_time INTEGER,
@@ -6135,9 +6953,9 @@ networks:
                     cached_at INTEGER,
                     PRIMARY KEY (stream_id, start_time)
                 )
-            ''')
+            """)
 
-            cursor.execute('''
+            cursor.execute("""
                 CREATE TABLE series_streams (
                     series_id INTEGER PRIMARY KEY,
                     name TEXT,
@@ -6149,9 +6967,9 @@ networks:
                     rating REAL,
                     category_name TEXT
                 )
-            ''')
+            """)
 
-            cursor.execute('''
+            cursor.execute("""
                 CREATE TABLE series_episodes (
                     episode_id TEXT PRIMARY KEY,
                     series_id INTEGER,
@@ -6169,29 +6987,33 @@ networks:
                     direct_source TEXT,
                     last_cached_at INTEGER
                 )
-            ''')
+            """)
 
             # Load data from JSON files
             self._load_data_from_json(cursor)
-            
+
             # Create indexes
             cursor.execute("CREATE INDEX idx_live_name ON live_streams(name)")
             cursor.execute("CREATE INDEX idx_vod_name ON vod_streams(name)")
-            cursor.execute("CREATE INDEX idx_vod_cat_name ON vod_categories(category_name)")
+            cursor.execute(
+                "CREATE INDEX idx_vod_cat_name ON vod_categories(category_name)"
+            )
             cursor.execute("CREATE INDEX idx_epg_stream ON epg(stream_id)")
             cursor.execute("CREATE INDEX idx_epg_time ON epg(start_time, end_time)")
             cursor.execute("CREATE INDEX idx_series_name ON series_streams(name)")
-            cursor.execute("CREATE INDEX idx_series_episode_lookup ON series_episodes(series_id, season_number, episode_num)")
-            
+            cursor.execute(
+                "CREATE INDEX idx_series_episode_lookup ON series_episodes(series_id, season_number, episode_num)"
+            )
+
             conn.commit()
             conn.close()
-            
+
             return True
-            
+
         except Exception as e:
             console.print(f"Database creation error: {e}")
             return False
-    
+
     def _load_data_from_json(self, cursor):
         """Load data from JSON files into database"""
         # Load account info
@@ -6199,22 +7021,36 @@ networks:
         if os.path.exists(account_info_path):
             with open(account_info_path) as f:
                 data = json.load(f)
-                user_info = data.get('user_info', {})
-                cursor.execute('''
+                user_info = data.get("user_info", {})
+                cursor.execute(
+                    """
                     INSERT INTO account_info VALUES (?, ?, ?, ?)
-                ''', (user_info.get('username'), user_info.get('status'),
-                     user_info.get('exp_date'), user_info.get('max_connections')))
-        
+                """,
+                    (
+                        user_info.get("username"),
+                        user_info.get("status"),
+                        user_info.get("exp_date"),
+                        user_info.get("max_connections"),
+                    ),
+                )
+
         # Load VOD categories
         vod_categories_path = os.path.join(self.data_dir, "vod_categories.json")
         if os.path.exists(vod_categories_path):
             with open(vod_categories_path) as f:
                 vod_cats = json.load(f)
                 for cat in vod_cats:
-                    cursor.execute('''
+                    cursor.execute(
+                        """
                         INSERT INTO vod_categories VALUES (?, ?, ?)
-                    ''', (cat.get('category_id'), cat.get('category_name'), cat.get('parent_id')))
-        
+                    """,
+                        (
+                            cat.get("category_id"),
+                            cat.get("category_name"),
+                            cat.get("parent_id"),
+                        ),
+                    )
+
         # Load live categories map
         categories = {}
         live_categories_path = os.path.join(self.data_dir, "live_categories.json")
@@ -6222,8 +7058,8 @@ networks:
             with open(live_categories_path) as f:
                 cats = json.load(f)
                 for cat in cats:
-                    categories[cat.get('category_id')] = cat.get('category_name')
-        
+                    categories[cat.get("category_id")] = cat.get("category_name")
+
         # Load live streams
         live_streams_path = os.path.join(self.data_dir, "live_streams.json")
         if os.path.exists(live_streams_path):
@@ -6231,28 +7067,45 @@ networks:
                 streams = json.load(f)
                 for stream in streams:
                     stream_url = f"{self.server}/live/{self.username}/{self.password}/{stream.get('stream_id')}.ts"
-                    cat_name = categories.get(stream.get('category_id'), 'Unknown')
-                    
-                    cursor.execute('''
+                    cat_name = categories.get(stream.get("category_id"), "Unknown")
+
+                    cursor.execute(
+                        """
                         INSERT INTO live_streams VALUES (?, ?, ?, ?, ?, ?)
-                    ''', (stream.get('stream_id'), stream.get('name'),
-                         stream.get('category_id'), stream_url, cat_name,
-                         stream.get('epg_channel_id', '')))
-        
+                    """,
+                        (
+                            stream.get("stream_id"),
+                            stream.get("name"),
+                            stream.get("category_id"),
+                            stream_url,
+                            cat_name,
+                            stream.get("epg_channel_id", ""),
+                        ),
+                    )
+
         # Load VOD streams
         vod_streams_path = os.path.join(self.data_dir, "vod_streams.json")
         if os.path.exists(vod_streams_path):
             with open(vod_streams_path) as f:
                 streams = json.load(f)
                 for stream in streams:
-                    container_ext = stream.get('container_extension', 'mp4')
+                    container_ext = stream.get("container_extension", "mp4")
                     stream_url = f"{self.server}/movie/{self.username}/{self.password}/{stream.get('stream_id')}.{container_ext}"
 
-                    cursor.execute('''
+                    cursor.execute(
+                        """
                         INSERT INTO vod_streams VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ''', (stream.get('stream_id'), stream.get('name'),
-                         stream.get('category_id'), stream_url,
-                         stream.get('year'), stream.get('rating'), stream.get('genre')))
+                    """,
+                        (
+                            stream.get("stream_id"),
+                            stream.get("name"),
+                            stream.get("category_id"),
+                            stream_url,
+                            stream.get("year"),
+                            stream.get("rating"),
+                            stream.get("genre"),
+                        ),
+                    )
 
         # Load series categories map
         series_categories = {}
@@ -6261,7 +7114,7 @@ networks:
             with open(series_categories_path) as f:
                 cats = json.load(f)
                 for cat in cats:
-                    series_categories[cat.get('category_id')] = cat.get('category_name')
+                    series_categories[cat.get("category_id")] = cat.get("category_name")
 
         # Load series streams (TV shows)
         series_streams_path = os.path.join(self.data_dir, "series_streams.json")
@@ -6269,22 +7122,45 @@ networks:
             with open(series_streams_path) as f:
                 series = json.load(f)
                 for show in series:
-                    cat_name = series_categories.get(str(show.get('category_id')), 'Unknown')
+                    cat_name = series_categories.get(
+                        str(show.get("category_id")), "Unknown"
+                    )
 
-                    cursor.execute('''
+                    cursor.execute(
+                        """
                         INSERT INTO series_streams VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (show.get('series_id'), show.get('name'),
-                         show.get('category_id'), show.get('cover'),
-                         show.get('plot'), show.get('cast'),
-                         show.get('genre'), show.get('rating'), cat_name))
+                    """,
+                        (
+                            show.get("series_id"),
+                            show.get("name"),
+                            show.get("category_id"),
+                            show.get("cover"),
+                            show.get("plot"),
+                            show.get("cast"),
+                            show.get("genre"),
+                            show.get("rating"),
+                            cat_name,
+                        ),
+                    )
 
     def check_jellyfin_status(self):
         """Check Jellyfin container status"""
         try:
-            result = subprocess.run(['docker', 'ps', '--filter', 'name=iptv-jellyfin', '--format', 'table {{.Status}}'], 
-                                  capture_output=True, check=True, timeout=5)
+            result = subprocess.run(
+                [
+                    "docker",
+                    "ps",
+                    "--filter",
+                    "name=iptv-jellyfin",
+                    "--format",
+                    "table {{.Status}}",
+                ],
+                capture_output=True,
+                check=True,
+                timeout=5,
+            )
             if result.stdout.strip():
-                lines = result.stdout.decode().strip().split('\n')
+                lines = result.stdout.decode().strip().split("\n")
                 if len(lines) > 1:  # Skip header
                     status = lines[1].strip()
                     if "Up" in status:
@@ -6295,14 +7171,25 @@ networks:
                     return "[dim white]○ Not created[/dim white]"
         except:
             return "[dim white]○ Unknown[/dim white]"
-    
+
     def check_samba_status(self):
         """Check Samba container status"""
         try:
-            result = subprocess.run(['docker', 'ps', '--filter', 'name=iptv-samba', '--format', 'table {{.Status}}'], 
-                                  capture_output=True, check=True, timeout=5)
+            result = subprocess.run(
+                [
+                    "docker",
+                    "ps",
+                    "--filter",
+                    "name=iptv-samba",
+                    "--format",
+                    "table {{.Status}}",
+                ],
+                capture_output=True,
+                check=True,
+                timeout=5,
+            )
             if result.stdout.strip():
-                lines = result.stdout.decode().strip().split('\n')
+                lines = result.stdout.decode().strip().split("\n")
                 if len(lines) > 1:  # Skip header
                     status = lines[1].strip()
                     if "Up" in status:
@@ -6313,43 +7200,51 @@ networks:
                     return "[dim white]○ Not created[/dim white]"
         except:
             return "[dim white]○ Unknown[/dim white]"
-    
+
     def build_jellyfin_container(self):
         """Build and start Jellyfin container"""
         console.clear()
-        console.print(Panel.fit("Building Jellyfin Media Server Container", style="dim white"))
-        
+        console.print(
+            Panel.fit("Building Jellyfin Media Server Container", style="dim white")
+        )
+
         # Check if Docker is available
         docker_status = self.check_docker_status()
         if "[green]" not in docker_status:
             console.print("[red]✗[/red] Docker is not available")
             self.wait_for_escape()
             return
-        
+
         console.print("Building and starting Jellyfin container...")
         console.print("This may take a few minutes...")
-        
+
         try:
             # Create necessary directories
             os.makedirs("jellyfin/config", exist_ok=True)
             os.makedirs("jellyfin/cache", exist_ok=True)
             os.makedirs("media", exist_ok=True)
-            
+
             # Build and start only Jellyfin service
-            result = subprocess.run(['docker-compose', 'up', '-d', 'jellyfin'], 
-                                  capture_output=True, check=True, timeout=300)
-            
+            result = subprocess.run(
+                ["docker-compose", "up", "-d", "jellyfin"],
+                capture_output=True,
+                check=True,
+                timeout=300,
+            )
+
             console.print("[green]✓[/green] Jellyfin container started successfully!")
             console.print("\nContainer Information:")
             console.print("• Web Interface: http://localhost:8096")
             console.print("• Setup will be required on first run")
             console.print("• Media path: /media/library (maps to ./media)")
-            console.print("• Recordings path: /media/recordings (maps to ./nginx/recordings)")
-            
+            console.print(
+                "• Recordings path: /media/recordings (maps to ./nginx/recordings)"
+            )
+
             console.print(f"\n[dim]Docker output:[/dim]\n{result.stdout.decode()}")
             if result.stderr.decode():
                 console.print(f"[dim]Stderr:[/dim] {result.stderr.decode()}")
-                
+
         except subprocess.CalledProcessError as e:
             console.print(f"[red]Error building container: {e}[/red]")
             if e.stdout:
@@ -6358,34 +7253,42 @@ networks:
                 console.print(f"Stderr: {e.stderr.decode()}")
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")
-        
+
         self.wait_for_escape()
-    
+
     def stop_jellyfin_container(self):
         """Stop Jellyfin container"""
         console.clear()
         console.print(Panel.fit("Stopping Jellyfin Container", style="dim white"))
-        
+
         try:
-            result = subprocess.run(['docker-compose', 'stop', 'jellyfin'], 
-                                  capture_output=True, check=True, timeout=30)
+            result = subprocess.run(
+                ["docker-compose", "stop", "jellyfin"],
+                capture_output=True,
+                check=True,
+                timeout=30,
+            )
             console.print("[green]✓[/green] Jellyfin container stopped successfully!")
             console.print(f"\n[dim]Docker output:[/dim]\n{result.stdout.decode()}")
         except subprocess.CalledProcessError as e:
             console.print(f"[red]Error stopping container: {e}[/red]")
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")
-        
+
         self.wait_for_escape()
-    
+
     def show_jellyfin_logs(self):
         """Show Jellyfin container logs"""
         console.clear()
         console.print(Panel.fit("Jellyfin Container Logs", style="dim white"))
-        
+
         try:
-            result = subprocess.run(['docker', 'logs', 'iptv-jellyfin', '--tail', '50'], 
-                                  capture_output=True, check=True, timeout=10)
+            result = subprocess.run(
+                ["docker", "logs", "iptv-jellyfin", "--tail", "50"],
+                capture_output=True,
+                check=True,
+                timeout=10,
+            )
             console.print(result.stdout.decode())
             if result.stderr.decode():
                 console.print(f"[yellow]Stderr:[/yellow] {result.stderr.decode()}")
@@ -6393,69 +7296,83 @@ networks:
             console.print("[yellow]Container not found or not running[/yellow]")
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")
-        
+
         self.wait_for_escape()
-    
+
     def show_jellyfin_status(self):
         """Show detailed Jellyfin container status and URLs"""
         console.clear()
-        console.print(Panel.fit("Jellyfin Container Status & Information", style="dim white"))
-        
+        console.print(
+            Panel.fit("Jellyfin Container Status & Information", style="dim white")
+        )
+
         # Container status
         status = self.check_jellyfin_status()
         console.print(f"Status: {status}")
-        
+
         if "[green]" not in status:
-            console.print("\nContainer is not running. Use 'Build & Start Jellyfin Container' first.")
+            console.print(
+                "\nContainer is not running. Use 'Build & Start Jellyfin Container' first."
+            )
             self.wait_for_escape()
             return
-        
+
         # Show URLs and information
-        jellyfin_port = os.getenv('JELLYFIN_HTTP_PORT', '8096')
-        jellyfin_https_port = os.getenv('JELLYFIN_HTTPS_PORT', '8920')
-        
+        jellyfin_port = os.getenv("JELLYFIN_HTTP_PORT", "8096")
+        jellyfin_https_port = os.getenv("JELLYFIN_HTTPS_PORT", "8920")
+
         console.print("\n[bright_yellow]Access Information:[/bright_yellow]")
         console.print(f"• Web Interface: http://localhost:{jellyfin_port}")
         console.print(f"• HTTPS Interface: https://localhost:{jellyfin_https_port}")
         console.print(f"• Network Access: http://YOUR_SERVER_IP:{jellyfin_port}")
-        
+
         console.print("\n[bright_yellow]Media Paths:[/bright_yellow]")
-        media_path = os.getenv('JELLYFIN_MEDIA_PATH', './media')
+        media_path = os.getenv("JELLYFIN_MEDIA_PATH", "./media")
         console.print(f"• Media Library: {os.path.abspath(media_path)}")
         console.print(f"• NGINX Recordings: {os.path.abspath('./nginx/recordings')}")
-        
+
         console.print("\n[bright_yellow]First Time Setup:[/bright_yellow]")
         console.print("1. Open web interface in browser")
         console.print("2. Create admin user account")
         console.print("3. Add media libraries:")
         console.print("   - Library: /media/library (your USB drive)")
         console.print("   - Recordings: /media/recordings (NGINX recordings)")
-        
+
         self.wait_for_escape()
-    
+
     def build_and_start_samba_container(self):
         """Build and start Samba network share container"""
         console.clear()
-        console.print(Panel.fit("Building Samba Network Share Container", style="dim white"))
-        
+        console.print(
+            Panel.fit("Building Samba Network Share Container", style="dim white")
+        )
+
         # Check if Docker is available
         docker_status = self.check_docker_status()
         if "[green]" not in docker_status:
             console.print("[red]✗[/red] Docker is not available")
             self.wait_for_escape()
             return
-        
+
         console.print("Building and starting Samba container...")
-        console.print("This will create network shares accessible from your TV devices.\n")
-        
+        console.print(
+            "This will create network shares accessible from your TV devices.\n"
+        )
+
         try:
             # Build and start using docker-compose
-            result = subprocess.run(['docker-compose', 'up', '-d', '--build', 'samba'], 
-                                  capture_output=True, check=True, timeout=120)
-            
-            console.print("[green]✓[/green] Samba container built and started successfully!")
+            result = subprocess.run(
+                ["docker-compose", "up", "-d", "--build", "samba"],
+                capture_output=True,
+                check=True,
+                timeout=120,
+            )
+
+            console.print(
+                "[green]✓[/green] Samba container built and started successfully!"
+            )
             console.print(f"\n[dim]Docker output:[/dim]\n{result.stdout.decode()}")
-            
+
             # Show connection info
             console.print("\n[bright_yellow]Network Share Information:[/bright_yellow]")
             console.print("• Share Name: \\\\YOUR_SERVER_IP\\recordings")
@@ -6466,20 +7383,22 @@ networks:
             console.print("2. Add network location > SMB/CIFS")
             console.print("3. Enter your server IP address")
             console.print("4. Select the share you want to use for recordings")
-            
+
         except subprocess.CalledProcessError as e:
             console.print(f"[red]Error building container: {e}[/red]")
-            console.print(f"[red]Error output: {e.stderr.decode() if e.stderr else 'No error output'}[/red]")
+            console.print(
+                f"[red]Error output: {e.stderr.decode() if e.stderr else 'No error output'}[/red]"
+            )
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")
-        
+
         self.wait_for_escape()
-    
+
     def configure_samba_users(self):
         """Configure Samba users and shares"""
         console.clear()
         console.print(Panel.fit("Samba Configuration Information", style="dim white"))
-        
+
         # Check if Samba container is running
         samba_status = self.check_samba_status()
         if "[green]" not in samba_status:
@@ -6487,114 +7406,133 @@ networks:
             console.print("Please build and start the Samba container first.")
             self.wait_for_escape()
             return
-        
-        console.print("[bright_green]✓[/bright_green] Current configuration: Guest access (no password required)")
-        console.print("This is perfect for TV devices - they can connect immediately.\n")
-        
+
+        console.print(
+            "[bright_green]✓[/bright_green] Current configuration: Guest access (no password required)"
+        )
+        console.print(
+            "This is perfect for TV devices - they can connect immediately.\n"
+        )
+
         console.print("[bright_yellow]Current Shares:[/bright_yellow]")
         console.print("• recordings → ./nginx/recordings (for TV recording)")
-        console.print("• media → ./media (your media library)")  
+        console.print("• media → ./media (your media library)")
         console.print("• downloads → ./downloads (downloaded content)\n")
-        
+
         console.print("[bright_yellow]To Modify Configuration:[/bright_yellow]")
-        console.print("All Samba settings are configured in: [cyan]docker-compose.yml[/cyan]")
-        console.print("\n[dim white]To change folders or add authentication:[/dim white]")
+        console.print(
+            "All Samba settings are configured in: [cyan]docker-compose.yml[/cyan]"
+        )
+        console.print(
+            "\n[dim white]To change folders or add authentication:[/dim white]"
+        )
         console.print("1. Edit the 'samba' service section in docker-compose.yml")
         console.print("2. Modify volumes to point to your desired folders")
-        console.print("3. Add -u \"username;password\" to command for authentication")
+        console.print('3. Add -u "username;password" to command for authentication')
         console.print("4. Rebuild container: docker-compose up -d --build samba")
-        console.print("\n[dim white]Current setup is optimal for TV device compatibility.[/dim white]")
-        
+        console.print(
+            "\n[dim white]Current setup is optimal for TV device compatibility.[/dim white]"
+        )
+
         self.wait_for_escape()
-    
+
     def show_samba_container_status(self):
         """Show detailed Samba container status and connection info"""
         console.clear()
         console.print(Panel.fit("Samba Container Status", style="dim white"))
-        
+
         # Show container status
         samba_status = self.check_samba_status()
         console.print(f"Samba Container: {samba_status}")
-        
+
         if "[green]" not in samba_status:
             console.print("\n[red]Container is not running.[/red]")
             self.wait_for_escape()
             return
-        
+
         console.print("\n[bright_yellow]Network Shares Available:[/bright_yellow]")
         console.print("• recordings - For TV device recordings")
         console.print("• media - General media library")
         console.print("• downloads - Downloaded VOD content")
-        
+
         console.print("\n[bright_yellow]Connection Information:[/bright_yellow]")
         try:
             # Get server IP
             import socket
+
             hostname = socket.gethostname()
             server_ip = socket.gethostbyname(hostname)
             console.print(f"• Server IP: {server_ip}")
             console.print(f"• SMB Shares: \\\\{server_ip}\\[share_name]")
         except:
             console.print("• Server IP: [Use your server's IP address]")
-        
+
         console.print("\n[bright_yellow]Supported TV Apps:[/bright_yellow]")
         console.print("• X-plore File Manager")
         console.print("• Total Commander")
         console.print("• Solid Explorer")
         console.print("• Most built-in TV file managers")
-        
+
         self.wait_for_escape()
-    
+
     def stop_samba_container(self):
         """Stop Samba container"""
         console.clear()
         console.print(Panel.fit("Stopping Samba Container", style="dim white"))
-        
+
         try:
-            result = subprocess.run(['docker-compose', 'stop', 'samba'], 
-                                  capture_output=True, check=True, timeout=30)
+            result = subprocess.run(
+                ["docker-compose", "stop", "samba"],
+                capture_output=True,
+                check=True,
+                timeout=30,
+            )
             console.print("[green]✓[/green] Samba container stopped successfully!")
             console.print(f"\n[dim]Docker output:[/dim]\n{result.stdout.decode()}")
         except subprocess.CalledProcessError as e:
             console.print(f"[red]Error stopping container: {e}[/red]")
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")
-        
+
         self.wait_for_escape()
-    
+
     def start_all_containers(self):
         """Start all containers"""
         console.clear()
         console.print(Panel.fit("Starting All Containers", style="dim white"))
-        
+
         # Check if Docker is available
         docker_status = self.check_docker_status()
         if "[green]" not in docker_status:
             console.print("[red]✗[/red] Docker is not available")
             self.wait_for_escape()
             return
-        
+
         console.print("Starting all containers...")
         console.print("This may take a few minutes...")
-        
+
         try:
             # Create necessary directories
             os.makedirs("jellyfin/config", exist_ok=True)
             os.makedirs("jellyfin/cache", exist_ok=True)
             os.makedirs("media", exist_ok=True)
-            
-            result = subprocess.run(['docker-compose', 'up', '-d'], 
-                                  capture_output=True, check=True, timeout=300)
-            
+
+            result = subprocess.run(
+                ["docker-compose", "up", "-d"],
+                capture_output=True,
+                check=True,
+                timeout=300,
+            )
+
             console.print("[green]✓[/green] All containers started successfully!")
             console.print("\nContainer Information:")
             console.print("• NGINX-RTMP: http://localhost:8080")
             console.print("• Jellyfin: http://localhost:8096")
-            
+
             console.print(f"\n[dim]Docker output:[/dim]\n{result.stdout.decode()}")
             if result.stderr.decode():
                 console.print(f"[dim]Stderr:[/dim] {result.stderr.decode()}")
-                
+
         except subprocess.CalledProcessError as e:
             console.print(f"[red]Error starting containers: {e}[/red]")
             if e.stdout:
@@ -6603,379 +7541,482 @@ networks:
                 console.print(f"Stderr: {e.stderr.decode()}")
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")
-        
+
         self.wait_for_escape()
-    
+
     def stop_all_containers(self):
         """Stop all containers"""
         console.clear()
         console.print(Panel.fit("Stopping All Containers", style="dim white"))
-        
+
         try:
-            result = subprocess.run(['docker-compose', 'down'], 
-                                  capture_output=True, check=True, timeout=60)
+            result = subprocess.run(
+                ["docker-compose", "down"], capture_output=True, check=True, timeout=60
+            )
             console.print("[green]✓[/green] All containers stopped successfully!")
             console.print(f"\n[dim]Docker output:[/dim]\n{result.stdout.decode()}")
         except subprocess.CalledProcessError as e:
             console.print(f"[red]Error stopping containers: {e}[/red]")
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")
-        
+
         self.wait_for_escape()
-    
+
     def detect_os(self):
         """Detect if system is Arch Linux or Ubuntu"""
         try:
             # Check for Arch Linux
-            if os.path.exists('/etc/arch-release'):
-                return 'arch'
-            
+            if os.path.exists("/etc/arch-release"):
+                return "arch"
+
             # Check for Ubuntu/Debian
-            if os.path.exists('/etc/lsb-release'):
-                with open('/etc/lsb-release', 'r') as f:
+            if os.path.exists("/etc/lsb-release"):
+                with open("/etc/lsb-release", "r") as f:
                     content = f.read().lower()
-                    if 'ubuntu' in content:
-                        return 'ubuntu'
-            
+                    if "ubuntu" in content:
+                        return "ubuntu"
+
             # Check /etc/os-release for more distributions
-            if os.path.exists('/etc/os-release'):
-                with open('/etc/os-release', 'r') as f:
+            if os.path.exists("/etc/os-release"):
+                with open("/etc/os-release", "r") as f:
                     content = f.read().lower()
-                    if 'arch' in content:
-                        return 'arch'
-                    elif 'ubuntu' in content:
-                        return 'ubuntu'
-            
+                    if "arch" in content:
+                        return "arch"
+                    elif "ubuntu" in content:
+                        return "ubuntu"
+
             # Fallback: check pacman or apt
             try:
-                subprocess.run(['pacman', '--version'], capture_output=True, check=True)
-                return 'arch'
+                subprocess.run(["pacman", "--version"], capture_output=True, check=True)
+                return "arch"
             except (subprocess.CalledProcessError, FileNotFoundError):
                 pass
-            
+
             try:
-                subprocess.run(['apt', '--version'], capture_output=True, check=True)
-                return 'ubuntu'
+                subprocess.run(["apt", "--version"], capture_output=True, check=True)
+                return "ubuntu"
             except (subprocess.CalledProcessError, FileNotFoundError):
                 pass
-            
-            return 'unknown'
+
+            return "unknown"
         except:
-            return 'unknown'
-    
+            return "unknown"
+
     def install_docker(self):
         """Install Docker and Docker Compose with OS detection"""
         console.clear()
         console.print(Panel.fit("Install Docker", style="dim white"))
-        
+
         # Detect OS
         os_type = self.detect_os()
         console.print(f"Detected OS: {os_type.upper()}")
-        
-        if os_type == 'unknown':
+
+        if os_type == "unknown":
             console.print("[red]✗[/red] Unsupported operating system")
             console.print("This installer supports Arch Linux and Ubuntu only")
             self.wait_for_escape()
             return
-        
+
         # Check if Docker is already installed
         try:
-            subprocess.run(['docker', '--version'], capture_output=True, check=True)
+            subprocess.run(["docker", "--version"], capture_output=True, check=True)
             console.print("[yellow]Docker is already installed[/yellow]")
-            
+
             # Check if user is in docker group
             try:
-                result = subprocess.run(['groups'], capture_output=True, text=True)
-                if 'docker' not in result.stdout:
+                result = subprocess.run(["groups"], capture_output=True, text=True)
+                if "docker" not in result.stdout:
                     console.print("[yellow]User not in docker group[/yellow]")
                     self._add_user_to_docker_group()
                 else:
                     console.print("[green]✓[/green] User is already in docker group")
             except:
-                console.print("[yellow]Could not check docker group membership[/yellow]")
-            
+                console.print(
+                    "[yellow]Could not check docker group membership[/yellow]"
+                )
+
             self.wait_for_escape()
             return
         except:
             pass
-        
+
         console.print("\\nThis will install Docker and Docker Compose")
         console.print("The installation requires sudo privileges")
-        
+
         try:
             key = input()
-            if key == '\\x1b':  # ESC
+            if key == "\\x1b":  # ESC
                 return
         except:
             pass
-        
-        if os_type == 'arch':
+
+        if os_type == "arch":
             self._install_docker_arch()
-        elif os_type == 'ubuntu':
+        elif os_type == "ubuntu":
             self._install_docker_ubuntu()
-    
+
     def _install_docker_arch(self):
         """Install Docker on Arch Linux"""
-        console.print("\\n[bright_yellow]Installing Docker on Arch Linux...[/bright_yellow]")
-        
+        console.print(
+            "\\n[bright_yellow]Installing Docker on Arch Linux...[/bright_yellow]"
+        )
+
         try:
             # Update package database
             console.print("Updating package database...")
-            result = subprocess.run(['sudo', 'pacman', '-Sy'], check=True)
-            
+            result = subprocess.run(["sudo", "pacman", "-Sy"], check=True)
+
             # Install Docker
             console.print("Installing Docker...")
-            result = subprocess.run(['sudo', 'pacman', '-S', '--noconfirm', 'docker', 'docker-compose'], check=True)
+            result = subprocess.run(
+                ["sudo", "pacman", "-S", "--noconfirm", "docker", "docker-compose"],
+                check=True,
+            )
             console.print("[green]✓[/green] Docker and Docker Compose installed")
-            
+
             # Enable and start Docker service
             console.print("Enabling Docker service...")
-            subprocess.run(['sudo', 'systemctl', 'enable', 'docker'], check=True)
-            subprocess.run(['sudo', 'systemctl', 'start', 'docker'], check=True)
+            subprocess.run(["sudo", "systemctl", "enable", "docker"], check=True)
+            subprocess.run(["sudo", "systemctl", "start", "docker"], check=True)
             console.print("[green]✓[/green] Docker service enabled and started")
-            
+
             # Add user to docker group
             self._add_user_to_docker_group()
-            
-            console.print("\\n[green]✓[/green] Docker installation completed successfully!")
-            console.print("Please log out and log back in for group changes to take effect")
-            
+
+            console.print(
+                "\\n[green]✓[/green] Docker installation completed successfully!"
+            )
+            console.print(
+                "Please log out and log back in for group changes to take effect"
+            )
+
         except subprocess.CalledProcessError as e:
             console.print(f"[red]✗[/red] Installation failed: {e}")
             console.print("Please check your sudo privileges and try again")
         except Exception as e:
             console.print(f"[red]✗[/red] Error during installation: {e}")
-        
+
         self.wait_for_escape()
-    
+
     def _install_docker_ubuntu(self):
         """Install Docker on Ubuntu"""
-        console.print("\\n[bright_yellow]Installing Docker on Ubuntu...[/bright_yellow]")
-        
+        console.print(
+            "\\n[bright_yellow]Installing Docker on Ubuntu...[/bright_yellow]"
+        )
+
         try:
             # Update package index
             console.print("Updating package index...")
-            subprocess.run(['sudo', 'apt', 'update'], check=True)
-            
+            subprocess.run(["sudo", "apt", "update"], check=True)
+
             # Install prerequisites
             console.print("Installing prerequisites...")
-            subprocess.run(['sudo', 'apt', 'install', '-y', 
-                          'apt-transport-https', 'ca-certificates', 'curl', 'gnupg', 'lsb-release'], check=True)
-            
+            subprocess.run(
+                [
+                    "sudo",
+                    "apt",
+                    "install",
+                    "-y",
+                    "apt-transport-https",
+                    "ca-certificates",
+                    "curl",
+                    "gnupg",
+                    "lsb-release",
+                ],
+                check=True,
+            )
+
             # Add Docker's official GPG key
             console.print("Adding Docker GPG key...")
-            subprocess.run(['curl', '-fsSL', 'https://download.docker.com/linux/ubuntu/gpg'], 
-                         stdout=subprocess.PIPE, check=True)
-            
+            subprocess.run(
+                ["curl", "-fsSL", "https://download.docker.com/linux/ubuntu/gpg"],
+                stdout=subprocess.PIPE,
+                check=True,
+            )
+
             # Add Docker repository
             console.print("Adding Docker repository...")
-            arch_result = subprocess.run(['dpkg', '--print-architecture'], capture_output=True, text=True, check=True)
+            arch_result = subprocess.run(
+                ["dpkg", "--print-architecture"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
             arch = arch_result.stdout.strip()
-            
-            lsb_result = subprocess.run(['lsb_release', '-cs'], capture_output=True, text=True, check=True)
+
+            lsb_result = subprocess.run(
+                ["lsb_release", "-cs"], capture_output=True, text=True, check=True
+            )
             codename = lsb_result.stdout.strip()
-            
+
             repo_line = f"deb [arch={arch} signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu {codename} stable"
-            
+
             # Create keyring directory and add key
-            subprocess.run(['sudo', 'mkdir', '-p', '/usr/share/keyrings'], check=True)
-            key_process = subprocess.run(['curl', '-fsSL', 'https://download.docker.com/linux/ubuntu/gpg'], 
-                                       stdout=subprocess.PIPE, check=True)
-            subprocess.run(['sudo', 'gpg', '--dearmor', '-o', '/usr/share/keyrings/docker-archive-keyring.gpg'], 
-                         input=key_process.stdout, check=True)
-            
+            subprocess.run(["sudo", "mkdir", "-p", "/usr/share/keyrings"], check=True)
+            key_process = subprocess.run(
+                ["curl", "-fsSL", "https://download.docker.com/linux/ubuntu/gpg"],
+                stdout=subprocess.PIPE,
+                check=True,
+            )
+            subprocess.run(
+                [
+                    "sudo",
+                    "gpg",
+                    "--dearmor",
+                    "-o",
+                    "/usr/share/keyrings/docker-archive-keyring.gpg",
+                ],
+                input=key_process.stdout,
+                check=True,
+            )
+
             # Add repository
-            fd, temp_path = tempfile.mkstemp(suffix='.list')
+            fd, temp_path = tempfile.mkstemp(suffix=".list")
             try:
-                with os.fdopen(fd, 'w') as f:
+                with os.fdopen(fd, "w") as f:
                     f.write(repo_line)
                 os.chmod(temp_path, 0o600)
-                subprocess.run(['sudo', 'mv', temp_path, '/etc/apt/sources.list.d/docker.list'], check=True)
+                subprocess.run(
+                    ["sudo", "mv", temp_path, "/etc/apt/sources.list.d/docker.list"],
+                    check=True,
+                )
             except Exception:
                 if os.path.exists(temp_path):
                     os.unlink(temp_path)
                 raise
-            
+
             # Update package index again
             console.print("Updating package index with Docker repository...")
-            subprocess.run(['sudo', 'apt', 'update'], check=True)
-            
+            subprocess.run(["sudo", "apt", "update"], check=True)
+
             # Install Docker
             console.print("Installing Docker...")
-            subprocess.run(['sudo', 'apt', 'install', '-y', 'docker-ce', 'docker-ce-cli', 'containerd.io'], check=True)
-            
+            subprocess.run(
+                [
+                    "sudo",
+                    "apt",
+                    "install",
+                    "-y",
+                    "docker-ce",
+                    "docker-ce-cli",
+                    "containerd.io",
+                ],
+                check=True,
+            )
+
             # Install Docker Compose
             console.print("Installing Docker Compose...")
-            subprocess.run(['sudo', 'apt', 'install', '-y', 'docker-compose-plugin'], check=True)
-            
+            subprocess.run(
+                ["sudo", "apt", "install", "-y", "docker-compose-plugin"], check=True
+            )
+
             console.print("[green]✓[/green] Docker and Docker Compose installed")
-            
+
             # Enable and start Docker service
             console.print("Enabling Docker service...")
-            subprocess.run(['sudo', 'systemctl', 'enable', 'docker'], check=True)
-            subprocess.run(['sudo', 'systemctl', 'start', 'docker'], check=True)
+            subprocess.run(["sudo", "systemctl", "enable", "docker"], check=True)
+            subprocess.run(["sudo", "systemctl", "start", "docker"], check=True)
             console.print("[green]✓[/green] Docker service enabled and started")
-            
+
             # Add user to docker group
             self._add_user_to_docker_group()
-            
-            console.print("\\n[green]✓[/green] Docker installation completed successfully!")
-            console.print("Please log out and log back in for group changes to take effect")
-            
+
+            console.print(
+                "\\n[green]✓[/green] Docker installation completed successfully!"
+            )
+            console.print(
+                "Please log out and log back in for group changes to take effect"
+            )
+
         except subprocess.CalledProcessError as e:
             console.print(f"[red]✗[/red] Installation failed: {e}")
             console.print("Please check your sudo privileges and internet connection")
         except Exception as e:
             console.print(f"[red]✗[/red] Error during installation: {e}")
-        
+
         self.wait_for_escape()
-    
+
     def _add_user_to_docker_group(self):
         """Add current user to docker group"""
         try:
             import getpass
+
             username = getpass.getuser()
             console.print(f"Adding user '{username}' to docker group...")
-            subprocess.run(['sudo', 'usermod', '-aG', 'docker', username], check=True)
+            subprocess.run(["sudo", "usermod", "-aG", "docker", username], check=True)
             console.print("[green]✓[/green] User added to docker group")
         except Exception as e:
             console.print(f"[yellow]⚠[/yellow] Could not add user to docker group: {e}")
             console.print("You may need to run: sudo usermod -aG docker $USER")
-    
+
     def install_lazydocker(self):
         """Install Lazydocker with OS detection"""
         console.clear()
         console.print(Panel.fit("Install Lazydocker", style="dim white"))
-        
+
         # Check if Docker is installed
         docker_status = self.check_docker_status()
         if "[green]" not in docker_status:
             console.print("[red]✗[/red] Docker is not installed")
-            console.print("Please install Docker first using the 'Install Docker' option")
+            console.print(
+                "Please install Docker first using the 'Install Docker' option"
+            )
             self.wait_for_escape()
             return
-        
+
         # Detect OS
         os_type = self.detect_os()
         console.print(f"Detected OS: {os_type.upper()}")
-        
-        if os_type == 'unknown':
+
+        if os_type == "unknown":
             console.print("[red]✗[/red] Unsupported operating system")
             console.print("This installer supports Arch Linux and Ubuntu only")
             self.wait_for_escape()
             return
-        
+
         # Check if Lazydocker is already installed
         try:
-            result = subprocess.run(['lazydocker', '--version'], capture_output=True, check=True)
+            result = subprocess.run(
+                ["lazydocker", "--version"], capture_output=True, check=True
+            )
             console.print("[yellow]Lazydocker is already installed[/yellow]")
             console.print(result.stdout.decode())
             self.wait_for_escape()
             return
         except:
             pass
-        
-        console.print("\\nThis will install Lazydocker - a simple terminal UI for Docker")
+
+        console.print(
+            "\\nThis will install Lazydocker - a simple terminal UI for Docker"
+        )
         console.print("The installation requires sudo privileges")
-        
+
         try:
             key = input()
-            if key == '\\x1b':  # ESC
+            if key == "\\x1b":  # ESC
                 return
         except:
             pass
-        
-        if os_type == 'arch':
+
+        if os_type == "arch":
             self._install_lazydocker_arch()
-        elif os_type == 'ubuntu':
+        elif os_type == "ubuntu":
             self._install_lazydocker_ubuntu()
-    
+
     def _install_lazydocker_arch(self):
         """Install Lazydocker on Arch Linux"""
-        console.print("\\n[bright_yellow]Installing Lazydocker on Arch Linux...[/bright_yellow]")
-        
+        console.print(
+            "\\n[bright_yellow]Installing Lazydocker on Arch Linux...[/bright_yellow]"
+        )
+
         try:
             # Check if yay is available for AUR packages
             try:
-                subprocess.run(['yay', '--version'], capture_output=True, check=True)
+                subprocess.run(["yay", "--version"], capture_output=True, check=True)
                 console.print("Installing via yay (AUR)...")
-                result = subprocess.run(['yay', '-S', '--noconfirm', 'lazydocker'], check=True)
+                result = subprocess.run(
+                    ["yay", "-S", "--noconfirm", "lazydocker"], check=True
+                )
                 console.print("[green]✓[/green] Lazydocker installed via AUR")
             except:
                 # Fallback to manual installation
                 console.print("yay not found, installing manually...")
                 self._install_lazydocker_manual()
-            
+
             console.print("\\n[green]✓[/green] Lazydocker installation completed!")
             console.print("You can now run 'lazydocker' to launch the Docker TUI")
-            
+
         except subprocess.CalledProcessError as e:
             console.print(f"[red]✗[/red] Installation failed: {e}")
         except Exception as e:
             console.print(f"[red]✗[/red] Error during installation: {e}")
-        
+
         self.wait_for_escape()
-    
+
     def _install_lazydocker_ubuntu(self):
         """Install Lazydocker on Ubuntu"""
-        console.print("\\n[bright_yellow]Installing Lazydocker on Ubuntu...[/bright_yellow]")
-        
+        console.print(
+            "\\n[bright_yellow]Installing Lazydocker on Ubuntu...[/bright_yellow]"
+        )
+
         try:
             # Lazydocker is not in Ubuntu repos, so we install manually
             self._install_lazydocker_manual()
-            
+
             console.print("\\n[green]✓[/green] Lazydocker installation completed!")
             console.print("You can now run 'lazydocker' to launch the Docker TUI")
-            
+
         except Exception as e:
             console.print(f"[red]✗[/red] Error during installation: {e}")
-        
+
         self.wait_for_escape()
-    
+
     def _install_lazydocker_manual(self):
         """Install Lazydocker manually from GitHub releases"""
         console.print("Installing Lazydocker from GitHub releases...")
-        
+
         try:
             # Get latest release URL
             import json
-            
+
             # Download the latest release info
-            result = subprocess.run(['curl', '-s', 'https://api.github.com/repos/jesseduffield/lazydocker/releases/latest'], 
-                                  capture_output=True, text=True, check=True)
+            result = subprocess.run(
+                [
+                    "curl",
+                    "-s",
+                    "https://api.github.com/repos/jesseduffield/lazydocker/releases/latest",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
             release_data = json.loads(result.stdout)
-            
+
             # Find the appropriate binary for Linux x86_64
             download_url = None
-            for asset in release_data.get('assets', []):
-                if 'Linux_x86_64' in asset.get('name', '') and asset.get('name', '').endswith('.tar.gz'):
-                    download_url = asset.get('browser_download_url')
+            for asset in release_data.get("assets", []):
+                if "Linux_x86_64" in asset.get("name", "") and asset.get(
+                    "name", ""
+                ).endswith(".tar.gz"):
+                    download_url = asset.get("browser_download_url")
                     break
-            
+
             if not download_url:
                 raise Exception("Could not find appropriate release binary")
-            
+
             console.print(f"Downloading from: {download_url}")
-            
+
             # Download and install
-            temp_dir = '/tmp/lazydocker_install'
+            temp_dir = "/tmp/lazydocker_install"
             os.makedirs(temp_dir, exist_ok=True)
-            
+
             # Download
-            subprocess.run(['curl', '-L', '-o', f'{temp_dir}/lazydocker.tar.gz', download_url], check=True)
-            
+            subprocess.run(
+                ["curl", "-L", "-o", f"{temp_dir}/lazydocker.tar.gz", download_url],
+                check=True,
+            )
+
             # Extract
-            subprocess.run(['tar', '-xzf', f'{temp_dir}/lazydocker.tar.gz', '-C', temp_dir], check=True)
-            
+            subprocess.run(
+                ["tar", "-xzf", f"{temp_dir}/lazydocker.tar.gz", "-C", temp_dir],
+                check=True,
+            )
+
             # Install to /usr/local/bin
-            subprocess.run(['sudo', 'mv', f'{temp_dir}/lazydocker', '/usr/local/bin/'], check=True)
-            subprocess.run(['sudo', 'chmod', '+x', '/usr/local/bin/lazydocker'], check=True)
-            
+            subprocess.run(
+                ["sudo", "mv", f"{temp_dir}/lazydocker", "/usr/local/bin/"], check=True
+            )
+            subprocess.run(
+                ["sudo", "chmod", "+x", "/usr/local/bin/lazydocker"], check=True
+            )
+
             # Cleanup
-            subprocess.run(['rm', '-rf', temp_dir], check=True)
-            
-            console.print("[green]✓[/green] Lazydocker installed to /usr/local/bin/lazydocker")
-            
+            subprocess.run(["rm", "-rf", temp_dir], check=True)
+
+            console.print(
+                "[green]✓[/green] Lazydocker installed to /usr/local/bin/lazydocker"
+            )
+
         except subprocess.CalledProcessError as e:
             console.print(f"[red]✗[/red] Download/installation failed: {e}")
             raise
@@ -6987,22 +8028,24 @@ networks:
         """Launch Lazydocker TUI"""
         try:
             # Check if lazydocker is installed
-            subprocess.run(['which', 'lazydocker'], capture_output=True, check=True)
-            
+            subprocess.run(["which", "lazydocker"], capture_output=True, check=True)
+
             # Clear screen and launch lazydocker
             console.clear()
             console.print("[bright_yellow]Launching Lazydocker...[/bright_yellow]\n")
             console.print("Press 'q' to exit Lazydocker and return to the menu\n")
-            
+
             # Launch lazydocker and wait for it to complete
-            subprocess.call(['lazydocker'])
-            
+            subprocess.call(["lazydocker"])
+
             # After lazydocker exits, we'll automatically return to the menu
             console.clear()
-            
+
         except subprocess.CalledProcessError:
             console.print("[red]✗[/red] Lazydocker is not installed")
-            console.print("Please install it first using the 'Install Lazydocker' option")
+            console.print(
+                "Please install it first using the 'Install Lazydocker' option"
+            )
             self.wait_for_escape()
         except Exception as e:
             console.print(f"[red]✗[/red] Error launching Lazydocker: {e}")
@@ -7012,58 +8055,60 @@ networks:
         """Load favorites from JSON file"""
         try:
             # Check data folder location
-            favorites_path = os.path.join(self.data_dir, 'favorites.json')
+            favorites_path = os.path.join(self.data_dir, "favorites.json")
             if os.path.exists(favorites_path):
-                with open(favorites_path, 'r') as f:
+                with open(favorites_path, "r") as f:
                     return json.load(f)
             # Fall back to old location for backward compatibility
-            elif os.path.exists('favorites.json'):
-                with open('favorites.json', 'r') as f:
+            elif os.path.exists("favorites.json"):
+                with open("favorites.json", "r") as f:
                     favs = json.load(f)
                 # Migrate to new location
                 os.makedirs(self.data_dir, exist_ok=True)
-                with open(favorites_path, 'w') as f:
+                with open(favorites_path, "w") as f:
                     json.dump(favs, f, indent=2)
                 # Remove old file
-                os.remove('favorites.json')
+                os.remove("favorites.json")
                 return favs
         except Exception as e:
             console.print(f"[yellow]⚠[/yellow] Error loading favorites: {e}")
         # No favorites found — try importing from seed file (fresh clone)
         return self.import_favorites_seed()
 
-    def save_to_favorites(self, item, item_type='live'):
+    def save_to_favorites(self, item, item_type="live"):
         """Add item to favorites JSON"""
         try:
             # Ensure data directory exists
             os.makedirs(self.data_dir, exist_ok=True)
-            
+
             favs = self.load_favorites()
-            
+
             # Create favorite item
             favorite_item = {
-                'stream_id': item.get('stream_id', 0),
-                'name': item.get('name', 'Unknown'),
-                'stream_url': item.get('stream_url', ''),
-                'category': item.get('category_name', 'Uncategorized'),
-                'type': item_type,
-                'added': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                "stream_id": item.get("stream_id", 0),
+                "name": item.get("name", "Unknown"),
+                "stream_url": item.get("stream_url", ""),
+                "category": item.get("category_name", "Uncategorized"),
+                "type": item_type,
+                "added": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             }
-            
+
             # Check if already exists
             for existing in favs:
-                if (existing.get('stream_id') == favorite_item['stream_id'] and 
-                    existing.get('type') == favorite_item['type']):
+                if (
+                    existing.get("stream_id") == favorite_item["stream_id"]
+                    and existing.get("type") == favorite_item["type"]
+                ):
                     return -1  # Already exists
-            
+
             # Add to favorites
             favs.append(favorite_item)
-            
+
             # Save to file in data folder
-            favorites_path = os.path.join(self.data_dir, 'favorites.json')
-            with open(favorites_path, 'w') as f:
+            favorites_path = os.path.join(self.data_dir, "favorites.json")
+            with open(favorites_path, "w") as f:
                 json.dump(favs, f, indent=2)
-            
+
             # Auto-generate M3U playlist
             self.generate_m3u_playlist()
 
@@ -7071,7 +8116,7 @@ networks:
             self.export_favorites_seed()
 
             return len(favs)  # Return total count
-            
+
         except Exception as e:
             console.print(f"[red]✗[/red] Error saving to favorites: {e}")
             return 0
@@ -7081,63 +8126,71 @@ networks:
         try:
             # Ensure directories exist
             os.makedirs(self.data_dir, exist_ok=True)
-            os.makedirs('nginx/html', exist_ok=True)
-            
+            os.makedirs("nginx/html", exist_ok=True)
+
             favs = self.load_favorites()
-            
+
             # Generate M3U content
             m3u_content = "#EXTM3U\n"
             for fav in favs:
-                category = fav.get('category', 'Uncategorized')
-                name = fav.get('name', 'Unknown')
-                url = fav.get('stream_url', '')
-                
+                category = fav.get("category", "Uncategorized")
+                name = fav.get("name", "Unknown")
+                url = fav.get("stream_url", "")
+
                 m3u_content += f'#EXTINF:-1 group-title="{category}",{name}\n'
-                m3u_content += f'{url}\n'
-            
+                m3u_content += f"{url}\n"
+
             # Save to both locations
-            with open('nginx/html/iptv.m3u', 'w', encoding='utf-8') as f:
+            with open("nginx/html/iptv.m3u", "w", encoding="utf-8") as f:
                 f.write(m3u_content)
-            
-            with open(os.path.join(self.data_dir, 'iptv.m3u'), 'w', encoding='utf-8') as f:
+
+            with open(
+                os.path.join(self.data_dir, "iptv.m3u"), "w", encoding="utf-8"
+            ) as f:
                 f.write(m3u_content)
-                
+
             return True
-            
+
         except Exception as e:
             console.print(f"[red]✗[/red] Error generating M3U playlist: {e}")
             return False
 
-    def is_favorite(self, item, item_type='live'):
+    def is_favorite(self, item, item_type="live"):
         """Check if an item is in favorites"""
         try:
             favs = self.load_favorites()
-            stream_id = item.get('stream_id', 0)
-            
+            stream_id = item.get("stream_id", 0)
+
             for existing in favs:
-                if (existing.get('stream_id') == stream_id and 
-                    existing.get('type') == item_type):
+                if (
+                    existing.get("stream_id") == stream_id
+                    and existing.get("type") == item_type
+                ):
                     return True
             return False
         except:
             return False
-    
-    def remove_from_favorites(self, item, item_type='live'):
+
+    def remove_from_favorites(self, item, item_type="live"):
         """Remove item from favorites"""
         try:
             favs = self.load_favorites()
-            stream_id = item.get('stream_id', 0)
-            
+            stream_id = item.get("stream_id", 0)
+
             # Find and remove the item
             original_count = len(favs)
-            favs = [f for f in favs if not (f.get('stream_id') == stream_id and f.get('type') == item_type)]
-            
+            favs = [
+                f
+                for f in favs
+                if not (f.get("stream_id") == stream_id and f.get("type") == item_type)
+            ]
+
             if len(favs) < original_count:
                 # Save updated favorites to data folder
-                favorites_path = os.path.join(self.data_dir, 'favorites.json')
-                with open(favorites_path, 'w') as f:
+                favorites_path = os.path.join(self.data_dir, "favorites.json")
+                with open(favorites_path, "w") as f:
                     json.dump(favs, f, indent=2)
-                
+
                 # Regenerate M3U playlist
                 self.generate_m3u_playlist()
 
@@ -7145,18 +8198,18 @@ networks:
                 self.export_favorites_seed()
 
                 return len(favs)  # Return new count
-            
+
             return -1  # Item not found
-            
+
         except Exception as e:
             console.print(f"[red]✗[/red] Error removing from favorites: {e}")
             return 0
-    
+
     def get_favorites_set(self):
         """Get favorites as a set for quick lookups"""
         try:
             favs = self.load_favorites()
-            return {(f.get('stream_id'), f.get('type')) for f in favs}
+            return {(f.get("stream_id"), f.get("type")) for f in favs}
         except:
             return set()
 
@@ -7166,15 +8219,19 @@ networks:
             favs = self.load_favorites()
             seed = []
             for fav in favs:
-                seed.append({
-                    'stream_id': fav.get('stream_id', 0),
-                    'name': fav.get('name', 'Unknown'),
-                    'category': fav.get('category', fav.get('category_name', 'Uncategorized')),
-                    'type': fav.get('type', 'live'),
-                    'added': fav.get('added', '')
-                })
-            seed_path = os.path.join(self.script_dir, 'favorites_seed.json')
-            with open(seed_path, 'w') as f:
+                seed.append(
+                    {
+                        "stream_id": fav.get("stream_id", 0),
+                        "name": fav.get("name", "Unknown"),
+                        "category": fav.get(
+                            "category", fav.get("category_name", "Uncategorized")
+                        ),
+                        "type": fav.get("type", "live"),
+                        "added": fav.get("added", ""),
+                    }
+                )
+            seed_path = os.path.join(self.script_dir, "favorites_seed.json")
+            with open(seed_path, "w") as f:
                 json.dump(seed, f, indent=2)
         except Exception as e:
             console.print(f"[yellow]⚠[/yellow] Error exporting favorites seed: {e}")
@@ -7182,28 +8239,34 @@ networks:
     def import_favorites_seed(self):
         """Import favorites from seed file (used on fresh clone)"""
         try:
-            seed_path = os.path.join(self.script_dir, 'favorites_seed.json')
+            seed_path = os.path.join(self.script_dir, "favorites_seed.json")
             if not os.path.exists(seed_path):
                 return []
-            with open(seed_path, 'r') as f:
+            with open(seed_path, "r") as f:
                 seed = json.load(f)
             # Build full favorites with placeholder URLs (hydration will fix them)
             favs = []
             for item in seed:
-                favs.append({
-                    'stream_id': item.get('stream_id', 0),
-                    'name': item.get('name', 'Unknown'),
-                    'stream_url': '',
-                    'category': item.get('category', 'Uncategorized'),
-                    'type': item.get('type', 'live'),
-                    'added': item.get('added', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-                })
+                favs.append(
+                    {
+                        "stream_id": item.get("stream_id", 0),
+                        "name": item.get("name", "Unknown"),
+                        "stream_url": "",
+                        "category": item.get("category", "Uncategorized"),
+                        "type": item.get("type", "live"),
+                        "added": item.get(
+                            "added", datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        ),
+                    }
+                )
             if favs:
                 os.makedirs(self.data_dir, exist_ok=True)
-                favorites_path = os.path.join(self.data_dir, 'favorites.json')
-                with open(favorites_path, 'w') as f:
+                favorites_path = os.path.join(self.data_dir, "favorites.json")
+                with open(favorites_path, "w") as f:
                     json.dump(favs, f, indent=2)
-                console.print(f"[green]✓[/green] Imported {len(favs)} favorites from seed file")
+                console.print(
+                    f"[green]✓[/green] Imported {len(favs)} favorites from seed file"
+                )
             return favs
         except Exception as e:
             console.print(f"[yellow]⚠[/yellow] Error importing favorites seed: {e}")
@@ -7211,25 +8274,25 @@ networks:
 
     def _get_provider_timezone(self):
         """Return provider timezone from cached account info or local fallback."""
-        cached = getattr(self, '_provider_timezone_cache', None)
+        cached = getattr(self, "_provider_timezone_cache", None)
         if cached:
             return cached
 
         tz_name = None
-        account_info_path = os.path.join(self.data_dir, 'account_info.json')
+        account_info_path = os.path.join(self.data_dir, "account_info.json")
         try:
             if os.path.exists(account_info_path):
-                with open(account_info_path, 'r', encoding='utf-8') as account_file:
+                with open(account_info_path, "r", encoding="utf-8") as account_file:
                     data = json.load(account_file)
                 if isinstance(data, dict):
-                    server_info = data.get('server_info', {})
+                    server_info = data.get("server_info", {})
                     if isinstance(server_info, dict):
-                        tz_name = server_info.get('timezone')
+                        tz_name = server_info.get("timezone")
         except Exception:
             tz_name = None
 
         if not tz_name:
-            tz_name = os.getenv('TZ')
+            tz_name = os.getenv("TZ")
 
         tzinfo = None
         if tz_name and ZoneInfo:
@@ -7250,13 +8313,17 @@ networks:
             return 0, 0
 
         # Preferred strategy: parse start/end strings in provider timezone.
-        start_text = listing.get('start')
-        end_text = listing.get('end')
+        start_text = listing.get("start")
+        end_text = listing.get("end")
         if start_text and end_text:
             try:
                 provider_tz = self._get_provider_timezone()
-                start_dt = datetime.strptime(str(start_text), '%Y-%m-%d %H:%M:%S').replace(tzinfo=provider_tz)
-                end_dt = datetime.strptime(str(end_text), '%Y-%m-%d %H:%M:%S').replace(tzinfo=provider_tz)
+                start_dt = datetime.strptime(
+                    str(start_text), "%Y-%m-%d %H:%M:%S"
+                ).replace(tzinfo=provider_tz)
+                end_dt = datetime.strptime(str(end_text), "%Y-%m-%d %H:%M:%S").replace(
+                    tzinfo=provider_tz
+                )
                 start_ts = int(start_dt.timestamp())
                 end_ts = int(end_dt.timestamp())
                 if start_ts > 0 and end_ts > start_ts:
@@ -7266,8 +8333,8 @@ networks:
 
         # Fallback strategy: use numeric timestamps from API payload.
         try:
-            start_ts = int(listing.get('start_timestamp', 0) or 0)
-            end_ts = int(listing.get('stop_timestamp', 0) or 0)
+            start_ts = int(listing.get("start_timestamp", 0) or 0)
+            end_ts = int(listing.get("stop_timestamp", 0) or 0)
             if start_ts > 0 and end_ts > start_ts:
                 return start_ts, end_ts
         except Exception:
@@ -7282,29 +8349,29 @@ networks:
         def add_candidate(base_url):
             if not base_url:
                 return
-            normalized = str(base_url).strip().rstrip('/')
+            normalized = str(base_url).strip().rstrip("/")
             if normalized and normalized not in candidates:
                 candidates.append(normalized)
 
         add_candidate(self.epg_server)
         add_candidate(self.server)
-        if self.epg_server and str(self.epg_server).startswith('http://'):
-            add_candidate(str(self.epg_server).replace('http://', 'https://', 1))
-        elif self.epg_server and str(self.epg_server).startswith('https://'):
-            add_candidate(str(self.epg_server).replace('https://', 'http://', 1))
-        if self.server and str(self.server).startswith('http://'):
-            add_candidate(str(self.server).replace('http://', 'https://', 1))
-        elif self.server and str(self.server).startswith('https://'):
-            add_candidate(str(self.server).replace('https://', 'http://', 1))
+        if self.epg_server and str(self.epg_server).startswith("http://"):
+            add_candidate(str(self.epg_server).replace("http://", "https://", 1))
+        elif self.epg_server and str(self.epg_server).startswith("https://"):
+            add_candidate(str(self.epg_server).replace("https://", "http://", 1))
+        if self.server and str(self.server).startswith("http://"):
+            add_candidate(str(self.server).replace("http://", "https://", 1))
+        elif self.server and str(self.server).startswith("https://"):
+            add_candidate(str(self.server).replace("https://", "http://", 1))
 
         if stream_url:
             parsed = urlparse(str(stream_url))
             if parsed.scheme and parsed.netloc:
                 base = f"{parsed.scheme}://{parsed.netloc}"
                 add_candidate(base)
-                if parsed.scheme == 'http':
+                if parsed.scheme == "http":
                     add_candidate(f"https://{parsed.netloc}")
-                elif parsed.scheme == 'https':
+                elif parsed.scheme == "https":
                     add_candidate(f"http://{parsed.netloc}")
 
         return candidates
@@ -7315,7 +8382,7 @@ networks:
         stream_key = str(stream_id)
         errors = []
 
-        if not hasattr(self, '_epg_fetch_errors'):
+        if not hasattr(self, "_epg_fetch_errors"):
             self._epg_fetch_errors = {}
 
         def note_error(message):
@@ -7339,19 +8406,25 @@ networks:
             host = urlparse(server_base).netloc or server_base
             try:
                 url = f"{server_base}/player_api.php"
-                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                }
                 params = {
-                    'username': self.username,
-                    'password': self.password,
-                    'action': 'get_short_epg',
-                    'stream_id': param_value,
-                    'limit': limit,
+                    "username": self.username,
+                    "password": self.password,
+                    "action": "get_short_epg",
+                    "stream_id": param_value,
+                    "limit": limit,
                 }
 
                 response = requests.get(url, params=params, headers=headers, timeout=10)
                 if response.status_code == 200:
                     epg_data = response.json()
-                    listings = epg_data.get('epg_listings', []) if isinstance(epg_data, dict) else []
+                    listings = (
+                        epg_data.get("epg_listings", [])
+                        if isinstance(epg_data, dict)
+                        else []
+                    )
                     if listings:
                         return listings
                     note_error(f"{host}: empty EPG")
@@ -7374,17 +8447,27 @@ networks:
         if channel_name:
             # Remove common HD/SD suffixes and try again
             base_name = channel_name
-            
+
             # Remove HD/FHD/SD/4K suffixes
-            for suffix in [' HD', ' FHD', ' SD', ' 4K', ' UHD', ' ᴴᴰ', ' (HD)', ' [HD]']:
+            for suffix in [
+                " HD",
+                " FHD",
+                " SD",
+                " 4K",
+                " UHD",
+                " ᴴᴰ",
+                " (HD)",
+                " [HD]",
+            ]:
                 if base_name.endswith(suffix):
-                    base_name = base_name[:-len(suffix)].strip()
+                    base_name = base_name[: -len(suffix)].strip()
                     break
-            
+
             # Also try removing trailing numbers (like "SUPER ECRAN 2")
             import re
-            base_name_no_number = re.sub(r'\s+\d+$', '', base_name).strip()
-            
+
+            base_name_no_number = re.sub(r"\s+\d+$", "", base_name).strip()
+
             # Try with base name variants
             if base_name != channel_name:
                 # First try the base name without HD/SD suffix
@@ -7393,7 +8476,7 @@ networks:
                     if epg_listings:
                         clear_error()
                         return epg_listings
-                
+
                 # Try base name without number
                 if base_name_no_number != base_name:
                     for server_base in candidates:
@@ -7401,14 +8484,15 @@ networks:
                         if epg_listings:
                             clear_error()
                             return epg_listings
-            
+
             # Strategy 3: Try to find a matching stream with similar name from database
             try:
                 conn = sqlite3.connect(self.db_path)
                 cursor = conn.cursor()
-                
+
                 # Look for channels with similar base names
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT DISTINCT stream_id, name 
                     FROM live_streams 
                     WHERE name LIKE ? 
@@ -7419,18 +8503,22 @@ networks:
                             ELSE 2
                         END
                     LIMIT 10
-                """, (f'%{base_name_no_number}%', base_name, f'{base_name}%'))
-                
+                """,
+                    (f"%{base_name_no_number}%", base_name, f"{base_name}%"),
+                )
+
                 similar_channels = cursor.fetchall()
                 conn.close()
-                
+
                 # Try each similar channel's stream_id
                 for similar_id, similar_name in similar_channels:
                     if similar_id != stream_id:  # Don't retry the same stream_id
                         for server_base in candidates:
                             epg_listings = try_epg_fetch(similar_id, server_base)
                             if epg_listings:
-                                console.print(f"[dim yellow]EPG found using similar channel: {similar_name}[/dim yellow]")
+                                console.print(
+                                    f"[dim yellow]EPG found using similar channel: {similar_name}[/dim yellow]"
+                                )
                                 clear_error()
                                 return epg_listings
             except:
@@ -7444,27 +8532,34 @@ networks:
         if not text:
             return None
         try:
-            if all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=' for c in text.strip()):
-                return base64.b64decode(text).decode('utf-8', errors='ignore')
+            if all(
+                c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+                for c in text.strip()
+            ):
+                return base64.b64decode(text).decode("utf-8", errors="ignore")
         except:
             pass
         return text
 
     def get_now_playing(self, stream_id, channel_name=None, stream_url=None):
         """Get currently playing program title and description for a channel"""
-        epg_data = self.get_epg_data(stream_id, channel_name=channel_name, limit=1, stream_url=stream_url)
+        epg_data = self.get_epg_data(
+            stream_id, channel_name=channel_name, limit=1, stream_url=stream_url
+        )
         if epg_data and len(epg_data) > 0:
             program = epg_data[0]
-            title = self._decode_base64_if_needed(program.get('title', ''))
-            description = self._decode_base64_if_needed(program.get('description', ''))
+            title = self._decode_base64_if_needed(program.get("title", ""))
+            description = self._decode_base64_if_needed(program.get("description", ""))
 
             return {
-                'title': title if title else None,
-                'description': description if description else None
+                "title": title if title else None,
+                "description": description if description else None,
             }
         return None
 
-    def get_now_playing_local(self, stream_id, channel_name=None, fetch_if_missing=False, stream_url=None):
+    def get_now_playing_local(
+        self, stream_id, channel_name=None, fetch_if_missing=False, stream_url=None
+    ):
         """Get currently playing program from local EPG cache, optionally fetch if missing"""
         try:
             conn = sqlite3.connect(self.db_path)
@@ -7474,12 +8569,15 @@ networks:
             cache_max_age = 6 * 3600  # 6 hours cache expiry
 
             # Check for cached EPG data that's not expired
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT title, description, cached_at FROM epg
                 WHERE stream_id = ? AND start_time <= ? AND end_time > ?
                 ORDER BY start_time DESC
                 LIMIT 1
-            """, (stream_id, now, now))
+            """,
+                (stream_id, now, now),
+            )
 
             row = cursor.fetchone()
 
@@ -7489,15 +8587,17 @@ networks:
                 if (now - cached_at) < cache_max_age:
                     conn.close()
                     return {
-                        'title': row[0] if row[0] else None,
-                        'description': row[1] if row[1] else None
+                        "title": row[0] if row[0] else None,
+                        "description": row[1] if row[1] else None,
                     }
 
             conn.close()
 
             # If fetch_if_missing is True, fetch from network and cache
             if fetch_if_missing:
-                return self._fetch_and_cache_epg(stream_id, channel_name, stream_url=stream_url)
+                return self._fetch_and_cache_epg(
+                    stream_id, channel_name, stream_url=stream_url
+                )
 
         except:
             pass
@@ -7507,7 +8607,9 @@ networks:
         """Fetch EPG from network and cache in database"""
         try:
             # Fetch from network
-            epg_data = self.get_epg_data(stream_id, channel_name=channel_name, limit=10, stream_url=stream_url)
+            epg_data = self.get_epg_data(
+                stream_id, channel_name=channel_name, limit=10, stream_url=stream_url
+            )
 
             if epg_data:
                 conn = sqlite3.connect(self.db_path)
@@ -7517,14 +8619,28 @@ networks:
                 for listing in epg_data:
                     try:
                         start_time, end_time = self._extract_epg_window(listing)
-                        title = self._decode_base64_if_needed(listing.get('title', '')) or listing.get('title', '')
-                        description = self._decode_base64_if_needed(listing.get('description', '')) or listing.get('description', '')
+                        title = self._decode_base64_if_needed(
+                            listing.get("title", "")
+                        ) or listing.get("title", "")
+                        description = self._decode_base64_if_needed(
+                            listing.get("description", "")
+                        ) or listing.get("description", "")
 
                         if start_time and end_time:
-                            cursor.execute('''
+                            cursor.execute(
+                                """
                                 INSERT OR REPLACE INTO epg (stream_id, start_time, end_time, title, description, cached_at)
                                 VALUES (?, ?, ?, ?, ?, ?)
-                            ''', (stream_id, start_time, end_time, title, description, now))
+                            """,
+                                (
+                                    stream_id,
+                                    start_time,
+                                    end_time,
+                                    title,
+                                    description,
+                                    now,
+                                ),
+                            )
                     except:
                         pass
 
@@ -7535,11 +8651,15 @@ networks:
                 for listing in epg_data:
                     start_time, end_time = self._extract_epg_window(listing)
                     if start_time <= now < end_time:
-                        title = self._decode_base64_if_needed(listing.get('title', '')) or listing.get('title', '')
-                        description = self._decode_base64_if_needed(listing.get('description', '')) or listing.get('description', '')
+                        title = self._decode_base64_if_needed(
+                            listing.get("title", "")
+                        ) or listing.get("title", "")
+                        description = self._decode_base64_if_needed(
+                            listing.get("description", "")
+                        ) or listing.get("description", "")
                         return {
-                            'title': title if title else None,
-                            'description': description if description else None
+                            "title": title if title else None,
+                            "description": description if description else None,
                         }
         except:
             pass
@@ -7553,47 +8673,53 @@ networks:
             now = int(time.time())
 
             # Get current program (now playing)
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT title, description, start_time, end_time FROM epg
                 WHERE stream_id = ? AND start_time <= ? AND end_time > ?
                 ORDER BY start_time DESC
                 LIMIT 1
-            """, (stream_id, now, now))
+            """,
+                (stream_id, now, now),
+            )
             current_row = cursor.fetchone()
 
             # Get next program (upcoming)
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT title, description, start_time, end_time FROM epg
                 WHERE stream_id = ? AND start_time > ?
                 ORDER BY start_time ASC
                 LIMIT 1
-            """, (stream_id, now))
+            """,
+                (stream_id, now),
+            )
             next_row = cursor.fetchone()
 
             conn.close()
 
-            result = {'now': None, 'next': None}
+            result = {"now": None, "next": None}
 
             if current_row:
-                result['now'] = {
-                    'title': current_row[0] if current_row[0] else None,
-                    'description': current_row[1] if current_row[1] else None,
-                    'start_time': current_row[2],
-                    'end_time': current_row[3]
+                result["now"] = {
+                    "title": current_row[0] if current_row[0] else None,
+                    "description": current_row[1] if current_row[1] else None,
+                    "start_time": current_row[2],
+                    "end_time": current_row[3],
                 }
 
             if next_row:
-                result['next'] = {
-                    'title': next_row[0] if next_row[0] else None,
-                    'description': next_row[1] if next_row[1] else None,
-                    'start_time': next_row[2],
-                    'end_time': next_row[3]
+                result["next"] = {
+                    "title": next_row[0] if next_row[0] else None,
+                    "description": next_row[1] if next_row[1] else None,
+                    "start_time": next_row[2],
+                    "end_time": next_row[3],
                 }
 
             return result
         except:
             pass
-        return {'now': None, 'next': None}
+        return {"now": None, "next": None}
 
     # ========================
     # YouTube Tool Methods
@@ -7603,12 +8729,15 @@ networks:
         """Main YouTube Tool interface with search"""
         while True:
             console.clear()
-            console.print(Panel.fit("YouTube Video Search & Download Tool", style="dim white"))
+            console.print(
+                Panel.fit("YouTube Video Search & Download Tool", style="dim white")
+            )
             console.print()
 
             options = [
                 "Search YouTube Videos",
-                "Back to Main Menu"
+                "Download YouTube by URL",
+                "Back to Main Menu",
             ]
 
             terminal_menu = TerminalMenu(
@@ -7616,12 +8745,12 @@ networks:
                 title="",
                 menu_cursor="> ",
                 cycle_cursor=True,
-                clear_screen=False
+                clear_screen=False,
             )
 
             choice = terminal_menu.show()
 
-            if choice is None or choice == 1:  # ESC or Back
+            if choice is None or choice == 2:  # ESC or Back
                 break
             elif choice == 0:  # Search
                 console.clear()
@@ -7631,15 +8760,68 @@ networks:
 
                 if query:
                     self.youtube_search_results_menu(query)
+            elif choice == 1:  # Download by URL
+                self.download_youtube_by_url()
+
+    def _normalize_youtube_url(self, raw_url):
+        """Normalize a YouTube URL to target a single video when possible."""
+        if not raw_url:
+            return raw_url
+
+        url = raw_url.strip()
+        parsed = urlparse(url)
+        host = parsed.netloc.lower()
+
+        if "youtu.be" in host:
+            video_id = parsed.path.lstrip("/").split("/")[0]
+            if video_id:
+                return f"https://www.youtube.com/watch?v={video_id}"
+            return url
+
+        if "youtube.com" in host:
+            query = parse_qs(parsed.query)
+            if "v" in query and query["v"]:
+                clean_query = {"v": query["v"][0]}
+                return urlunparse(
+                    (
+                        "https",
+                        "www.youtube.com",
+                        "/watch",
+                        "",
+                        urlencode(clean_query),
+                        "",
+                    )
+                )
+
+        return url
+
+    def download_youtube_by_url(self):
+        """Download a YouTube video by direct URL."""
+        console.clear()
+        console.print(Panel.fit("Download YouTube by URL", style="dim white"))
+        console.print()
+
+        raw_url = input("Paste YouTube URL (or press Enter to cancel): ").strip()
+        if not raw_url:
+            return
+
+        normalized_url = self._normalize_youtube_url(raw_url)
+        video = self.get_youtube_video_info(normalized_url)
+        if not video:
+            console.print("[red]Could not fetch video info from that URL.[/red]")
+            self.wait_for_escape()
+            return
+
+        self.download_youtube_video(video)
 
     def search_youtube(self, query, max_results=20):
         """Search YouTube videos using yt-dlp"""
         try:
             ydl_opts = {
-                'quiet': True,
-                'no_warnings': True,
-                'extract_flat': True,
-                'force_generic_extractor': False,
+                "quiet": True,
+                "no_warnings": True,
+                "extract_flat": True,
+                "force_generic_extractor": False,
             }
 
             search_query = f"ytsearch{max_results}:{query}"
@@ -7648,17 +8830,21 @@ networks:
                 console.print(f"[cyan]Searching YouTube for: {query}...[/cyan]")
                 result = ydl.extract_info(search_query, download=False)
 
-                if result and 'entries' in result:
+                if result and "entries" in result:
                     videos = []
-                    for entry in result['entries']:
+                    for entry in result["entries"]:
                         if entry:
-                            videos.append({
-                                'id': entry.get('id'),
-                                'title': entry.get('title', 'Unknown Title'),
-                                'uploader': entry.get('uploader', 'Unknown Uploader'),
-                                'duration': entry.get('duration', 0),
-                                'url': f"https://www.youtube.com/watch?v={entry.get('id')}"
-                            })
+                            videos.append(
+                                {
+                                    "id": entry.get("id"),
+                                    "title": entry.get("title", "Unknown Title"),
+                                    "uploader": entry.get(
+                                        "uploader", "Unknown Uploader"
+                                    ),
+                                    "duration": entry.get("duration", 0),
+                                    "url": f"https://www.youtube.com/watch?v={entry.get('id')}",
+                                }
+                            )
                     return videos
                 return []
 
@@ -7683,14 +8869,24 @@ networks:
             # Format video options for menu
             options = []
             for video in videos:
-                if video['duration']:
-                    duration = int(video['duration'])
-                    duration_str = f"{duration//60}:{duration%60:02d}"
+                if video["duration"]:
+                    duration = int(video["duration"])
+                    duration_str = f"{duration // 60}:{duration % 60:02d}"
                 else:
                     duration_str = "Live"
-                title_truncated = video['title'][:70] + "..." if len(video['title']) > 70 else video['title']
-                uploader_truncated = video['uploader'][:25] + "..." if len(video['uploader']) > 25 else video['uploader']
-                options.append(f"{title_truncated} | {uploader_truncated} | [{duration_str}]")
+                title_truncated = (
+                    video["title"][:70] + "..."
+                    if len(video["title"]) > 70
+                    else video["title"]
+                )
+                uploader_truncated = (
+                    video["uploader"][:25] + "..."
+                    if len(video["uploader"]) > 25
+                    else video["uploader"]
+                )
+                options.append(
+                    f"{title_truncated} | {uploader_truncated} | [{duration_str}]"
+                )
 
             options.append("Back to Search")
 
@@ -7699,7 +8895,7 @@ networks:
                 title="",
                 menu_cursor="> ",
                 cycle_cursor=True,
-                clear_screen=False
+                clear_screen=False,
             )
 
             choice = terminal_menu.show()
@@ -7716,18 +8912,18 @@ networks:
             console.clear()
 
             # Fetch full video info for better details
-            full_info = self.get_youtube_video_info(video['url'])
+            full_info = self.get_youtube_video_info(video["url"])
             if full_info:
                 video.update(full_info)
 
             # Display video info
             console.print(Panel.fit(f"Video: {video['title']}", style="dim white"))
             console.print(f"Uploader: {video.get('uploader', 'Unknown')}")
-            if video.get('duration'):
-                duration = int(video['duration'])
-                duration_str = f"{duration//60}:{duration%60:02d}"
+            if video.get("duration"):
+                duration = int(video["duration"])
+                duration_str = f"{duration // 60}:{duration % 60:02d}"
                 console.print(f"Duration: {duration_str}")
-            if video.get('view_count'):
+            if video.get("view_count"):
                 console.print(f"Views: {video['view_count']:,}")
             console.print()
 
@@ -7735,7 +8931,7 @@ networks:
                 "Play Video (P)",
                 "Show Info (I)",
                 "Download Video (D)",
-                "Back to Results"
+                "Back to Results",
             ]
 
             terminal_menu = TerminalMenu(
@@ -7743,7 +8939,7 @@ networks:
                 title="",
                 menu_cursor="> ",
                 cycle_cursor=True,
-                clear_screen=False
+                clear_screen=False,
             )
 
             choice = terminal_menu.show()
@@ -7761,22 +8957,22 @@ networks:
         """Get detailed video information"""
         try:
             ydl_opts = {
-                'quiet': True,
-                'no_warnings': True,
+                "quiet": True,
+                "no_warnings": True,
             }
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
                 return {
-                    'id': info.get('id'),
-                    'title': info.get('title'),
-                    'description': info.get('description'),
-                    'uploader': info.get('uploader'),
-                    'duration': info.get('duration'),
-                    'view_count': info.get('view_count'),
-                    'like_count': info.get('like_count'),
-                    'upload_date': info.get('upload_date'),
-                    'url': url
+                    "id": info.get("id"),
+                    "title": info.get("title"),
+                    "description": info.get("description"),
+                    "uploader": info.get("uploader"),
+                    "duration": info.get("duration"),
+                    "view_count": info.get("view_count"),
+                    "like_count": info.get("like_count"),
+                    "upload_date": info.get("upload_date"),
+                    "url": url,
                 }
         except Exception as e:
             console.print(f"[red]Error fetching video info: {str(e)}[/red]")
@@ -7791,19 +8987,19 @@ networks:
         info_lines.append(f"[bold]Title:[/bold] {video.get('title', 'Unknown')}")
         info_lines.append(f"[bold]Uploader:[/bold] {video.get('uploader', 'Unknown')}")
 
-        if video.get('duration'):
-            duration = int(video['duration'])
-            duration_str = f"{duration//60}:{duration%60:02d}"
+        if video.get("duration"):
+            duration = int(video["duration"])
+            duration_str = f"{duration // 60}:{duration % 60:02d}"
             info_lines.append(f"[bold]Duration:[/bold] {duration_str}")
 
-        if video.get('view_count'):
+        if video.get("view_count"):
             info_lines.append(f"[bold]Views:[/bold] {video['view_count']:,}")
 
-        if video.get('like_count'):
+        if video.get("like_count"):
             info_lines.append(f"[bold]Likes:[/bold] {video['like_count']:,}")
 
-        if video.get('upload_date'):
-            date_str = video['upload_date']
+        if video.get("upload_date"):
+            date_str = video["upload_date"]
             formatted_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
             info_lines.append(f"[bold]Upload Date:[/bold] {formatted_date}")
 
@@ -7811,13 +9007,15 @@ networks:
         info_lines.append("")
         info_lines.append("[bold]Description:[/bold]")
 
-        description = video.get('description', 'No description available')
+        description = video.get("description", "No description available")
         # Limit description length
         if len(description) > 500:
             description = description[:500] + "..."
         info_lines.append(description)
 
-        console.print(Panel("\n".join(info_lines), title="Video Information", style="cyan"))
+        console.print(
+            Panel("\n".join(info_lines), title="Video Information", style="cyan")
+        )
         self.wait_for_escape()
 
     def play_youtube_video(self, video):
@@ -7827,7 +9025,9 @@ networks:
 
         try:
             # Test MPV availability
-            result = subprocess.run(['mpv', '--version'], capture_output=True, check=True, timeout=5)
+            result = subprocess.run(
+                ["mpv", "--version"], capture_output=True, check=True, timeout=5
+            )
             console.print("[green]✓[/green] MPV is available")
 
         except (subprocess.CalledProcessError, FileNotFoundError):
@@ -7839,7 +9039,9 @@ networks:
             self.wait_for_escape()
             return
         except subprocess.TimeoutExpired:
-            console.print("[yellow]⚠[/yellow] MPV check timed out, trying to play anyway...")
+            console.print(
+                "[yellow]⚠[/yellow] MPV check timed out, trying to play anyway..."
+            )
 
         console.print(f"Video URL: {video['url']}")
         console.print()
@@ -7850,33 +9052,39 @@ networks:
             console.print()
 
             # Use yt-dlp with MPV for best quality with simple buffering
-            mpv_cmd = ['mpv', '--ytdl-format=bestvideo[height<=1080]+bestaudio/best']
+            mpv_cmd = ["mpv", "--ytdl-format=bestvideo[height<=1080]+bestaudio/best"]
 
             # Add platform-specific hardware acceleration
             if self.is_raspberry_pi():
                 # Raspberry Pi 4 with Wayland
-                mpv_cmd.extend([
-                    '--hwdec=v4l2m2m',                   # Pi 4 hardware decoder
-                    '--vo=dmabuf-wayland',               # Native Wayland output
-                    '--gpu-context=wayland',             # Wayland GPU context
-                ])
+                mpv_cmd.extend(
+                    [
+                        "--hwdec=v4l2m2m",  # Pi 4 hardware decoder
+                        "--vo=dmabuf-wayland",  # Native Wayland output
+                        "--gpu-context=wayland",  # Wayland GPU context
+                    ]
+                )
             else:
                 # Other platforms - auto detection
-                mpv_cmd.extend([
-                    '--hwdec=auto',                      # Auto hardware decoding
-                    '--vo=gpu',                          # GPU video output
-                ])
+                mpv_cmd.extend(
+                    [
+                        "--hwdec=auto",  # Auto hardware decoding
+                        "--vo=gpu",  # GPU video output
+                    ]
+                )
 
             # Common settings for all platforms
-            mpv_cmd.extend([
-                '--cache=yes',                           # Enable cache
-                '--demuxer-max-bytes=100M',              # Cache up to 100MB for YT
-                '--demuxer-max-back-bytes=50M',          # Backward cache 50MB
-                '--network-timeout=60',                  # 60 second timeout
-                '--keep-open=yes',                       # Keep window open
-                '--osd-level=1',                         # Show OSD messages
-                video['url']
-            ])
+            mpv_cmd.extend(
+                [
+                    "--cache=yes",  # Enable cache
+                    "--demuxer-max-bytes=100M",  # Cache up to 100MB for YT
+                    "--demuxer-max-back-bytes=50M",  # Backward cache 50MB
+                    "--network-timeout=60",  # 60 second timeout
+                    "--keep-open=yes",  # Keep window open
+                    "--osd-level=1",  # Show OSD messages
+                    video["url"],
+                ]
+            )
 
             # Run MPV
             subprocess.run(mpv_cmd)
@@ -7903,14 +9111,10 @@ networks:
             "Best Quality (1080p MOV - DaVinci Resolve Compatible)",
             "Audio Only (MP3)",
             "720p Video (MOV - DaVinci Resolve Compatible)",
-            "Cancel"
+            "Cancel",
         ]
 
-        terminal_menu = TerminalMenu(
-            format_options,
-            title="",
-            menu_cursor="> "
-        )
+        terminal_menu = TerminalMenu(format_options, title="", menu_cursor="> ")
 
         format_choice = terminal_menu.show()
 
@@ -7920,54 +9124,68 @@ networks:
         # Set yt-dlp options based on choice
         if format_choice == 0:  # Best quality
             ydl_opts = {
-                'format': 'bestvideo[height<=1080]+bestaudio/best',
-                'outtmpl': os.path.join(youtube_dir, '%(title)s.%(ext)s'),
-                'merge_output_format': 'mp4',
-                'postprocessors': [{
-                    'key': 'FFmpegVideoConvertor',
-                    'preferedformat': 'mov',
-                }],
+                "format": "bestvideo[height<=1080]+bestaudio/best",
+                "outtmpl": os.path.join(youtube_dir, "%(title)s.%(ext)s"),
+                "noplaylist": True,
+                "merge_output_format": "mp4",
+                "postprocessors": [
+                    {
+                        "key": "FFmpegVideoConvertor",
+                        "preferedformat": "mov",
+                    }
+                ],
             }
         elif format_choice == 1:  # Audio only
             ydl_opts = {
-                'format': 'bestaudio/best',
-                'outtmpl': os.path.join(youtube_dir, '%(title)s.%(ext)s'),
-                'postprocessors': [{
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                    'preferredquality': '192',
-                }],
+                "format": "bestaudio/best",
+                "outtmpl": os.path.join(youtube_dir, "%(title)s.%(ext)s"),
+                "noplaylist": True,
+                "postprocessors": [
+                    {
+                        "key": "FFmpegExtractAudio",
+                        "preferredcodec": "mp3",
+                        "preferredquality": "192",
+                    }
+                ],
             }
         else:  # 720p
             ydl_opts = {
-                'format': 'bestvideo[height<=720]+bestaudio/best',
-                'outtmpl': os.path.join(youtube_dir, '%(title)s.%(ext)s'),
-                'merge_output_format': 'mp4',
-                'postprocessors': [{
-                    'key': 'FFmpegVideoConvertor',
-                    'preferedformat': 'mov',
-                }],
+                "format": "bestvideo[height<=720]+bestaudio/best",
+                "outtmpl": os.path.join(youtube_dir, "%(title)s.%(ext)s"),
+                "noplaylist": True,
+                "merge_output_format": "mp4",
+                "postprocessors": [
+                    {
+                        "key": "FFmpegVideoConvertor",
+                        "preferedformat": "mov",
+                    }
+                ],
             }
 
         # Add progress hook
         def progress_hook(d):
-            if d['status'] == 'downloading':
-                percent = d.get('_percent_str', 'N/A')
-                speed = d.get('_speed_str', 'N/A')
-                eta = d.get('_eta_str', 'N/A')
-                console.print(f"\r[cyan]Downloading:[/cyan] {percent} | Speed: {speed} | ETA: {eta}", end='')
-            elif d['status'] == 'finished':
+            if d["status"] == "downloading":
+                percent = d.get("_percent_str", "N/A")
+                speed = d.get("_speed_str", "N/A")
+                eta = d.get("_eta_str", "N/A")
+                console.print(
+                    f"\r[cyan]Downloading:[/cyan] {percent} | Speed: {speed} | ETA: {eta}",
+                    end="",
+                )
+            elif d["status"] == "finished":
                 console.print(f"\n[green]✓[/green] Download complete! Processing...")
 
-        ydl_opts['progress_hooks'] = [progress_hook]
+        ydl_opts["progress_hooks"] = [progress_hook]
 
         try:
             console.print(f"[cyan]Starting download...[/cyan]\n")
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([video['url']])
+                ydl.download([video["url"]])
 
-            console.print(f"\n[green]✓[/green] Video downloaded successfully to: {youtube_dir}")
+            console.print(
+                f"\n[green]✓[/green] Video downloaded successfully to: {youtube_dir}"
+            )
             console.print(f"[dim]File saved in: {youtube_dir}[/dim]")
 
         except Exception as e:
@@ -7975,19 +9193,21 @@ networks:
 
         self.wait_for_escape()
 
+
 def main():
     """Main entry point"""
     try:
         # Check if MPV is available
-        subprocess.run(['mpv', '--version'], capture_output=True, check=True)
+        subprocess.run(["mpv", "--version"], capture_output=True, check=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
         console.print("Warning: MPV not found. Install it to play streams.")
         console.print("Ubuntu/Debian: sudo apt install mpv")
         console.print("macOS: brew install mpv")
         input()
-    
+
     manager = IPTVMenuManager()
     manager.main_menu()
+
 
 if __name__ == "__main__":
     main()

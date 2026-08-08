@@ -1,146 +1,144 @@
 # AGENTS.md
 
-Guidance for coding agents working in `/home/kdresdell/Documents/DEV/iptv`.
+Operational guidance for coding agents working in `/home/kdresdell/Documents/DEV/iptv`.
 
-## Repo Summary
-This repo is a Python IPTV CLI plus Docker-based streaming infrastructure.
-`iptv.py` is the main application and contains the large `IPTVMenuManager` class.
-It handles menus, SQLite access, IPTV API fetches, playlist generation,
-YouTube actions, FFmpeg restreaming, and Docker orchestration.
-`record_scheduled.py` is a standalone recorder CLI used by schedulers/systemd.
-`util.py` contains image/logo helpers.
-`test_tty.py` is a terminal diagnostic script, not a real unit test.
-`docker-compose.yml` defines `nginx-rtmp`, `jellyfin`, and `samba` services.
-Persistent state lives under `data/`.
+## Project Snapshot
+- Python CLI app for IPTV browsing, restreaming, downloads, and container control.
+- Main file is `iptv.py` with a large stateful `IPTVMenuManager` class.
+- `record_scheduled.py` is a standalone recorder entrypoint (automation/systemd style).
+- `util.py` contains image/logo and helper workflows.
+- `docker-compose.yml` manages `nginx-rtmp`, `jellyfin`, and `samba` services.
+- Primary persistent state is user data in `data/`.
 
-## Key Paths
-`data/` holds the SQLite database, logs, JSON downloads, and generated state.
-`nginx/` contains the RTMP container build context and served web assets.
-`nginx/html/` is part of the app's web-facing output surface.
-`jellyfin/` contains local Jellyfin config/cache directories.
-`downloads/` is used for downloaded media artifacts.
-`.env.example` documents supported environment variables.
-`README.md` and `CLAUDE.md` contain the best high-level product context.
+## Rule Sources Checked
+- Searched for Cursor rules in `.cursor/rules/` and `.cursorrules`: not present.
+- Searched for Copilot rules in `.github/copilot-instructions.md`: not present.
+- Repo-level architecture context exists in `CLAUDE.md`; consult it for deeper behavior.
 
-## Existing Agent Rules
-There is a repo-level `CLAUDE.md`; use it for architecture context.
-There was no existing repo `AGENTS.md` before this file.
-I did not find `.cursor/rules/`, `.cursorrules`,
-or `.github/copilot-instructions.md`.
-There are no checked-in Cursor or Copilot rules to merge here.
+## Important Paths
+- `iptv.py`: main interactive CLI, DB logic, IPTV API handling, FFmpeg orchestration.
+- `record_scheduled.py`: direct scheduled recording script.
+- `util.py`: utility helpers.
+- `test_tty.py`: terminal smoke/diagnostic script (not a formal unit test suite).
+- `data/`: SQLite DB, logs, JSON payloads, generated playlists, downloaded media.
+- `nginx/`: NGINX RTMP Docker context and web assets.
+- `nginx/html/`: web-served artifacts (including generated playlist copies).
+- `README.md`: restreaming and container usage details.
 
 ## Environment Setup
-Create a venv with `python3 -m venv venv`.
-Activate it with `source venv/bin/activate`.
-Install dependencies with `pip install -r requirements.txt`.
-Create local config with `cp .env.example .env`.
-Required `.env` variables for normal app startup are:
-`IPTV_SERVER_URL`, `IPTV_USERNAME`, and `IPTV_PASSWORD`.
-Common external tools used by the repo are `ffmpeg`, `docker`,
-`docker-compose`, and `mpv`.
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+```
+Required env vars for normal app startup:
+- `IPTV_SERVER_URL`
+- `IPTV_USERNAME`
+- `IPTV_PASSWORD`
+Common external dependencies:
+- `ffmpeg`
+- `docker`
+- `docker-compose`
+- `mpv`
 
-## Run Commands
-Run the main app with `python3 iptv.py`.
-Run the scheduled recorder directly with
-`python3 record_scheduled.py --stream-id 12345 --duration 3600 --output /tmp/test.ts`.
-Run the utility script with `python3 util.py`.
-Run the terminal diagnostic script with `python3 test_tty.py`.
+## Build / Run Commands
+There is no separate build system; execution is script + Docker driven.
+```bash
+python3 iptv.py
+python3 record_scheduled.py --stream-id 12345 --duration 3600 --output /tmp/test.ts
+python3 util.py
+```
 
 ## Docker Commands
-Validate compose config with `docker-compose config -q`.
-Build and start everything with `docker-compose up -d --build`.
-Build/start only NGINX RTMP with `docker-compose up -d --build nginx-rtmp`.
-View logs with `docker-compose logs -f nginx-rtmp`.
-Stop services with `docker-compose down`.
+```bash
+docker-compose config -q
+docker-compose up -d --build
+docker-compose up -d --build nginx-rtmp
+docker-compose logs -f nginx-rtmp
+docker-compose down
+```
 
-## Lint And Validation
-There is no checked-in config for `ruff`, `flake8`, `black`, `isort`,
-`mypy`, `pylint`, `tox`, or `nox`.
-There is also no `Makefile`, `pyproject.toml`, `setup.cfg`, or `pytest.ini`.
-Safest repo-wide validation is syntax compilation:
-`python3 -m py_compile iptv.py record_scheduled.py util.py test_tty.py`.
-Single-file validation: `python3 -m py_compile iptv.py`.
-Broader compile pass: `python3 -m compileall iptv.py record_scheduled.py util.py test_tty.py`.
-If you modify Docker config, also run `docker-compose config -q`.
+## Lint / Static Validation
+No repo config is present for `ruff`, `flake8`, `black`, `isort`, `mypy`, `pylint`, `tox`, or `nox`.
+Also no `pyproject.toml`, `setup.cfg`, `pytest.ini`, or `Makefile` is checked in.
+Use Python syntax compilation as the safest default validation:
+```bash
+python3 -m py_compile iptv.py
+python3 -m py_compile iptv.py record_scheduled.py util.py test_tty.py
+python3 -m compileall iptv.py record_scheduled.py util.py test_tty.py
+```
+If Docker files are edited, also run:
+```bash
+docker-compose config -q
+```
 
-## Test Commands
-Important: the current repo does not contain a formal automated test suite.
-`test_tty.py` is the only checked-in test-like file and it is a smoke script.
-Run it with `python3 test_tty.py`.
-For a single-target validation after editing one file, use syntax compilation,
-for example `python3 -m py_compile record_scheduled.py`.
-If you add real tests later, prefer `pytest` and use explicit single-test runs like
-`pytest path/to/test_file.py -k test_name`.
-Do not assume pytest is already installed or configured here.
+## Test Commands (Including Single-Test Guidance)
+Current state:
+- No formal unit/integration test suite is checked in.
+- `test_tty.py` is a smoke/diagnostic script and may require an interactive TTY.
+Practical commands today:
+```bash
+python3 test_tty.py
+python3 -m py_compile record_scheduled.py
+```
+If/when pytest tests are added later, use these conventions:
+```bash
+pytest tests/test_some_module.py
+pytest tests/test_some_module.py::test_specific_behavior
+pytest -k "specific_behavior"
+```
 
-## Code Style
-Follow existing code first and prefer the smallest correct change.
-Do not refactor `iptv.py` broadly unless the task clearly requires it.
-Preserve current CLI/menu behavior when editing menu handlers.
-Use 4-space indentation.
-Keep formatting readable; the repo is not under a strict autoformatter today.
-Use docstrings where they help readers.
-Do not add comments that only restate obvious code.
+## Code Style And Change Scope
+- Prefer the smallest correct change; do not refactor broadly unless requested.
+- `iptv.py` is stateful and menu-coupled; preserve menu flow and side effects.
+- Keep 4-space indentation and readable formatting.
+- Follow surrounding style over introducing new patterns.
+- Add docstrings for new non-trivial helpers and entrypoint-facing functions.
+- Avoid comments that only restate obvious code.
 
 ## Imports
-Order imports as: standard library, third-party, local modules.
-Avoid unused imports.
-Use function-local imports only when the dependency is optional,
-platform-specific, or only needed in one code path.
-That pattern already exists in `iptv.py`.
+- Use standard grouping: standard library, third-party, local modules.
+- Keep imports used; remove unused imports in touched files.
+- Prefer module-level imports unless dependency is optional/platform-specific.
+- Function-local imports are acceptable for optional tools and graceful fallback paths.
 
 ## Types
-The codebase is mostly dynamically typed.
-`record_scheduled.py` uses some type hints; `iptv.py` mostly does not.
-Add type hints to new helpers or new scripts when easy and local.
-Do not do a large typing retrofit unless requested.
-Prefer simple built-in types over heavy typing machinery.
+- Codebase is mostly dynamic; avoid forced large typing retrofits.
+- Add light type hints for new helper functions where they improve clarity.
+- Keep annotations simple (`str`, `int`, `list`, `dict`) unless stronger typing is useful.
+- Match local file conventions (`record_scheduled.py` is more typed than `iptv.py`).
 
-## Naming
-Use `snake_case` for functions, methods, variables, and filenames.
-Use `PascalCase` for classes.
-Use `UPPER_CASE` for module-level constants.
-Keep names descriptive and action-oriented.
-Examples already in the repo include `show_live_results`,
-`build_nginx_container`, and `update_recording_status`.
+## Naming Conventions
+- `snake_case`: functions, methods, variables, filenames.
+- `PascalCase`: classes.
+- `UPPER_CASE`: module-level constants.
+- Use descriptive, action-oriented names aligned with current code vocabulary.
 
 ## Error Handling
-Prefer targeted exceptions over bare `except:` in new code.
-The existing app sometimes catches broad exceptions for CLI resilience;
-keep that only where failure must not break interactive flow.
-For recoverable failures, log or print a clear message and return `False` or `None`.
-This is the dominant pattern in `util.py`, `record_scheduled.py`,
-and many helpers inside `iptv.py`.
-Reserve `sys.exit(...)` for script-entry failures such as missing required config.
-Preserve graceful degradation when optional tools are unavailable.
+- Prefer targeted exceptions (`except ValueError`, etc.) in new code.
+- Use broad catches only where CLI resilience is required.
+- On recoverable errors, emit a clear message and return a safe value (`None`/`False`).
+- Reserve `sys.exit(...)` for true script-entry fatal conditions.
+- Preserve graceful degradation when optional binaries/services are unavailable.
 
-## Logging And Output
-In `iptv.py`, prefer `console.print(...)` and existing `rich` output patterns.
-In standalone scripts, prefer the `logging` module.
-Keep messages short, actionable, and user-facing.
-When shelling out to `ffmpeg` or Docker, report the failure cause when available.
+## Logging And User Output
+- In `iptv.py`, prefer existing `rich`/`console.print(...)` patterns.
+- In standalone scripts, prefer the `logging` module.
+- Keep messages concise, actionable, and user-focused.
+- When subprocess work fails, surface the relevant stderr/context.
 
-## Data, SQL, And Subprocesses
-Treat `.env`, `data/`, playlists, JSON files, and recordings as user state.
-Do not delete or overwrite them casually.
-Prefer storing new persistent app data under `data/`.
-Be careful with artifacts mirrored into both `data/` and `nginx/html/`.
-Use parameterized SQL queries, not string interpolation.
-When calling subprocesses, pass argument lists explicitly.
-Avoid `shell=True` unless there is a real need.
+## Data, SQL, And Subprocess Safety
+- Treat `.env`, `data/`, playlists, JSON dumps, and recordings as user state.
+- Do not delete or overwrite persistent data unless task explicitly requires it.
+- Keep new persistent artifacts under `data/` when feasible.
+- Remember some artifacts are mirrored between `data/` and `nginx/html/`.
+- Use parameterized SQL queries; never build SQL with string interpolation.
+- Use subprocess argument lists; avoid `shell=True` unless unavoidable.
 
-## Change Workflow
-Read the surrounding function before editing it.
-Many methods in `iptv.py` are stateful and connected through menus.
-Do not clean up unrelated code while solving a focused issue.
-If you add a new env var, file path, or user-facing workflow,
-update `.env.example`, `README.md`, or both when relevant.
-Before finishing, run the smallest validation that matches the change.
-At minimum, run `python3 -m py_compile` on each edited Python file.
-
-## Practical Notes
-Prefer local edits over sweeping reorganizations.
-Assume `data/` may contain real user state and recordings.
-Be careful with menu return paths and interactive prompts in `iptv.py`.
-When changing Docker behavior, keep the Python CLI and compose config aligned.
-When changing recording behavior, verify both `iptv.py` and `record_scheduled.py` paths.
+## Agent Workflow Expectations
+- Read surrounding functions before editing; many behaviors are interconnected.
+- Do not perform unrelated cleanups in focused task changes.
+- If you add env vars or new user workflows, update `.env.example` and/or docs.
+- Validate the smallest relevant surface before finishing.
+- Minimum validation for Python edits: `python3 -m py_compile <edited_file>.py`.
