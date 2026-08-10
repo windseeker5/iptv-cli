@@ -2,6 +2,8 @@
 
 Branch: `textual-poc`
 
+Status: **completed**
+
 Goal: keep Python, extract domain logic from `iptv.py`, and replace `simple-term-menu` with a minimal `textual` TUI. No flashy UI — black background, white/cyan text, clean flow.
 
 ## Constraints
@@ -11,11 +13,12 @@ Goal: keep Python, extract domain logic from `iptv.py`, and replace `simple-term
 - Style is intentionally minimal: no animations, no gradients, no rounded windows.
 - Use `python-dotenv`, `rich`/`textual`, `requests`, `yt-dlp`, `sqlite3`, `subprocess`.
 
-## Target layout
+## Final layout
 
 ```
 iptv/
-├── iptv.py                  # legacy app (untouched during build)
+├── iptv.py                  # new Textual TUI entrypoint
+├── iptv_legacy.py           # old single-file simple-term-menu implementation
 ├── record_scheduled.py      # standalone recorder
 ├── record_wrapper.sh        # venv wrapper
 ├── docker-compose.yml
@@ -32,81 +35,68 @@ iptv/
 │   │   ├── search.py
 │   │   ├── results.py
 │   │   ├── player_actions.py
-│   │   └── container_status.py
+│   │   ├── favorites.py
+│   │   ├── category_browser.py
+│   │   ├── scheduled_recordings.py
+│   │   ├── background_downloads.py
+│   │   ├── series_episodes.py
+│   │   ├── info.py
+│   │   ├── youtube.py
+│   │   ├── container_status.py
+│   │   └── message.py
 │   ├── widgets/
 │   │   ├── __init__.py
 │   │   ├── header.py
-│   │   ├── status_bar.py
-│   │   └── simple_list.py
-│   └── domain/
-│       ├── __init__.py
-│       ├── config.py
-│       ├── db.py
-│       ├── iptv_provider.py
-│       ├── favorites.py
-│       ├── recordings.py
-│       ├── restream.py
-│       ├── downloads.py
-│       ├── docker_ctl.py
-│       └── youtube.py
-└── run_new_iptv.py          # launcher for the new app
+│   │   └── status_bar.py
+│   ├── domain/
+│   │   ├── __init__.py
+│   │   ├── config.py
+│   │   ├── db.py
+│   │   ├── iptv_provider.py
+│   │   ├── favorites.py
+│   │   ├── recordings.py
+│   │   ├── restream.py
+│   │   ├── downloads.py
+│   │   ├── docker_ctl.py
+│   │   ├── youtube.py
+│   │   └── actions.py
+│   └── test_app_smoke.py
+└── util.py                  # image/logo helpers
 ```
 
-## Phase 0 — Skeleton
+## Phase 0 — Skeleton ✅
 
-1. Create `new_iptv/` package directories.
-2. Add `styles.tcss` with black/white/cyan theme.
-3. Create minimal `new_iptv/app.py` and `run_new_iptv.py` launcher.
-4. Validate: `python3 run_new_iptv.py` opens a window and exits cleanly.
+- Created `new_iptv/` package directories.
+- Added `styles.tcss` with black/white/cyan theme.
+- Created minimal `new_iptv/app.py` and `run_new_iptv.py` launcher.
+- Added headless smoke tests.
 
-## Phase 1 — Domain extraction (no UI yet)
+## Phase 1 — Domain extraction ✅
 
-1. Extract `config.py` from `iptv.py` env loading.
-2. Extract `db.py` with connection helper and migrations.
-3. Extract `iptv_provider.py` for search/live/vod/series/EPG.
-4. Extract `favorites.py` for load/save and M3U generation.
-5. Extract `recordings.py` for scheduled recordings table.
-6. Extract `restream.py` for FFmpeg start/stop/ PID management.
-7. Extract `downloads.py` for VOD/series background downloads.
-8. Extract `docker_ctl.py` for docker-compose orchestration.
-9. Extract `youtube.py` for yt-dlp search/info/download.
-10. Validate each module with `python3 -m py_compile` and light manual checks.
+- Extracted `config.py`, `db.py`, `iptv_provider.py`, `favorites.py`, `recordings.py`, `restream.py`, `downloads.py`, `docker_ctl.py`, `youtube.py`.
+- Added `db.connection()` context manager to prevent SQLite connection leaks.
 
-## Phase 2 — Textual screens
+## Phase 2 — Textual screens ✅
 
-1. `screens/main_menu.py` — main menu with status bar.
-2. `screens/search.py` — single search input.
-3. `screens/results.py` — unified live/VOD/series list with key actions.
-4. `screens/player_actions.py` — context menu for selected item.
-5. `screens/container_status.py` — service list and logs.
-6. Wire screens together through `app.py` push/pop.
+- Built main menu, search, results with EPG preview, player actions, favorites, category browser, container status, message screen.
+- Wired screens through `app.py`.
 
-## Phase 3 — Feature parity, one flow at a time
+## Phase 3 — Feature parity ✅
 
-1. Main menu → Search → Results → Play.
-2. Favorites → Play/Restream.
-3. Browse categories → Live channels → Play.
-4. Container status / start / stop / logs.
-5. Scheduled recordings.
-6. Background downloads.
-7. YouTube tool.
+- Search → results → play/restream/record/download/favorite/info.
+- Favorites, category browser, container controls.
+- Scheduled recordings, background downloads, series episodes, info screens, YouTube tool.
+- Real action execution through `domain/actions.py`.
 
-## Phase 4 — Cutover
+## Phase 4 — Cutover ✅
 
-1. Verify all daily flows work in `run_new_iptv.py`.
-2. Rename `iptv.py` → `iptv_legacy.py`.
-3. Rename `run_new_iptv.py` → `iptv.py`.
-4. Keep `record_scheduled.py`, `record_wrapper.sh`, Docker files.
-5. Update `AGENTS.md` and docs.
+- Renamed `iptv.py` → `iptv_legacy.py`.
+- Renamed `run_new_iptv.py` → `iptv.py`.
+- Updated `AGENTS.md` to reflect new architecture.
 
-## Validation rules
+## Validation
 
-- Run `python3 -m py_compile <edited_file>.py` after every file edit.
-- Run `docker-compose config -q` if Docker files change.
-- Keep `iptv.py` legacy functional until explicit cutover step.
-
-## Visual target
-
-- Black background, white text, cyan accents for highlights/borders.
-- No animations, no rounded panels, no gradients.
-- Clear footer showing available keys on each screen.
+- `python3 -m py_compile iptv.py record_scheduled.py util.py test_tty.py`
+- `python3 -m compileall new_iptv`
+- `python3 -m unittest new_iptv.test_app_smoke -v`
+- `docker-compose config -q`
