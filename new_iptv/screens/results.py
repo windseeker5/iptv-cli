@@ -1,10 +1,11 @@
 """Unified results screen."""
 
 from textual.app import ComposeResult
+from textual.containers import Horizontal
 from textual.screen import Screen
 from textual.widgets import Header, Footer, ListView, ListItem, Label, Static
 
-from new_iptv.domain import iptv_provider, favorites as favorites_domain
+from new_iptv.domain import actions, iptv_provider, favorites as favorites_domain
 from new_iptv.widgets.header import AppHeader
 from new_iptv.widgets.status_bar import StatusBar
 
@@ -30,7 +31,11 @@ class ResultsScreen(Screen):
         yield AppHeader(f"Results: {self.query}")
         yield StatusBar("Loading...")
         yield Static("Searching...", id="results-info")
-        yield ListView(id="results-list")
+        yield Horizontal(
+            ListView(id="results-list"),
+            Static("", id="preview-panel"),
+            id="results-layout",
+        )
         yield Footer()
 
     def on_mount(self) -> None:
@@ -73,6 +78,43 @@ class ResultsScreen(Screen):
         if self.results:
             list_view.index = 0
             list_view.focus()
+            self._update_preview(0)
+
+    def _update_preview(self, idx: int) -> None:
+        preview = self.query_one("#preview-panel", Static)
+        if idx < 0 or idx >= len(self.results):
+            preview.update("")
+            return
+
+        result_type, item = self.results[idx]
+        lines = []
+        name = item.get("name", "Unknown")
+        lines.append(f"[b]{name}[/b]")
+        lines.append("")
+
+        if result_type == "live":
+            epg = iptv_provider.get_now_playing(item.get("stream_id", 0), name)
+            if epg and epg.get("title"):
+                lines.append(f"Now: {epg['title']}")
+                if epg.get("description"):
+                    lines.append("")
+                    lines.append(epg["description"][:300])
+            else:
+                lines.append("No EPG data available.")
+        elif result_type == "vod":
+            lines.append(f"Year: {item.get('year') or 'N/A'}")
+            lines.append(f"Rating: {item.get('rating') or 'N/A'}")
+            if item.get("genre"):
+                lines.append(f"Genre: {item['genre']}")
+        else:
+            lines.append(f"Rating: {item.get('rating') or 'N/A'}")
+            if item.get("genre"):
+                lines.append(f"Genre: {item['genre']}")
+            if item.get("plot"):
+                lines.append("")
+                lines.append(item["plot"][:300])
+
+        preview.update("\n".join(lines))
 
     def _format_item(self, result_type: str, item: dict, star: str) -> str:
         name = item.get("name", "Unknown")
@@ -96,6 +138,13 @@ class ResultsScreen(Screen):
             return self.results[idx]
         return None
 
+    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
+        try:
+            idx = int(event.item.name)
+        except (ValueError, TypeError, AttributeError):
+            return
+        self._update_preview(idx)
+
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         selected = self._selected_item()
         if selected:
@@ -104,7 +153,8 @@ class ResultsScreen(Screen):
     def action_play_selected(self) -> None:
         selected = self._selected_item()
         if selected:
-            self.query_one(StatusBar).set_status(f"Play: {selected[1].get('name')}")
+            result = actions.play_item(selected[1], selected[0])
+            self.query_one(StatusBar).set_status(result["message"])
 
     def action_info_selected(self) -> None:
         selected = self._selected_item()
@@ -114,13 +164,17 @@ class ResultsScreen(Screen):
     def action_restream_selected(self) -> None:
         selected = self._selected_item()
         if selected and selected[0] != "series":
-            self.query_one(StatusBar).set_status(f"Restream: {selected[1].get('name')}")
+            result = actions.restream_item(selected[1])
+            self.query_one(StatusBar).set_status(result["message"])
 
     def action_record_or_download(self) -> None:
         selected = self._selected_item()
         if selected and selected[0] != "series":
-            label = "Record" if selected[0] == "live" else "Download"
-            self.query_one(StatusBar).set_status(f"{label}: {selected[1].get('name')}")
+            if selected[0] == "live":
+                result = actions.record_live_item(selected[1])
+            else:
+                result = actions.download_vod_item(selected[1])
+            self.query_one(StatusBar).set_status(result["message"])
 
     def action_toggle_favorite(self) -> None:
         selected = self._selected_item()

@@ -13,7 +13,7 @@ from new_iptv.domain import config, db, iptv_provider
 
 def list_recordings(limit: int = 50) -> list[dict]:
     """Return scheduled recordings ordered by start time descending."""
-    with db.get_connection() as conn:
+    with db.connection() as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute(
@@ -38,7 +38,7 @@ def add_recording(
     timer_unit: str,
 ) -> int | None:
     """Persist a scheduled recording to the database. Returns the new row id."""
-    with db.get_connection() as conn:
+    with db.connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -62,7 +62,7 @@ def add_recording(
 
 def cancel_recording(recording_id: int) -> bool:
     """Mark a recording as cancelled in the database."""
-    with db.get_connection() as conn:
+    with db.connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
             "UPDATE scheduled_recordings SET status = 'cancelled' WHERE id = ?",
