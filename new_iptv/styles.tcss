@@ -1,0 +1,62 @@
+Screen {
+    background: black;
+    color: white;
+}
+
+Static {
+    color: white;
+}
+
+Label {
+    color: white;
+}
+
+Input {
+    background: #111111;
+    color: white;
+    border: solid white;
+}
+
+Input:focus {
+    border: solid cyan;
+}
+
+ListView {
+    border: solid white;
+    background: black;
+    color: white;
+}
+
+ListView > ListItem {
+    color: white;
+    background: black;
+}
+
+ListView > ListItem.--highlight {
+    background: #111111;
+    color: cyan;
+    text-style: bold;
+}
+
+Header, Footer {
+    background: #111111;
+    color: white;
+    text-style: bold;
+}
+
+Footer > .footer--key {
+    background: black;
+    color: cyan;
+    text-style: bold;
+}
+
+.status-bar {
+    background: #111111;
+    color: white;
+    height: 1;
+}
+
+.title {
+    text-style: bold;
+    color: cyan;
+}
