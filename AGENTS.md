@@ -4,8 +4,12 @@ Operational guidance for coding agents working in `/home/kdresdell/Documents/DEV
 
 ## Project Snapshot
 
-- Python CLI app for IPTV browsing, restreaming, downloads, and container control.
-- Main file is `iptv.py` with a large stateful `IPTVMenuManager` class.
+- Python CLI/TUI app for IPTV browsing, restreaming, downloads, and container control.
+- `iptv.py` is the new Textual-based TUI entrypoint (replaced the legacy monolithic app).
+- `new_iptv/` contains the modular app: `domain/` for business logic, `screens/` for Textual UI.
+- `iptv_legacy.py` is the old single-file `simple-term-menu` implementation, kept for reference.
+- `record_scheduled.py` is a standalone recorder entrypoint (automation/systemd style).
+- `util.py` contains image/logo helper workflows.
 - `record_scheduled.py` is a standalone recorder entrypoint (automation/systemd style).
 - `util.py` contains image/logo helper workflows.
 - `docker-compose.yml` manages `nginx-rtmp`, `jellyfin`, `caddy`, `viewer-counter`, and `samba` services.
@@ -79,7 +83,7 @@ Use Python syntax compilation as the safest default validation:
 
 ```bash
 python3 -m py_compile iptv.py record_scheduled.py util.py test_tty.py
-python3 -m compileall iptv.py record_scheduled.py util.py test_tty.py
+python3 -m compileall new_iptv
 ```
 
 If Docker files are edited, also run:
@@ -109,7 +113,7 @@ pytest -k "specific_behavior"
 ## Code Style And Change Scope
 
 - Prefer the smallest correct change; do not refactor broadly unless requested.
-- `iptv.py` is stateful and menu-coupled; preserve menu flow and side effects.
+- `iptv.py` is a Textual TUI; screens and reactive widgets live in `new_iptv/screens/` and domain logic in `new_iptv/domain/`.
 - Keep 4-space indentation and readable formatting.
 - Follow surrounding style over introducing new patterns.
 - Add docstrings for new non-trivial helpers and entrypoint-facing functions.
@@ -146,7 +150,7 @@ pytest -k "specific_behavior"
 
 ## Logging And User Output
 
-- In `iptv.py`, prefer existing `rich`/`console.print(...)` patterns.
+- In `iptv.py` and `new_iptv/screens/`, prefer Textual widgets and status-bar messages for user feedback.
 - In standalone scripts, prefer the `logging` module.
 - Keep messages concise, actionable, and user-focused.
 - When subprocess work fails, surface the relevant stderr/context.
