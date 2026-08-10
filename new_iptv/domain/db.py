@@ -2,6 +2,7 @@
 
 import os
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -20,14 +21,27 @@ def db_path() -> Path:
     return data_dir() / "iptv.db"
 
 
+@contextmanager
+def connection():
+    """Open and automatically close a connection to the IPTV database."""
+    conn = sqlite3.connect(str(db_path()))
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
 def get_connection() -> sqlite3.Connection:
-    """Open a connection to the IPTV database."""
+    """Open a connection to the IPTV database.
+
+    Caller is responsible for closing. Prefer the `connection()` context manager.
+    """
     return sqlite3.connect(str(db_path()))
 
 
 def init_db() -> None:
     """Create base tables and indexes used by the application."""
-    with get_connection() as conn:
+    with connection() as conn:
         cursor = conn.cursor()
         cursor.executescript(
             """
@@ -132,7 +146,7 @@ def init_db() -> None:
 
 def row_count(table: str) -> int:
     """Return the number of rows in a table."""
-    with get_connection() as conn:
+    with connection() as conn:
         cursor = conn.cursor()
         cursor.execute(f"SELECT COUNT(*) FROM {table}")
         return cursor.fetchone()[0]
@@ -140,7 +154,7 @@ def row_count(table: str) -> int:
 
 def list_tables() -> list[str]:
     """Return a list of user tables in the database."""
-    with get_connection() as conn:
+    with connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
         return [row[0] for row in cursor.fetchall()]

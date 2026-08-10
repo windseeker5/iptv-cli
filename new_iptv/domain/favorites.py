@@ -214,7 +214,7 @@ def hydrate_favorites_with_database(favorites: list[dict]) -> list[dict]:
     ]
 
     if live_ids:
-        with db.get_connection() as conn:
+        with db.connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             placeholders = ",".join("?" * len(live_ids))
@@ -234,7 +234,7 @@ def hydrate_favorites_with_database(favorites: list[dict]) -> list[dict]:
                 item["stream_url"] = meta.get("stream_url", item.get("stream_url"))
 
     if vod_ids:
-        with db.get_connection() as conn:
+        with db.connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             placeholders = ",".join("?" * len(vod_ids))

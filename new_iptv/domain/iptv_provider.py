@@ -53,7 +53,7 @@ def _search_table(query: str, table: str, columns: list[str], limit: int = 50):
     """
     params.append(limit)
 
-    with db.get_connection() as conn:
+    with db.connection() as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         rows = cursor.execute(sql, params).fetchall()
@@ -105,7 +105,7 @@ def search_series_content(query: str, limit: int = 50) -> list[dict]:
 
 def get_live_categories() -> list[dict]:
     """Return distinct live categories."""
-    with db.get_connection() as conn:
+    with db.connection() as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         rows = cursor.execute(
@@ -121,7 +121,7 @@ def get_live_categories() -> list[dict]:
 
 def get_vod_categories() -> list[dict]:
     """Return VOD categories."""
-    with db.get_connection() as conn:
+    with db.connection() as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         rows = cursor.execute(
@@ -136,7 +136,7 @@ def get_vod_categories() -> list[dict]:
 
 def get_channels_by_category(category_name: str, limit: int = 200) -> list[dict]:
     """Return live channels for a given category."""
-    with db.get_connection() as conn:
+    with db.connection() as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         rows = cursor.execute(
@@ -154,7 +154,7 @@ def get_channels_by_category(category_name: str, limit: int = 200) -> list[dict]
 
 def get_vod_by_category(category_name: str, limit: int = 200) -> list[dict]:
     """Return VOD items for a given category."""
-    with db.get_connection() as conn:
+    with db.connection() as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         rows = cursor.execute(
@@ -172,7 +172,7 @@ def get_vod_by_category(category_name: str, limit: int = 200) -> list[dict]:
 
 def get_series_info(series_id: int) -> dict | None:
     """Return series metadata."""
-    with db.get_connection() as conn:
+    with db.connection() as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         row = cursor.execute(
@@ -183,7 +183,7 @@ def get_series_info(series_id: int) -> dict | None:
 
 def get_series_episodes(series_id: int) -> list[dict]:
     """Return episodes for a series, ordered by season and episode number."""
-    with db.get_connection() as conn:
+    with db.connection() as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         rows = cursor.execute(
@@ -284,7 +284,7 @@ def fetch_epg_listings(
 
     # Strategy 3: similar channels in database
     try:
-        with db.get_connection() as conn:
+        with db.connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -334,7 +334,7 @@ def cache_epg_listings(stream_id: int, listings: list[dict]) -> None:
     if not rows:
         return
 
-    with db.get_connection() as conn:
+    with db.connection() as conn:
         cursor = conn.cursor()
         cursor.executemany(
             """
@@ -352,7 +352,7 @@ def get_now_playing_local(stream_id: int) -> dict | None:
     now = int(time.time())
     cache_max_age = 6 * 3600
 
-    with db.get_connection() as conn:
+    with db.connection() as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         row = cursor.execute(
@@ -400,7 +400,7 @@ def get_epg_with_upcoming(stream_id: int, channel_name: str | None = None) -> di
     now = int(time.time())
     result = {"now": None, "next": None}
 
-    with db.get_connection() as conn:
+    with db.connection() as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute(

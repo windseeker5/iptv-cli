@@ -60,3 +60,23 @@ Footer > .footer--key {
     text-style: bold;
     color: cyan;
 }
+
+#results-layout {
+    height: 1fr;
+}
+
+#results-list {
+    width: 60%;
+    height: 100%;
+}
+
+#preview-panel {
+    width: 40%;
+    height: 100%;
+    background: #111111;
+    padding: 1;
+}
+
+#favorites-list, #category-list, #service-list {
+    height: 1fr;
+}
