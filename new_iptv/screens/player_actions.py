@@ -9,24 +9,33 @@ from new_iptv.widgets.status_bar import StatusBar
 
 
 class PlayerActionsScreen(Screen):
-    """Placeholder actions screen."""
+    """Context menu for a selected item."""
 
     BINDINGS = [
         ("escape", "pop", "Back"),
     ]
 
+    ACTIONS = {
+        "live": ["Play", "Restream", "Record", "Schedule Recording", "Info", "Toggle Favorite"],
+        "vod": ["Play", "Restream", "Download", "Info", "Toggle Favorite"],
+        "series": ["Browse Episodes", "Download Series", "Info", "Toggle Favorite"],
+    }
+
+    def __init__(self, result_type: str, item: dict, **kwargs):
+        super().__init__(**kwargs)
+        self.result_type = result_type
+        self.item = item
+
     def compose(self) -> ComposeResult:
-        yield AppHeader("Actions")
-        yield StatusBar("Choose an action")
-        yield ListView(
-            ListItem(Label("Play")),
-            ListItem(Label("Restream")),
-            ListItem(Label("Record")),
-            ListItem(Label("Download")),
-            ListItem(Label("Info")),
-            ListItem(Label("Favorite")),
-        )
+        yield AppHeader(self.item.get("name", "Actions"))
+        yield StatusBar("Select an action")
+        actions = self.ACTIONS.get(self.result_type, self.ACTIONS["live"])
+        yield ListView(*[ListItem(Label(action)) for action in actions])
         yield Footer()
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        action = event.item.children[0].renderable
+        self.query_one(StatusBar).set_status(f"Selected: {action}")
 
     def action_pop(self) -> None:
         self.app.pop_screen()
