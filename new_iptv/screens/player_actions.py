@@ -57,11 +57,11 @@ class PlayerActionsScreen(Screen):
             result = actions.download_series(self.item)
             status.set_status(result["message"])
         elif action_label == "Browse Episodes":
-            # TODO: open series episodes screen
-            status.set_status("Series episodes screen not yet implemented")
+            from new_iptv.screens.series_episodes import SeriesEpisodesScreen
+            self.app.push_screen(SeriesEpisodesScreen(self.item))
         elif action_label == "Info":
-            # TODO: open info screen
-            status.set_status(f"Info: {self.item.get('name')}")
+            from new_iptv.screens.info import InfoScreen
+            self.app.push_screen(InfoScreen(self.result_type, self.item))
         elif action_label == "Back":
             self.app.pop_screen()
 
