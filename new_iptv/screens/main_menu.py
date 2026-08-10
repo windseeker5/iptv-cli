@@ -23,6 +23,7 @@ class MainMenuScreen(Screen):
         ("Browse by Category", "browse"),
         ("Scheduled Recordings", "recordings"),
         ("Background Downloads", "downloads"),
+        ("YouTube Tool", "youtube"),
         ("Container Status", "containers"),
         ("Settings / Quit", "quit"),
     ]
@@ -68,12 +69,17 @@ class MainMenuScreen(Screen):
             from new_iptv.screens.category_browser import CategoryBrowserScreen
             self.app.push_screen(CategoryBrowserScreen())
         elif action == "recordings":
-            self.query_one(StatusBar).set_status("Scheduled recordings screen not yet implemented")
+            from new_iptv.screens.scheduled_recordings import ScheduledRecordingsScreen
+            self.app.push_screen(ScheduledRecordingsScreen())
         elif action == "downloads":
-            self.query_one(StatusBar).set_status("Background downloads screen not yet implemented")
+            from new_iptv.screens.background_downloads import BackgroundDownloadsScreen
+            self.app.push_screen(BackgroundDownloadsScreen())
         elif action == "containers":
             from new_iptv.screens.container_status import ContainerStatusScreen
             self.app.push_screen(ContainerStatusScreen())
+        elif action == "youtube":
+            from new_iptv.screens.youtube import YouTubeScreen
+            self.app.push_screen(YouTubeScreen())
         elif action == "quit":
             self.app.action_quit()
 

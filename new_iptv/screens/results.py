@@ -159,7 +159,8 @@ class ResultsScreen(Screen):
     def action_info_selected(self) -> None:
         selected = self._selected_item()
         if selected:
-            self.query_one(StatusBar).set_status(f"Info: {selected[1].get('name')}")
+            from new_iptv.screens.info import InfoScreen
+            self.app.push_screen(InfoScreen(selected[0], selected[1]))
 
     def action_restream_selected(self) -> None:
         selected = self._selected_item()
