@@ -2,6 +2,7 @@
 
 import os
 import re
+import sqlite3
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path

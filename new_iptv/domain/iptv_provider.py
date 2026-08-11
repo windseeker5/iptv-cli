@@ -2,6 +2,7 @@
 
 import base64
 import re
+import sqlite3
 import time
 from urllib.parse import urlparse
 
