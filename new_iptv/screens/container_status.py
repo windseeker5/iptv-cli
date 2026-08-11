@@ -57,7 +57,7 @@ class ContainerStatusScreen(Screen):
         self.query_one(StatusBar).set_status(
             "Enter=actions  r=refresh  s=start  x=stop  l=logs  esc=back"
         )
-        if list_view.option_count:
+        if list_view.children:
             list_view.index = 0
             list_view.focus()
 

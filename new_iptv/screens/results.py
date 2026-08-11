@@ -24,11 +24,11 @@ class ResultsScreen(Screen):
 
     def __init__(self, query: str = "", **kwargs):
         super().__init__(**kwargs)
-        self.query = query
+        self.search_query = query
         self.results = []
 
     def compose(self) -> ComposeResult:
-        yield AppHeader(f"Results: {self.query}")
+        yield AppHeader(f"Results: {self.search_query}")
         yield StatusBar("Loading...")
         yield Static("Searching...", id="results-info")
         yield Horizontal(
@@ -42,9 +42,9 @@ class ResultsScreen(Screen):
         self.run_worker(self._load_results)
 
     async def _load_results(self) -> None:
-        live = iptv_provider.search_live_channels(self.query)
-        vod = iptv_provider.search_vod_content(self.query)
-        series = iptv_provider.search_series_content(self.query)
+        live = iptv_provider.search_live_channels(self.search_query)
+        vod = iptv_provider.search_vod_content(self.search_query)
+        series = iptv_provider.search_series_content(self.search_query)
 
         self.results = []
         for item in live:
@@ -59,11 +59,12 @@ class ResultsScreen(Screen):
         info = self.query_one("#results-info", Static)
 
         if not self.results:
-            info.update(f"No results for '{self.query}'")
+            info.update(f"No results for '{self.search_query}'")
             self.query_one(StatusBar).set_status("No results")
             return
 
-        info.update(f"{len(self.results)} results for '{self.query}'")
+            info.update(f"{len(self.results)} results for '{self.search_query}'")
+
         self.query_one(StatusBar).set_status(
             "Enter=actions  p=play  i=info  s=star  r=restream  c=record/download  esc=back"
         )
