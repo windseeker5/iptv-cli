@@ -83,7 +83,6 @@ def search_vod_content(query: str, limit: int = 50) -> list[dict]:
         "year",
         "rating",
         "genre",
-        "category_name",
     ]
     return _search_table(query, "vod_streams", columns, limit)
 
@@ -96,7 +95,6 @@ def search_series_content(query: str, limit: int = 50) -> list[dict]:
         "category_id",
         "cover",
         "plot",
-        "cast",
         "genre",
         "rating",
         "category_name",
@@ -160,10 +158,12 @@ def get_vod_by_category(category_name: str, limit: int = 200) -> list[dict]:
         cursor = conn.cursor()
         rows = cursor.execute(
             """
-            SELECT stream_id, name, category_id, stream_url, year, rating, genre, category_name
-            FROM vod_streams
-            WHERE category_name = ?
-            ORDER BY name
+            SELECT v.stream_id, v.name, v.category_id, v.stream_url,
+                   v.year, v.rating, v.genre, c.category_name
+            FROM vod_streams v
+            JOIN vod_categories c ON v.category_id = c.category_id
+            WHERE c.category_name = ?
+            ORDER BY v.name
             LIMIT ?
             """,
             (category_name, limit),

@@ -49,7 +49,7 @@ class BackgroundDownloadsScreen(Screen):
         self.query_one(StatusBar).set_status(
             "Enter=details  r=refresh  esc=back"
         )
-        if list_view.option_count:
+        if list_view.children:
             list_view.index = 0
             list_view.focus()
 

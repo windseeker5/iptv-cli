@@ -68,7 +68,7 @@ class CategoryBrowserScreen(Screen):
                 "Enter=actions  p=play  i=info  esc=back"
             )
 
-        if list_view.option_count:
+        if list_view.children:
             list_view.index = 0
             list_view.focus()
 
