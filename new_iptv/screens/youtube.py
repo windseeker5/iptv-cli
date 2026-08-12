@@ -98,17 +98,17 @@ class YouTubeActionsScreen(Screen):
         yield AppHeader(self.video.get("title", "Video"))
         yield StatusBar("Select an action")
         yield ListView(
-            ListItem(Label("Play")),
-            ListItem(Label("Download Best (1080p MOV)")),
-            ListItem(Label("Download Audio (MP3)")),
-            ListItem(Label("Download 720p (MOV)")),
-            ListItem(Label("Info")),
-            ListItem(Label("Back")),
+            ListItem(Label("Play"), name="Play"),
+            ListItem(Label("Download Best (1080p MOV)"), name="Download Best (1080p MOV)"),
+            ListItem(Label("Download Audio (MP3)"), name="Download Audio (MP3)"),
+            ListItem(Label("Download 720p (MOV)"), name="Download 720p (MOV)"),
+            ListItem(Label("Info"), name="Info"),
+            ListItem(Label("Back"), name="Back"),
         )
         yield Footer()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
-        action = event.item.children[0].renderable
+        action = event.item.name
         status = self.query_one(StatusBar)
         url = self.video.get("url")
 

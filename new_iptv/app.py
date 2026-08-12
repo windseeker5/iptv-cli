@@ -21,7 +21,7 @@ class IPTVApp(App):
         "search": SearchScreen,
         "results": ResultsScreen,
         "actions": PlayerActionsScreen,
-        "containers": ContainerStatusScreen,
+        "settings": ContainerStatusScreen,
         "message": MessageScreen,
     }
 

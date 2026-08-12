@@ -31,11 +31,11 @@ class PlayerActionsScreen(Screen):
         yield AppHeader(self.item.get("name", "Actions"))
         yield StatusBar("Select an action")
         actions_list = self.ACTIONS.get(self.result_type, self.ACTIONS["live"])
-        yield ListView(*[ListItem(Label(action)) for action in actions_list])
+        yield ListView(*[ListItem(Label(action), name=action) for action in actions_list])
         yield Footer()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
-        action_label = event.item.children[0].renderable
+        action_label = event.item.name
         status = self.query_one(StatusBar)
 
         if action_label == "Play":

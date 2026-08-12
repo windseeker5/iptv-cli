@@ -36,7 +36,11 @@ class InfoScreen(Screen):
 
         if self.result_type == "live":
             lines.append(f"Category: {self.item.get('category_name', 'N/A')}")
-            epg = iptv_provider.get_now_playing(self.item.get("stream_id", 0), self.item.get("name"))
+            epg = iptv_provider.get_now_playing(
+                self.item.get("stream_id", 0),
+                self.item.get("name"),
+                self.item.get("stream_url"),
+            )
             if epg and epg.get("title"):
                 lines.append(f"\nNow Playing: {epg['title']}")
                 if epg.get("description"):
