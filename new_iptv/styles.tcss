@@ -1,64 +1,75 @@
+/* Theme-aware styles; avoid hard-coded black so Ctrl+P theme selector works. */
+
 Screen {
-    background: black;
-    color: white;
+    background: $background;
+    color: $foreground;
 }
 
 Static {
-    color: white;
+    color: $foreground;
 }
 
 Label {
-    color: white;
+    color: $foreground;
 }
 
 Input {
-    background: #111111;
-    color: white;
-    border: solid white;
+    background: $surface;
+    color: $foreground;
+    border: solid $foreground;
 }
 
 Input:focus {
-    border: solid cyan;
+    border: solid $primary;
 }
 
 ListView {
-    border: solid white;
-    background: black;
-    color: white;
+    border: round $primary;
+    background: $surface;
+    color: $foreground;
 }
 
-ListView > ListItem {
-    color: white;
-    background: black;
+ListView:focus {
+    border: round $primary;
 }
 
-ListView > ListItem.--highlight {
-    background: #111111;
-    color: cyan;
+ListView > ListItem,
+ListView > ListItem.--highlight,
+ListView > ListItem.-highlight {
+    color: $foreground;
+    background: $surface;
+}
+
+ListView > ListItem.--highlight,
+ListView > ListItem.-highlight,
+ListView:focus > ListItem.--highlight,
+ListView:focus > ListItem.-highlight {
+    background: $foreground;
+    color: $background;
     text-style: bold;
 }
 
 Header, Footer {
-    background: #111111;
-    color: white;
+    background: $surface;
+    color: $foreground;
     text-style: bold;
 }
 
 Footer > .footer--key {
-    background: black;
-    color: cyan;
+    background: $surface;
+    color: $primary;
     text-style: bold;
 }
 
 .status-bar {
-    background: #111111;
-    color: white;
+    background: $surface;
+    color: $foreground;
     height: 1;
 }
 
 .title {
     text-style: bold;
-    color: cyan;
+    color: $primary;
 }
 
 #results-layout {
@@ -68,15 +79,27 @@ Footer > .footer--key {
 #results-list {
     width: 60%;
     height: 100%;
+    border: round $primary;
 }
 
 #preview-panel {
     width: 40%;
     height: 100%;
-    background: #111111;
+    background: $surface;
+    color: $foreground;
+    border: round $primary;
     padding: 1;
 }
 
-#favorites-list, #category-list, #service-list {
+#favorites-list, #category-list, #service-list, #episodes-list, #downloads-list, #recordings-list, #youtube-results {
     height: 1fr;
+    border: round $primary;
+}
+
+AppHeader {
+    height: auto;
+    max-height: 12;
+    background: $surface;
+    color: $primary;
+    text-style: bold;
 }

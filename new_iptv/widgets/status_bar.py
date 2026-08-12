@@ -10,8 +10,8 @@ class StatusBar(Static):
     StatusBar {
         height: 1;
         content-align: left middle;
-        background: #111111;
-        color: white;
+        background: $surface;
+        color: $foreground;
     }
     """
 
