@@ -102,7 +102,7 @@ class MainMenuScreen(Screen):
 
         status.append("  |  ", style="dim")
 
-        # NGINX-RTMP host indicator
+        # Local HTTP endpoint indicator (NGINX-RTMP host up/down)
         nginx_running = False
         try:
             if docker_ctl.check_docker_available():
@@ -110,7 +110,7 @@ class MainMenuScreen(Screen):
         except Exception:
             pass
         status.append("🟢 " if nginx_running else "⚪ ")
-        status.append("NGINX")
+        status.append(f"http://localhost:{config.Config.NGINX_HTTP_PORT}")
 
         # Active restream indicator
         try:
@@ -121,10 +121,7 @@ class MainMenuScreen(Screen):
             channel = active.get("channel_name", "Unknown")
             status.append("  |  ", style="dim")
             status.append("🟢 ")
-            status.append(f"RESTREAM: {channel}  (x to stop)")
-
-        status.append("  |  ", style="dim")
-        status.append(f"http://localhost:{config.Config.NGINX_HTTP_PORT}", style="dim")
+            status.append(f"RESTREAM: {channel}")
 
         return status
 
