@@ -7,7 +7,9 @@ from textual.widgets import Header, Footer, ListView, ListItem, Label
 
 import asyncio
 
-from new_iptv.domain import config, favorites, iptv_provider
+from rich.text import Text
+
+from new_iptv.domain import config, docker_ctl, favorites, iptv_provider, restream
 from new_iptv.widgets.header import AppHeader
 from new_iptv.widgets.status_bar import StatusBar
 
@@ -17,6 +19,7 @@ class MainMenuScreen(Screen):
 
     BINDINGS = [
         Binding("s", "push_search", "Search", show=False),
+        Binding("x", "stop_restream", "Stop Restream", show=False),
     ]
 
     MENU_ITEMS = [
@@ -49,6 +52,7 @@ class MainMenuScreen(Screen):
 
     def on_mount(self) -> None:
         self.run_worker(self._background_refresh)
+        self.set_interval(2.0, self._refresh_status)
 
     async def _background_refresh(self) -> None:
         status = self.query_one(StatusBar)
@@ -79,18 +83,55 @@ class MainMenuScreen(Screen):
         except Exception as exc:
             status.set_status(f"DB download error: {exc}")
 
-    def _status_text(self) -> str:
-        parts = []
+    def _refresh_status(self) -> None:
+        self.query_one(StatusBar).set_status(self._status_text())
+
+    def _status_text(self) -> Text:
+        status = Text()
+
+        # Database indicator
         try:
             counts = iptv_provider.db.table_counts()
             live = counts.get("live_streams", 0)
             vod = counts.get("vod_streams", 0)
-            parts.append(f"DB: {live:,} live / {vod:,} VOD")
+            db_ok = live > 0
+            status.append("🟢 " if db_ok else "⚪ ")
+            status.append(f"DB: {live:,} live / {vod:,} VOD")
         except Exception:
-            parts.append("DB: unavailable")
+            status.append("⚪ DB: unavailable", style="dim")
 
-        parts.append(f"http://localhost:{config.Config.NGINX_HTTP_PORT}")
-        return "  |  ".join(parts)
+        status.append("  |  ", style="dim")
+
+        # NGINX-RTMP host indicator
+        nginx_running = False
+        try:
+            if docker_ctl.check_docker_available():
+                nginx_running = docker_ctl.container_status("iptv-nginx-rtmp").get("running", False)
+        except Exception:
+            pass
+        status.append("🟢 " if nginx_running else "⚪ ")
+        status.append("NGINX")
+
+        # Active restream indicator
+        try:
+            active = restream.get_active_restream()
+        except Exception:
+            active = None
+        if active:
+            channel = active.get("channel_name", "Unknown")
+            status.append("  |  ", style="dim")
+            status.append("🟢 ")
+            status.append(f"RESTREAM: {channel}  (x to stop)")
+
+        status.append("  |  ", style="dim")
+        status.append(f"http://localhost:{config.Config.NGINX_HTTP_PORT}", style="dim")
+
+        return status
+
+    def action_stop_restream(self) -> None:
+        result = restream.stop_restream()
+        self.query_one(StatusBar).set_status(result["message"])
+        self._refresh_status()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         action = event.item.name
