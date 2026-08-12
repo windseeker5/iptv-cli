@@ -30,6 +30,7 @@ class IPTVApp(App):
         self._credentials_ok = config.Config.credentials_ok()
 
     def on_mount(self) -> None:
+        self.theme = "rose-pine"
         if not self._credentials_ok:
             missing = ", ".join(config.Config.missing_credentials())
             self.push_screen(

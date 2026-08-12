@@ -33,9 +33,7 @@ ListView:focus {
     border: round $primary;
 }
 
-ListView > ListItem,
-ListView > ListItem.--highlight,
-ListView > ListItem.-highlight {
+ListView > ListItem {
     color: $foreground;
     background: $surface;
 }
@@ -45,6 +43,14 @@ ListView > ListItem.-highlight,
 ListView:focus > ListItem.--highlight,
 ListView:focus > ListItem.-highlight {
     background: $foreground;
+    color: $background;
+    text-style: bold;
+}
+
+ListView > ListItem.--highlight > Label,
+ListView > ListItem.-highlight > Label,
+ListView:focus > ListItem.--highlight > Label,
+ListView:focus > ListItem.-highlight > Label {
     color: $background;
     text-style: bold;
 }
