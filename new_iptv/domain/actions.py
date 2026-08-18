@@ -168,7 +168,7 @@ def schedule_live_recording(item: dict, start_input: str, duration_minutes: int)
 
 def download_vod_item(item: dict, tv_compatible: bool = False) -> dict:
     """Start downloading a VOD item, optionally converting it for TV playback after."""
-    job_id = jobs.register("vod", item.get("name", "Unknown"))
+    job_id = jobs.register("vod", downloads.item_display_name(item))
 
     def on_done(success: bool, error: str | None) -> None:
         jobs.update(job_id, status="done" if success else "failed", detail=error or "")

@@ -35,6 +35,20 @@ def _safe_name(name: str) -> str:
     return re.sub(r"\s+", " ", safe).replace(" ", "_")
 
 
+def item_display_name(item: dict) -> str:
+    """Best available human-readable name: VOD items have 'name', series
+    episodes have 'title' (+ season/episode numbers) instead."""
+    name = item.get("name")
+    if name:
+        return name
+    title = item.get("title")
+    season = item.get("season_number")
+    episode = item.get("episode_num")
+    if title and season is not None and episode is not None:
+        return f"S{season:02d}E{episode:02d} - {title}"
+    return title or "unknown"
+
+
 def _get_download_extension(item: dict) -> str:
     """Infer file extension from stream URL or container_extension."""
     url = item.get("stream_url", "")
@@ -151,7 +165,7 @@ def start_vod_download(
         return {"success": False, "message": "No stream URL available"}
 
     ext = _get_download_extension(item)
-    filename = f"{_safe_name(item.get('name', 'unknown'))}.{ext}"
+    filename = f"{_safe_name(item_display_name(item))}.{ext}"
     folder = Path(output_dir) if output_dir else _downloads_dir()
     folder.mkdir(parents=True, exist_ok=True)
     filepath = str(folder / filename)
