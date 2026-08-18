@@ -21,10 +21,20 @@ def db_path() -> Path:
     return data_dir() / "iptv.db"
 
 
+def _configure(conn: sqlite3.Connection) -> sqlite3.Connection:
+    """Enable WAL mode so frequent reads (e.g. the main menu's 2s status
+    refresh) don't get "database is locked" errors from concurrent writes
+    (e.g. a bulk EPG download) — readers no longer block on a writer.
+    """
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=10000")
+    return conn
+
+
 @contextmanager
 def connection():
     """Open and automatically close a connection to the IPTV database."""
-    conn = sqlite3.connect(str(db_path()))
+    conn = _configure(sqlite3.connect(str(db_path()), timeout=10))
     try:
         yield conn
     finally:
@@ -36,7 +46,7 @@ def get_connection() -> sqlite3.Connection:
 
     Caller is responsible for closing. Prefer the `connection()` context manager.
     """
-    return sqlite3.connect(str(db_path()))
+    return _configure(sqlite3.connect(str(db_path()), timeout=10))
 
 
 def init_db() -> None:
