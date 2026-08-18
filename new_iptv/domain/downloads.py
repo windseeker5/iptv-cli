@@ -12,7 +12,7 @@ from pathlib import Path
 
 import requests
 
-from new_iptv.domain import config, db
+from new_iptv.domain import config, db, transcode
 
 
 def _downloads_dir() -> Path:
@@ -131,11 +131,18 @@ def build_download_command(url: str, filepath: str, downloader: str) -> list[str
     raise ValueError(f"Unsupported downloader: {downloader}")
 
 
-def start_vod_download(item: dict, output_dir: str | None = None, on_done=None) -> dict:
+def start_vod_download(
+    item: dict,
+    output_dir: str | None = None,
+    on_done=None,
+    tv_compatible: bool = False,
+    on_progress=None,
+    on_pid=None,
+) -> dict:
     """Start a VOD download in the background.
 
     `on_done`, if given, is called as `on_done(success: bool, error: str | None)`
-    once the download finishes (from a background thread).
+    once the download (and, if `tv_compatible`, the conversion) finishes.
 
     Returns dict with success, pid or thread, filepath, message.
     """
@@ -149,10 +156,23 @@ def start_vod_download(item: dict, output_dir: str | None = None, on_done=None) 
     folder.mkdir(parents=True, exist_ok=True)
     filepath = str(folder / filename)
 
+    effective_on_done = on_done
+    if tv_compatible:
+        def effective_on_done(success: bool, error: str | None) -> None:
+            if not success:
+                if on_done:
+                    on_done(False, error)
+                return
+            result = transcode.transcode_to_tv_compatible(
+                filepath, on_progress=on_progress, on_pid=on_pid
+            )
+            if on_done:
+                on_done(result["success"], None if result["success"] else result["message"])
+
     downloader = detect_downloader()
 
     if downloader == "python":
-        _download_with_requests(url, filepath, on_done=on_done)
+        _download_with_requests(url, filepath, on_done=effective_on_done)
         return {
             "success": True,
             "filepath": filepath,
@@ -162,8 +182,8 @@ def start_vod_download(item: dict, output_dir: str | None = None, on_done=None) 
     cmd = build_download_command(url, filepath, downloader)
     try:
         process = subprocess.Popen(cmd)
-        if on_done:
-            _wait_and_report(process, on_done)
+        if effective_on_done:
+            _wait_and_report(process, effective_on_done)
         return {
             "success": True,
             "pid": process.pid,
@@ -233,7 +253,7 @@ def _read_manifest(manifest: Path) -> dict:
         return json.load(f)
 
 
-def _run_series_batch(manifest: Path, series_name: str) -> None:
+def _run_series_batch(manifest: Path, series_name: str, tv_compatible: bool = False) -> None:
     """Download each episode in a manifest sequentially, updating status as it goes."""
     downloader = detect_downloader()
     folder = _downloads_dir() / _safe_name(series_name)
@@ -268,6 +288,9 @@ def _run_series_batch(manifest: Path, series_name: str) -> None:
                     cmd = build_download_command(url, filepath, downloader)
                     result = subprocess.run(cmd, capture_output=True, timeout=1800)
                     ok = result.returncode == 0
+
+                if ok and tv_compatible:
+                    ok = transcode.transcode_to_tv_compatible(filepath)["success"]
             except Exception:
                 ok = False
 
@@ -278,7 +301,12 @@ def _run_series_batch(manifest: Path, series_name: str) -> None:
             _write_manifest(manifest, data)
 
 
-def queue_series_batch(series_item: dict, episodes: list[dict], batch_label: str | None = None) -> dict:
+def queue_series_batch(
+    series_item: dict,
+    episodes: list[dict],
+    batch_label: str | None = None,
+    tv_compatible: bool = False,
+) -> dict:
     """Create a manifest and download all episodes sequentially in a background thread.
 
     Returns dict with success, manifest_path, message.
@@ -314,7 +342,7 @@ def queue_series_batch(series_item: dict, episodes: list[dict], batch_label: str
     _write_manifest(manifest, manifest_data)
 
     threading.Thread(
-        target=_run_series_batch, args=(manifest, series_name), daemon=True
+        target=_run_series_batch, args=(manifest, series_name, tv_compatible), daemon=True
     ).start()
 
     return {

@@ -166,14 +166,26 @@ def schedule_live_recording(item: dict, start_input: str, duration_minutes: int)
     )
 
 
-def download_vod_item(item: dict) -> dict:
-    """Start downloading a VOD item."""
+def download_vod_item(item: dict, tv_compatible: bool = False) -> dict:
+    """Start downloading a VOD item, optionally converting it for TV playback after."""
     job_id = jobs.register("vod", item.get("name", "Unknown"))
 
     def on_done(success: bool, error: str | None) -> None:
         jobs.update(job_id, status="done" if success else "failed", detail=error or "")
 
-    result = downloads.start_vod_download(item, on_done=on_done)
+    def on_progress(pct: int) -> None:
+        jobs.update(job_id, detail=f"converting {pct}%")
+
+    def on_pid(pid: int) -> None:
+        jobs.update(job_id, pid=pid)
+
+    result = downloads.start_vod_download(
+        item,
+        on_done=on_done,
+        tv_compatible=tv_compatible,
+        on_progress=on_progress if tv_compatible else None,
+        on_pid=on_pid if tv_compatible else None,
+    )
     if result["success"]:
         jobs.update(job_id, pid=result.get("pid"))
     else:
@@ -181,12 +193,12 @@ def download_vod_item(item: dict) -> dict:
     return result
 
 
-def download_series(item: dict) -> dict:
-    """Queue all episodes of a series for download."""
+def download_series(item: dict, tv_compatible: bool = False) -> dict:
+    """Queue all episodes of a series for download, optionally converting each for TV playback."""
     series_id = item.get("series_id")
     if not series_id:
         return {"success": False, "message": "No series ID"}
     episodes = iptv_provider.get_series_episodes(series_id)
     if not episodes:
         return {"success": False, "message": "No episodes found"}
-    return downloads.queue_series_batch(item, episodes)
+    return downloads.queue_series_batch(item, episodes, tv_compatible=tv_compatible)

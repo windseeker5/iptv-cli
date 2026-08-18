@@ -18,8 +18,8 @@ class PlayerActionsScreen(Screen):
 
     ACTIONS = {
         "live": ["Play", "Restream", "Record", "Schedule Recording", "Info", "Back"],
-        "vod": ["Play", "Restream", "Download", "Info", "Back"],
-        "series": ["Browse Episodes", "Download Series", "Info", "Back"],
+        "vod": ["Play", "Restream", "Download", "Download (TV-compatible)", "Info", "Back"],
+        "series": ["Browse Episodes", "Download Series", "Download Series (TV-compatible)", "Info", "Back"],
     }
 
     def __init__(self, result_type: str, item: dict, **kwargs):
@@ -55,8 +55,16 @@ class PlayerActionsScreen(Screen):
             result = actions.download_vod_item(self.item)
             status.set_status(result["message"])
             self.app.notify(result["message"])
+        elif action_label == "Download (TV-compatible)":
+            result = actions.download_vod_item(self.item, tv_compatible=True)
+            status.set_status(result["message"])
+            self.app.notify(result["message"])
         elif action_label == "Download Series":
             result = actions.download_series(self.item)
+            status.set_status(result["message"])
+            self.app.notify(result["message"])
+        elif action_label == "Download Series (TV-compatible)":
+            result = actions.download_series(self.item, tv_compatible=True)
             status.set_status(result["message"])
             self.app.notify(result["message"])
         elif action_label == "Browse Episodes":
