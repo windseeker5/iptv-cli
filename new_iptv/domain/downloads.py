@@ -181,7 +181,7 @@ def start_vod_download(
 
     cmd = build_download_command(url, filepath, downloader)
     try:
-        process = subprocess.Popen(cmd)
+        process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if effective_on_done:
             _wait_and_report(process, effective_on_done)
         return {
