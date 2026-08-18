@@ -6,12 +6,12 @@
     encode zstd gzip
 
     @viewer_api path /api/viewers
-    reverse_proxy @viewer_api viewer-counter:9090
+    reverse_proxy @viewer_api 127.0.0.1:9090
 
     @iptv path /live /live* /hls /hls* /stat /stat* /control /control* /iptv.m3u /usb-guide.html /kdc-logo-transparent.png
-    reverse_proxy @iptv nginx-rtmp:8080
+    reverse_proxy @iptv 127.0.0.1:8080
 
-    reverse_proxy jellyfin:8096 {
+    reverse_proxy 127.0.0.1:8096 {
         header_up Host {http.request.host}
         header_up X-Real-IP {http.request.remote.host}
         header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
@@ -23,19 +23,31 @@ crm.dresdell.com {
     encode zstd gzip
 
     @supabase path /auth/* /rest/* /storage/* /functions/* /realtime/*
-    reverse_proxy @supabase host.docker.internal:54321
+    reverse_proxy @supabase 127.0.0.1:54321
 
-    reverse_proxy host.docker.internal:5173
+    reverse_proxy 127.0.0.1:5173
 }
 
 live.dresdell.com {
     encode zstd gzip
 
     @viewer_api path /api/viewers
-    reverse_proxy @viewer_api viewer-counter:9090
+    reverse_proxy @viewer_api 127.0.0.1:9090
 
     @root path /
     rewrite @root /live
 
-    reverse_proxy nginx-rtmp:8080
+    reverse_proxy 127.0.0.1:8080
+}
+
+go.dresdell.com {
+    encode zstd gzip
+
+    reverse_proxy 127.0.0.1:5001
+}
+
+ai.dresdell.com {
+    encode zstd gzip
+
+    reverse_proxy 127.0.0.1:8082
 }

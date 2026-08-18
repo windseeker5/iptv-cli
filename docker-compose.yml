@@ -53,13 +53,12 @@ services:
       retries: 3
 
   caddy:
-    image: caddy:2
+    build:
+      context: .
+      dockerfile: infrastructure/caddy/Dockerfile
+    image: iptv-caddy-cloudflare
     container_name: iptv-caddy
-    ports:
-      - "${CADDY_HTTP_PORT:-80}:80"
-      - "${CADDY_HTTPS_PORT:-443}:443"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    network_mode: host
     volumes:
       - ./infrastructure/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -70,14 +69,14 @@ services:
     depends_on:
       - viewer-counter
       - jellyfin
-    networks:
-      - iptv-network
     restart: unless-stopped
 
   viewer-counter:
     image: python:3.12-alpine
     container_name: iptv-viewer-counter
     command: ["python", "/app/viewer_counter.py"]
+    ports:
+      - "127.0.0.1:9090:9090"
     volumes:
       - ./infrastructure/viewer_counter.py:/app/viewer_counter.py:ro
       - ./nginx/logs:/logs:ro
