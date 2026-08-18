@@ -2,9 +2,9 @@
 
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.widgets import Header, Footer, ListView, ListItem, Label
+from textual.widgets import Header, ListView, ListItem, Label
 
-from new_iptv.domain import actions, downloads, iptv_provider
+from new_iptv.domain import actions, iptv_provider
 from new_iptv.widgets.header import AppHeader
 from new_iptv.widgets.status_bar import StatusBar
 
@@ -27,7 +27,6 @@ class SeriesEpisodesScreen(Screen):
         yield AppHeader(self.series_item.get("name", "Series"))
         yield StatusBar("Loading episodes...")
         yield ListView(id="episodes-list")
-        yield Footer()
 
     def on_mount(self) -> None:
         self.run_worker(self._load)
@@ -49,9 +48,7 @@ class SeriesEpisodesScreen(Screen):
             label = f"S{s:02d}E{e:02d}  {title}"
             list_view.append(ListItem(Label(label), name=f"{idx}"))
 
-        self.query_one(StatusBar).set_status(
-            "Enter=actions  p=play  d=download  esc=back"
-        )
+        self.query_one(StatusBar).set_status("")
         if list_view.children:
             list_view.index = 0
             list_view.focus()
@@ -78,8 +75,9 @@ class SeriesEpisodesScreen(Screen):
     def action_download_selected(self) -> None:
         ep = self._selected_episode()
         if ep:
-            result = downloads.start_vod_download(ep)
+            result = actions.download_vod_item(ep)
             self.query_one(StatusBar).set_status(result["message"])
+            self.app.notify(result["message"])
 
     def action_pop(self) -> None:
         self.app.pop_screen()

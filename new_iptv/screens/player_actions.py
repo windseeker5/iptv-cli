@@ -2,7 +2,7 @@
 
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.widgets import Header, Footer, ListView, ListItem, Label
+from textual.widgets import Header, ListView, ListItem, Label
 
 from new_iptv.domain import actions
 from new_iptv.widgets.header import AppHeader
@@ -32,7 +32,6 @@ class PlayerActionsScreen(Screen):
         yield StatusBar("Select an action")
         actions_list = self.ACTIONS.get(self.result_type, self.ACTIONS["live"])
         yield ListView(*[ListItem(Label(action), name=action) for action in actions_list])
-        yield Footer()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         action_label = event.item.name
@@ -44,18 +43,22 @@ class PlayerActionsScreen(Screen):
         elif action_label == "Restream":
             result = actions.restream_item(self.item)
             status.set_status(result["message"])
+            self.app.notify(result["message"])
         elif action_label == "Record":
             result = actions.record_live_item(self.item)
             status.set_status(result["message"])
+            self.app.notify(result["message"])
         elif action_label == "Schedule Recording":
-            # TODO: open a scheduling input screen
-            status.set_status("Scheduling input screen not yet implemented")
+            from new_iptv.screens.schedule_recording import ScheduleRecordingScreen
+            self.app.push_screen(ScheduleRecordingScreen(self.item))
         elif action_label == "Download":
             result = actions.download_vod_item(self.item)
             status.set_status(result["message"])
+            self.app.notify(result["message"])
         elif action_label == "Download Series":
             result = actions.download_series(self.item)
             status.set_status(result["message"])
+            self.app.notify(result["message"])
         elif action_label == "Browse Episodes":
             from new_iptv.screens.series_episodes import SeriesEpisodesScreen
             self.app.push_screen(SeriesEpisodesScreen(self.item))

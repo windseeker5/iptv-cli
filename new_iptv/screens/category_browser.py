@@ -2,7 +2,7 @@
 
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.widgets import Header, Footer, ListView, ListItem, Label
+from textual.widgets import Header, ListView, ListItem, Label
 
 from new_iptv.domain import iptv_provider
 from new_iptv.widgets.header import AppHeader
@@ -28,7 +28,6 @@ class CategoryBrowserScreen(Screen):
         yield AppHeader(f"Browse {'Live' if self.mode == 'live' else 'VOD'}")
         yield StatusBar("Loading...")
         yield ListView(id="category-list")
-        yield Footer()
 
     def on_mount(self) -> None:
         self.run_worker(self._load)
@@ -48,9 +47,7 @@ class CategoryBrowserScreen(Screen):
                 name = cat.get("category_name", "Unknown")
                 list_view.append(ListItem(Label(name), name=name))
 
-            self.query_one(StatusBar).set_status(
-                "Enter=open  l=live  v=vod  esc=back"
-            )
+            self.query_one(StatusBar).set_status("")
         else:
             # Show items in category
             if self.mode == "live":
@@ -64,9 +61,7 @@ class CategoryBrowserScreen(Screen):
                     name = item.get("name", "Unknown")
                     list_view.append(ListItem(Label(f"{year} {name}"), name=f"{idx}"))
 
-            self.query_one(StatusBar).set_status(
-                "Enter=actions  p=play  i=info  esc=back"
-            )
+            self.query_one(StatusBar).set_status("")
 
         if list_view.children:
             list_view.index = 0

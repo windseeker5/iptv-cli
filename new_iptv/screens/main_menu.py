@@ -3,13 +3,13 @@
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
-from textual.widgets import Header, Footer, ListView, ListItem, Label
+from textual.widgets import Header, ListView, ListItem, Label
 
 import asyncio
 
 from rich.text import Text
 
-from new_iptv.domain import config, docker_ctl, favorites, iptv_provider, restream
+from new_iptv.domain import config, docker_ctl, favorites, iptv_provider, jobs, restream
 from new_iptv.widgets.header import AppHeader
 from new_iptv.widgets.status_bar import StatusBar
 
@@ -20,6 +20,7 @@ class MainMenuScreen(Screen):
     BINDINGS = [
         Binding("s", "push_search", "Search", show=False),
         Binding("x", "stop_restream", "Stop Restream", show=False),
+        Binding("r", "stop_recording", "Stop Recording", show=False),
     ]
 
     MENU_ITEMS = [
@@ -27,8 +28,7 @@ class MainMenuScreen(Screen):
         ("Search", "search"),
         ("Favorites", "favorites"),
         ("Browse by Category", "browse"),
-        ("Scheduled Recordings", "recordings"),
-        ("Background Downloads", "downloads"),
+        ("Downloads & Recordings", "downloads"),
         ("YouTube Tool", "youtube"),
         ("Settings", "settings"),
     ]
@@ -48,7 +48,6 @@ class MainMenuScreen(Screen):
             *[ListItem(Label(label), name=action) for label, action in options],
             id="main-menu",
         )
-        yield Footer()
 
     def on_mount(self) -> None:
         self.run_worker(self._background_refresh)
@@ -123,11 +122,42 @@ class MainMenuScreen(Screen):
             status.append("🟢 ")
             status.append(f"RESTREAM: {channel}")
 
+        # Active recording indicator
+        recording_jobs = [
+            row for row in jobs.list_jobs()
+            if row["type"] == "live" and row["status"] == "running"
+        ]
+        if recording_jobs:
+            status.append("  |  ", style="dim")
+            status.append("🟢 ")
+            if len(recording_jobs) == 1:
+                status.append(f"REC: {recording_jobs[0]['title']}")
+            else:
+                status.append(f"REC: {len(recording_jobs)} active")
+
         return status
 
     def action_stop_restream(self) -> None:
         result = restream.stop_restream()
         self.query_one(StatusBar).set_status(result["message"])
+        self._refresh_status()
+
+    def action_stop_recording(self) -> None:
+        recording_jobs = [
+            row for row in jobs.list_jobs()
+            if row["type"] == "live" and row["status"] == "running"
+        ]
+        if not recording_jobs:
+            self.query_one(StatusBar).set_status("No active recording")
+            return
+        for row in recording_jobs:
+            jobs.cancel(row)
+        message = (
+            "Recording stopped" if len(recording_jobs) == 1
+            else f"{len(recording_jobs)} recordings stopped"
+        )
+        self.query_one(StatusBar).set_status(message)
+        self.app.notify(message)
         self._refresh_status()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
@@ -142,12 +172,9 @@ class MainMenuScreen(Screen):
         elif action == "browse":
             from new_iptv.screens.category_browser import CategoryBrowserScreen
             self.app.push_screen(CategoryBrowserScreen())
-        elif action == "recordings":
-            from new_iptv.screens.scheduled_recordings import ScheduledRecordingsScreen
-            self.app.push_screen(ScheduledRecordingsScreen())
         elif action == "downloads":
-            from new_iptv.screens.background_downloads import BackgroundDownloadsScreen
-            self.app.push_screen(BackgroundDownloadsScreen())
+            from new_iptv.screens.downloads_recordings import DownloadsScreen
+            self.app.push_screen(DownloadsScreen())
         elif action == "settings":
             self.app.push_screen("settings")
         elif action == "youtube":

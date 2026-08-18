@@ -2,7 +2,7 @@
 
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, Button
+from textual.widgets import Header, Static, Button
 
 from new_iptv.domain import iptv_provider
 from new_iptv.widgets.header import AppHeader
@@ -27,7 +27,6 @@ class InfoScreen(Screen):
         yield StatusBar("Press Escape or OK to close")
         yield Static(self._build_text(), id="info-text")
         yield Button("OK", id="ok-button", variant="primary")
-        yield Footer()
 
     def _build_text(self) -> str:
         lines = []

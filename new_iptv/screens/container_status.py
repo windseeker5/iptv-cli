@@ -1,8 +1,11 @@
 """Container status screen."""
 
+import asyncio
+from functools import partial
+
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.widgets import Header, Footer, ListView, ListItem, Label, Static
+from textual.widgets import Header, ListView, ListItem, Label, Static
 
 from new_iptv.domain import docker_ctl
 from new_iptv.widgets.header import AppHeader
@@ -31,7 +34,6 @@ class ContainerStatusScreen(Screen):
         yield StatusBar("Loading...")
         yield Static("", id="docker-info")
         yield ListView(id="service-list")
-        yield Footer()
 
     def on_mount(self) -> None:
         self.run_worker(self._load)
@@ -49,14 +51,12 @@ class ContainerStatusScreen(Screen):
 
         for service in self.SERVICES:
             svc = self.status.get(service, {})
-            icon = "●" if svc.get("running") else "○"
+            icon = "🟢" if svc.get("running") else "⚪"
             status = "running" if svc.get("running") else ("stopped" if svc.get("exists") else "not created")
             list_view.append(ListItem(Label(f"{icon} {service}: {status}"), name=service))
 
-        info.update(f"Compose valid: {docker_ctl.validate_compose()['valid']}")
-        self.query_one(StatusBar).set_status(
-            "Enter=actions  r=refresh  s=start  x=stop  l=logs  esc=back"
-        )
+        info.update("")
+        self.query_one(StatusBar).set_status("")
         if list_view.children:
             list_view.index = 0
             list_view.focus()
@@ -74,25 +74,33 @@ class ContainerStatusScreen(Screen):
             self.query_one(StatusBar).set_status(f"Selected: {service} — use s/x/l keys")
 
     def action_refresh(self) -> None:
-        self._load()
+        self.run_worker(self._load)
 
     def action_start_selected(self) -> None:
         service = self._selected_service()
         if service:
-            result = docker_ctl.start_service(service)
-            self.query_one(StatusBar).set_status(
-                f"Start {service}: {'OK' if result['success'] else 'failed'}"
-            )
-            self._load()
+            self.query_one(StatusBar).set_status(f"Starting {service}...")
+            self.run_worker(partial(self._start_service, service))
+
+    async def _start_service(self, service: str) -> None:
+        result = await asyncio.to_thread(docker_ctl.start_service, service)
+        self.query_one(StatusBar).set_status(
+            f"Start {service}: {'OK' if result['success'] else 'failed'}"
+        )
+        await self._load()
 
     def action_stop_selected(self) -> None:
         service = self._selected_service()
         if service:
-            result = docker_ctl.stop_service(service)
-            self.query_one(StatusBar).set_status(
-                f"Stop {service}: {'OK' if result['success'] else 'failed'}"
-            )
-            self._load()
+            self.query_one(StatusBar).set_status(f"Stopping {service}...")
+            self.run_worker(partial(self._stop_service, service))
+
+    async def _stop_service(self, service: str) -> None:
+        result = await asyncio.to_thread(docker_ctl.stop_service, service)
+        self.query_one(StatusBar).set_status(
+            f"Stop {service}: {'OK' if result['success'] else 'failed'}"
+        )
+        await self._load()
 
     def action_logs_selected(self) -> None:
         service = self._selected_service()

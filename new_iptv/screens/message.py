@@ -2,7 +2,7 @@
 
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, Button
+from textual.widgets import Header, Static, Button
 
 from new_iptv.widgets.header import AppHeader
 from new_iptv.widgets.status_bar import StatusBar
@@ -26,7 +26,6 @@ class MessageScreen(Screen):
         yield StatusBar("Press OK or Escape")
         yield Static(self.message)
         yield Button("OK", id="ok-button", variant="primary")
-        yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "ok-button":

@@ -4,7 +4,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from new_iptv.domain import downloads, iptv_provider, recordings, restream
+from new_iptv.domain import downloads, iptv_provider, jobs, recordings, restream
 
 
 def is_raspberry_pi() -> bool:
@@ -138,7 +138,17 @@ def stop_active_restream() -> dict:
 
 def record_live_item(item: dict, duration_seconds: int = 3600) -> dict:
     """Start recording a live stream."""
-    return downloads.start_live_download(item, duration_seconds)
+    job_id = jobs.register("live", item.get("name", "Unknown"))
+
+    def on_done(success: bool, error: str | None) -> None:
+        jobs.update(job_id, status="done" if success else "failed", detail=error or "")
+
+    result = downloads.start_live_download(item, duration_seconds, on_done=on_done)
+    if result["success"]:
+        jobs.update(job_id, pid=result.get("pid"))
+    else:
+        jobs.update(job_id, status="failed", detail=result["message"])
+    return result
 
 
 def schedule_live_recording(item: dict, start_input: str, duration_minutes: int) -> dict:
@@ -158,7 +168,17 @@ def schedule_live_recording(item: dict, start_input: str, duration_minutes: int)
 
 def download_vod_item(item: dict) -> dict:
     """Start downloading a VOD item."""
-    return downloads.start_vod_download(item)
+    job_id = jobs.register("vod", item.get("name", "Unknown"))
+
+    def on_done(success: bool, error: str | None) -> None:
+        jobs.update(job_id, status="done" if success else "failed", detail=error or "")
+
+    result = downloads.start_vod_download(item, on_done=on_done)
+    if result["success"]:
+        jobs.update(job_id, pid=result.get("pid"))
+    else:
+        jobs.update(job_id, status="failed", detail=result["message"])
+    return result
 
 
 def download_series(item: dict) -> dict:
