@@ -1,4 +1,5 @@
-"""In-memory registry of download/record jobs for the running app session.
+"""Registry of download/record jobs for the running app session, persisted
+to disk so history survives an app restart.
 
 Scheduled recordings already persist to SQLite (domain.recordings) and series
 batches already persist to JSON manifests (domain.downloads); this module only
@@ -8,18 +9,55 @@ the UI.
 """
 
 import itertools
+import json
 import os
 import signal
 import time
 
-from new_iptv.domain import downloads, recordings
+from new_iptv.domain import db, downloads, recordings
+
+_STORE_PATH = db.data_dir() / "jobs.json"
 
 _jobs: dict[str, dict] = {}
 _id_counter = itertools.count(1)
 
 
+def _save() -> None:
+    try:
+        with open(_STORE_PATH, "w", encoding="utf-8") as f:
+            json.dump(_jobs, f, indent=2)
+    except Exception:
+        pass
+
+
+def _load() -> None:
+    if not _STORE_PATH.exists():
+        return
+    try:
+        with open(_STORE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return
+    max_n = 0
+    for job_id, job in data.items():
+        if job.get("status") == "running":
+            # The process/thread that owned this job is gone now that we're
+            # starting fresh — it can never actually finish.
+            job["status"] = "interrupted"
+            job["detail"] = "Interrupted by app restart"
+            job["pid"] = None
+        _jobs[job_id] = job
+        if job_id.startswith("job") and job_id[3:].isdigit():
+            max_n = max(max_n, int(job_id[3:]))
+    global _id_counter
+    _id_counter = itertools.count(max_n + 1)
+
+
+_load()
+
+
 def register(job_type: str, title: str, pid: int | None = None) -> str:
-    """Register a new in-memory job and return its id."""
+    """Register a new job and return its id."""
     job_id = f"job{next(_id_counter)}"
     _jobs[job_id] = {
         "id": job_id,
@@ -31,6 +69,7 @@ def register(job_type: str, title: str, pid: int | None = None) -> str:
         "started_at": time.time(),
         "cancel_requested": False,
     }
+    _save()
     return job_id
 
 
@@ -41,7 +80,7 @@ def cancel_requested(job_id: str) -> bool:
 
 
 def update(job_id: str, **fields) -> None:
-    """Update fields on an existing in-memory job. No-op if the job is unknown."""
+    """Update fields on an existing job. No-op if the job is unknown."""
     detail = fields.get("detail")
     if detail:
         detail = " ".join(detail.split())
@@ -51,6 +90,7 @@ def update(job_id: str, **fields) -> None:
     job = _jobs.get(job_id)
     if job:
         job.update(fields)
+        _save()
 
 
 def _icon(status: str) -> str:
@@ -62,6 +102,7 @@ def _icon(status: str) -> str:
         "completed": "✅",
         "failed": "❌",
         "cancelled": "❌",
+        "interrupted": "❌",
     }.get(status, "⚪")
 
 
@@ -153,6 +194,7 @@ def reset() -> None:
         if row["status"] == "running":
             cancel(row)
     _jobs.clear()
+    _save()
 
 
 def cancel(row: dict) -> dict:
@@ -174,6 +216,7 @@ def cancel(row: dict) -> dict:
             # aborts itself cooperatively.
             job["cancel_requested"] = True
             job["status"] = "cancelled"
+            _save()
         return {"success": True, "message": "Job cancelled"}
     if kind == "scheduled":
         ok = recordings.cancel_recording(row["recording_id"])
