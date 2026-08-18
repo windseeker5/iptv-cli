@@ -9,8 +9,7 @@ from new_iptv.screens.results import ResultsScreen
 from new_iptv.screens.favorites import FavoritesScreen
 from new_iptv.screens.category_browser import CategoryBrowserScreen
 from new_iptv.screens.container_status import ContainerStatusScreen
-from new_iptv.screens.scheduled_recordings import ScheduledRecordingsScreen
-from new_iptv.screens.background_downloads import BackgroundDownloadsScreen
+from new_iptv.screens.downloads_recordings import DownloadsScreen
 from new_iptv.screens.youtube import YouTubeScreen
 
 
@@ -46,6 +45,13 @@ class IPTVIntegrationTest(unittest.IsolatedAsyncioTestCase):
             pilot.app.push_screen(ContainerStatusScreen())
             await pilot.pause(1)
             self.assertIsInstance(pilot.app.screen, ContainerStatusScreen)
+
+    async def test_downloads_screen_mounts(self):
+        app = IPTVApp()
+        async with app.run_test() as pilot:
+            pilot.app.push_screen(DownloadsScreen())
+            await pilot.pause(1)
+            self.assertIsInstance(pilot.app.screen, DownloadsScreen)
 
 
 if __name__ == "__main__":

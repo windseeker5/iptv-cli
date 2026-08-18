@@ -7,9 +7,10 @@ from datetime import datetime
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
+from textual.css.query import NoMatches
 from textual.screen import Screen
 from textual.timer import Timer
-from textual.widgets import Header, Footer, ListView, ListItem, Label, Static
+from textual.widgets import Header, ListView, ListItem, Label, Static
 
 from new_iptv.domain import actions, iptv_provider, favorites as favorites_domain
 from new_iptv.screens.message import MessageScreen
@@ -46,7 +47,6 @@ class ResultsScreen(Screen):
             Static("", id="preview-panel"),
             id="results-layout",
         )
-        yield Footer()
 
     def on_mount(self) -> None:
         self.query_one(StatusBar).set_status(
@@ -177,7 +177,10 @@ class ResultsScreen(Screen):
             item.get("stream_url"),
         )
         if idx == self._preview_index:
-            self._update_preview(idx, live_epg=epg, loading=False)
+            try:
+                self._update_preview(idx, live_epg=epg, loading=False)
+            except NoMatches:
+                pass
 
     def _update_preview(
         self, idx: int, live_epg: dict | None = None, loading: bool = False
@@ -256,6 +259,7 @@ class ResultsScreen(Screen):
         if selected and selected[0] != "series":
             result = actions.restream_item(selected[1])
             self.query_one(StatusBar).set_status(result["message"])
+            self.app.notify(result["message"])
 
     def action_record_or_download(self) -> None:
         selected = self._selected_item()
@@ -265,6 +269,7 @@ class ResultsScreen(Screen):
             else:
                 result = actions.download_vod_item(selected[1])
             self.query_one(StatusBar).set_status(result["message"])
+            self.app.notify(result["message"])
 
     def action_toggle_favorite(self) -> None:
         selected = self._selected_item()

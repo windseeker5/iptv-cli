@@ -5,6 +5,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse, urlencode, urlunparse
 
 import yt_dlp
+from yt_dlp.utils import DownloadCancelled
 
 from new_iptv.domain import db
 
@@ -128,11 +129,27 @@ def build_download_options(format_choice: str) -> dict:
     _ensure_dir()
     outtmpl = str(YOUTUBE_DIR / "%(title)s.%(ext)s")
 
+    # Prefer the "android" client: when yt-dlp can't solve YouTube's JS
+    # signature challenge (e.g. no JS runtime available), it silently falls
+    # back to "android_vr", whose stream URLs frequently 403 mid-download.
+    # "web"/"tv" are listed as further fallbacks in case "android" ever
+    # stops working on its own.
+    extractor_args = {"youtube": {"player_client": ["android", "web", "tv"]}}
+
+    # yt-dlp has no default network timeout, so a stalled connection (a
+    # common YouTube CDN hiccup) hangs forever with no error. 30s makes a
+    # stall fail loudly instead of leaving a download stuck indefinitely.
+    common = {
+        "outtmpl": outtmpl,
+        "noplaylist": True,
+        "extractor_args": extractor_args,
+        "socket_timeout": 30,
+    }
+
     if format_choice == "best":
         return {
+            **common,
             "format": "bestvideo[height<=1080]+bestaudio/best",
-            "outtmpl": outtmpl,
-            "noplaylist": True,
             "merge_output_format": "mp4",
             "postprocessors": [
                 {
@@ -143,9 +160,8 @@ def build_download_options(format_choice: str) -> dict:
         }
     if format_choice == "audio":
         return {
+            **common,
             "format": "bestaudio/best",
-            "outtmpl": outtmpl,
-            "noplaylist": True,
             "postprocessors": [
                 {
                     "key": "FFmpegExtractAudio",
@@ -156,9 +172,8 @@ def build_download_options(format_choice: str) -> dict:
         }
     if format_choice == "720p":
         return {
+            **common,
             "format": "bestvideo[height<=720]+bestaudio/best",
-            "outtmpl": outtmpl,
-            "noplaylist": True,
             "merge_output_format": "mp4",
             "postprocessors": [
                 {
@@ -170,17 +185,36 @@ def build_download_options(format_choice: str) -> dict:
     raise ValueError(f"Unknown format choice: {format_choice}")
 
 
-def download_video(url: str, format_choice: str, progress_hook=None) -> bool:
-    """Download a YouTube video with the given format preset."""
+def download_video(
+    url: str, format_choice: str, progress_hook=None, is_cancelled=None
+) -> dict:
+    """Download a YouTube video with the given format preset.
+
+    `is_cancelled`, if given, is polled on every progress update; when it
+    returns True the download is aborted cleanly.
+
+    Returns a dict with keys: success, message, and (only when aborted via
+    `is_cancelled`) cancelled=True.
+    """
     _ensure_dir()
     ydl_opts = build_download_options(format_choice)
-    if progress_hook:
-        ydl_opts["progress_hooks"] = [progress_hook]
+
+    def hook(d: dict) -> None:
+        if is_cancelled and is_cancelled():
+            raise DownloadCancelled("Cancelled by user")
+        if progress_hook:
+            progress_hook(d)
+
+    if progress_hook or is_cancelled:
+        ydl_opts["progress_hooks"] = [hook]
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
-        return True
+        return {"success": True, "message": "Download complete"}
+    except DownloadCancelled:
+        return {"success": False, "message": "Cancelled", "cancelled": True}
     except Exception as e:
-        print(f"Error downloading video: {e}")
-        return False
+        message = str(e) or type(e).__name__
+        print(f"Error downloading video: {message}")
+        return {"success": False, "message": message}

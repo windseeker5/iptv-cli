@@ -2,7 +2,7 @@
 
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.widgets import Header, Footer, Input, Static
+from textual.widgets import Header, Input, Static
 
 from new_iptv.screens.results import ResultsScreen
 from new_iptv.widgets.header import AppHeader
@@ -21,7 +21,6 @@ class SearchScreen(Screen):
         yield StatusBar("Type a query and press Enter")
         yield Static("Search:")
         yield Input(placeholder="channel, movie, series...", id="search-input")
-        yield Footer()
 
     def on_mount(self) -> None:
         self.query_one("#search-input", Input).focus()

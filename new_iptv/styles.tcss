@@ -97,7 +97,7 @@ Footer > .footer--key {
     padding: 1;
 }
 
-#favorites-list, #category-list, #service-list, #episodes-list, #downloads-list, #recordings-list, #youtube-results {
+#favorites-list, #category-list, #service-list, #episodes-list, #jobs-list, #youtube-results {
     height: 1fr;
     border: round $primary;
 }

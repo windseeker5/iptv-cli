@@ -61,7 +61,7 @@ def detect_downloader() -> str:
     return "python"
 
 
-def _download_with_requests(url: str, filepath: str) -> bool:
+def _download_with_requests(url: str, filepath: str, on_done=None) -> bool:
     """Download a URL to a file using Python requests in a background thread."""
     def thread():
         try:
@@ -72,12 +72,28 @@ def _download_with_requests(url: str, filepath: str) -> bool:
                     for chunk in resp.iter_content(chunk_size=8192):
                         if chunk:
                             f.write(chunk)
+            if on_done:
+                on_done(True, None)
         except Exception as e:
             print(f"Download failed: {e}")
+            if on_done:
+                on_done(False, str(e))
 
     t = threading.Thread(target=thread, daemon=True)
     t.start()
     return True
+
+
+def _wait_and_report(process: subprocess.Popen, on_done) -> None:
+    """Wait for a subprocess to exit in a background thread and report the result."""
+    def thread():
+        returncode = process.wait()
+        if returncode == 0:
+            on_done(True, None)
+        else:
+            on_done(False, f"Exited with code {returncode}")
+
+    threading.Thread(target=thread, daemon=True).start()
 
 
 def build_download_command(url: str, filepath: str, downloader: str) -> list[str]:
@@ -115,8 +131,11 @@ def build_download_command(url: str, filepath: str, downloader: str) -> list[str
     raise ValueError(f"Unsupported downloader: {downloader}")
 
 
-def start_vod_download(item: dict, output_dir: str | None = None) -> dict:
+def start_vod_download(item: dict, output_dir: str | None = None, on_done=None) -> dict:
     """Start a VOD download in the background.
+
+    `on_done`, if given, is called as `on_done(success: bool, error: str | None)`
+    once the download finishes (from a background thread).
 
     Returns dict with success, pid or thread, filepath, message.
     """
@@ -133,7 +152,7 @@ def start_vod_download(item: dict, output_dir: str | None = None) -> dict:
     downloader = detect_downloader()
 
     if downloader == "python":
-        _download_with_requests(url, filepath)
+        _download_with_requests(url, filepath, on_done=on_done)
         return {
             "success": True,
             "filepath": filepath,
@@ -143,6 +162,8 @@ def start_vod_download(item: dict, output_dir: str | None = None) -> dict:
     cmd = build_download_command(url, filepath, downloader)
     try:
         process = subprocess.Popen(cmd)
+        if on_done:
+            _wait_and_report(process, on_done)
         return {
             "success": True,
             "pid": process.pid,
@@ -153,8 +174,12 @@ def start_vod_download(item: dict, output_dir: str | None = None) -> dict:
         return {"success": False, "message": f"Failed to start download: {e}"}
 
 
-def start_live_download(item: dict, duration_seconds: int = 3600) -> dict:
-    """Start recording a live stream to disk."""
+def start_live_download(item: dict, duration_seconds: int = 3600, on_done=None) -> dict:
+    """Start recording a live stream to disk.
+
+    `on_done`, if given, is called as `on_done(success: bool, error: str | None)`
+    once the recording finishes (from a background thread).
+    """
     url = item.get("stream_url", "")
     if not url:
         return {"success": False, "message": "No stream URL available"}
@@ -176,6 +201,8 @@ def start_live_download(item: dict, duration_seconds: int = 3600) -> dict:
 
     try:
         process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if on_done:
+            _wait_and_report(process, on_done)
         return {
             "success": True,
             "pid": process.pid,
@@ -196,21 +223,69 @@ def _manifest_path(series_name: str, timestamp: str) -> Path:
     return db.data_dir() / f"series_batch_{safe}_{timestamp}.json"
 
 
-def _log_path(manifest_path: Path) -> Path:
-    logs_dir = db.data_dir() / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    return logs_dir / f"{manifest_path.stem}.log"
+def _write_manifest(manifest: Path, data: dict) -> None:
+    with open(manifest, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+
+def _read_manifest(manifest: Path) -> dict:
+    with open(manifest, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _run_series_batch(manifest: Path, series_name: str) -> None:
+    """Download each episode in a manifest sequentially, updating status as it goes."""
+    downloader = detect_downloader()
+    folder = _downloads_dir() / _safe_name(series_name)
+    folder.mkdir(parents=True, exist_ok=True)
+
+    data = _read_manifest(manifest)
+    for job in data["jobs"]:
+        # Re-read the manifest each iteration so a cancel request is picked up.
+        data = _read_manifest(manifest)
+        if data.get("cancelled"):
+            break
+
+        current = next((j for j in data["jobs"] if j["episode_id"] == job["episode_id"]), job)
+        current["status"] = "running"
+        _write_manifest(manifest, data)
+
+        url = current.get("stream_url")
+        filepath = str(folder / current["filename"])
+        ok = False
+        if url:
+            try:
+                if downloader == "python":
+                    headers = {"User-Agent": "VLC/3.0.0 LibVLC/3.0.0"}
+                    with requests.get(url, headers=headers, stream=True, timeout=30) as resp:
+                        resp.raise_for_status()
+                        with open(filepath, "wb") as f:
+                            for chunk in resp.iter_content(chunk_size=8192):
+                                if chunk:
+                                    f.write(chunk)
+                    ok = True
+                else:
+                    cmd = build_download_command(url, filepath, downloader)
+                    result = subprocess.run(cmd, capture_output=True, timeout=1800)
+                    ok = result.returncode == 0
+            except Exception:
+                ok = False
+
+        data = _read_manifest(manifest)
+        current = next((j for j in data["jobs"] if j["episode_id"] == job["episode_id"]), None)
+        if current:
+            current["status"] = "completed" if ok else "failed"
+            _write_manifest(manifest, data)
 
 
 def queue_series_batch(series_item: dict, episodes: list[dict], batch_label: str | None = None) -> dict:
-    """Create a manifest and launch a background series batch download.
+    """Create a manifest and download all episodes sequentially in a background thread.
 
-    Returns dict with success, manifest_path, log_path, message.
+    Returns dict with success, manifest_path, message.
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     series_name = series_item.get("name", "Unknown")
     manifest = _manifest_path(series_name, timestamp)
-    log = _log_path(manifest)
 
     jobs = []
     for episode in episodes:
@@ -233,35 +308,30 @@ def queue_series_batch(series_item: dict, episodes: list[dict], batch_label: str
         "series_name": series_name,
         "batch_label": batch_label,
         "created_at": timestamp,
-        "process_pid": None,
+        "cancelled": False,
         "jobs": jobs,
     }
+    _write_manifest(manifest, manifest_data)
 
-    with open(manifest, "w", encoding="utf-8") as f:
-        json.dump(manifest_data, f, indent=2)
-
-    # Launch a background downloader process (self-contained script)
-    downloader_script = Path(__file__).resolve().parent / "_series_batch_worker.py"
-    if downloader_script.exists():
-        try:
-            process = subprocess.Popen(
-                ["python3", str(downloader_script), str(manifest), str(log)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-            )
-            manifest_data["process_pid"] = process.pid
-            with open(manifest, "w", encoding="utf-8") as f:
-                json.dump(manifest_data, f, indent=2)
-        except Exception as e:
-            return {"success": False, "message": f"Failed to launch worker: {e}"}
+    threading.Thread(
+        target=_run_series_batch, args=(manifest, series_name), daemon=True
+    ).start()
 
     return {
         "success": True,
         "manifest_path": str(manifest),
-        "log_path": str(log),
         "message": f"Queued {len(jobs)} episodes",
     }
+
+
+def cancel_batch(manifest_path: Path) -> None:
+    """Signal a running series batch thread to stop after its current episode."""
+    try:
+        data = _read_manifest(manifest_path)
+        data["cancelled"] = True
+        _write_manifest(manifest_path, data)
+    except Exception:
+        pass
 
 
 def list_batch_manifests(limit: int = 40) -> list[Path]:
@@ -272,33 +342,25 @@ def list_batch_manifests(limit: int = 40) -> list[Path]:
 
 
 def read_batch_state(manifest_path: Path) -> dict:
-    """Read a manifest and infer status from its log file."""
+    """Read a manifest and summarize job status counts."""
     state = {
         "total": 0,
         "completed": 0,
         "failed": 0,
         "in_progress": False,
-        "process_pid": None,
     }
     try:
-        with open(manifest_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        data = _read_manifest(manifest_path)
         jobs = data.get("jobs", [])
         state["total"] = len(jobs)
-        state["process_pid"] = data.get("process_pid")
         for job in jobs:
             status = job.get("status", "pending")
             if status == "completed":
                 state["completed"] += 1
             elif status == "failed":
                 state["failed"] += 1
-
-        log = _log_path(manifest_path)
-        if log.exists():
-            text = log.read_text(encoding="utf-8", errors="ignore")
-            state["completed"] = text.count("[DONE]")
-            state["failed"] = text.count("[FAIL]")
-            state["in_progress"] = "[START]" in text and state["completed"] < state["total"]
+            elif status == "running":
+                state["in_progress"] = True
     except Exception:
         pass
     return state

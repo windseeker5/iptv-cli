@@ -2,7 +2,7 @@
 
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.widgets import Header, Footer, ListView, ListItem, Label
+from textual.widgets import Header, ListView, ListItem, Label
 
 from new_iptv.domain import favorites as favorites_domain
 from new_iptv.widgets.header import AppHeader
@@ -27,7 +27,6 @@ class FavoritesScreen(Screen):
         yield AppHeader("Favorites")
         yield StatusBar("Loading favorites...")
         yield ListView(id="favorites-list")
-        yield Footer()
 
     def on_mount(self) -> None:
         self.run_worker(self._load_favorites)
@@ -50,9 +49,7 @@ class FavoritesScreen(Screen):
             prefix = "[LIVE]" if item_type == "live" else "[VOD]"
             list_view.append(ListItem(Label(f"{prefix} {name}  ({category})"), name=f"{idx}"))
 
-        self.query_one(StatusBar).set_status(
-            "Enter=actions  p=play  r=restream  d=remove  esc=back"
-        )
+        self.query_one(StatusBar).set_status("")
         if self.favorites:
             list_view.index = 0
             list_view.focus()
