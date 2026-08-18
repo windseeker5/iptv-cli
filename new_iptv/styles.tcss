@@ -1,0 +1,111 @@
+/* Theme-aware styles; avoid hard-coded black so Ctrl+P theme selector works. */
+
+Screen {
+    background: $background;
+    color: $foreground;
+}
+
+Static {
+    color: $foreground;
+}
+
+Label {
+    color: $foreground;
+}
+
+Input {
+    background: $surface;
+    color: $foreground;
+    border: solid $foreground;
+}
+
+Input:focus {
+    border: solid $primary;
+}
+
+ListView {
+    border: round $primary;
+    background: $surface;
+    color: $foreground;
+}
+
+ListView:focus {
+    border: round $primary;
+}
+
+ListView > ListItem {
+    color: $foreground;
+    background: $surface;
+}
+
+ListView > ListItem.--highlight,
+ListView > ListItem.-highlight,
+ListView:focus > ListItem.--highlight,
+ListView:focus > ListItem.-highlight {
+    background: $foreground;
+    color: $background;
+    text-style: bold;
+}
+
+ListView > ListItem.--highlight > Label,
+ListView > ListItem.-highlight > Label,
+ListView:focus > ListItem.--highlight > Label,
+ListView:focus > ListItem.-highlight > Label {
+    color: $background;
+    text-style: bold;
+}
+
+Header, Footer {
+    background: $surface;
+    color: $foreground;
+    text-style: bold;
+}
+
+Footer > .footer--key {
+    background: $surface;
+    color: $primary;
+    text-style: bold;
+}
+
+.status-bar {
+    background: $surface;
+    color: $foreground;
+    height: 1;
+}
+
+.title {
+    text-style: bold;
+    color: $primary;
+}
+
+#results-layout {
+    height: 1fr;
+}
+
+#results-list {
+    width: 60%;
+    height: 100%;
+    border: round $primary;
+}
+
+#preview-panel {
+    width: 40%;
+    height: 100%;
+    background: $surface;
+    color: $foreground;
+    border: round $primary;
+    padding: 1;
+}
+
+#favorites-list, #category-list, #service-list, #episodes-list, #jobs-list, #youtube-results {
+    height: 1fr;
+    border: round $primary;
+}
+
+AppHeader {
+    height: auto;
+    max-height: 12;
+    background: $surface;
+    color: $primary;
+    text-style: bold;
+}
