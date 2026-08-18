@@ -49,13 +49,6 @@
     "added": "2026-04-14 22:16:22"
   },
   {
-    "stream_id": 412882,
-    "name": "CA FR: SUPER ECRAN 2 HD",
-    "category": "CA| CINEMA FR",
-    "type": "live",
-    "added": "2026-04-14 22:16:24"
-  },
-  {
     "stream_id": 498662,
     "name": "CA FR: SUPER ECRAN 3",
     "category": "CA| CINEMA FR",
@@ -152,5 +145,33 @@
     "category": "CA| CINEMA FR",
     "type": "live",
     "added": "2026-04-14 22:20:40"
+  },
+  {
+    "stream_id": 412862,
+    "name": "CA FR: CANAL D HD",
+    "category": "CA| GENERAL FR",
+    "type": "live",
+    "added": "2026-04-14 23:26:08"
+  },
+  {
+    "stream_id": 412950,
+    "name": "CA FR: CANAL VIE HD",
+    "category": "CA| GENERAL FR",
+    "type": "live",
+    "added": "2026-04-14 23:26:12"
+  },
+  {
+    "stream_id": 412857,
+    "name": "CA FR: CANAL Z HD",
+    "category": "CA| CINEMA FR",
+    "type": "live",
+    "added": "2026-04-14 23:26:17"
+  },
+  {
+    "stream_id": 412882,
+    "name": "CA FR: SUPER ECRAN 2 HD",
+    "category": "CA| CINEMA FR",
+    "type": "live",
+    "added": "2026-08-18 09:13:07"
   }
 ]
