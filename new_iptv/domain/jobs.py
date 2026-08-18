@@ -147,6 +147,14 @@ def list_jobs() -> list[dict]:
     return rows
 
 
+def reset() -> None:
+    """Cancel every running in-memory job and clear the registry."""
+    for row in _in_memory_rows():
+        if row["status"] == "running":
+            cancel(row)
+    _jobs.clear()
+
+
 def cancel(row: dict) -> dict:
     """Cancel a job row as returned by list_jobs()."""
     kind = row["kind"]

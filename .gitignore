@@ -45,6 +45,7 @@ data/
 doc/
 nginx/hls/
 nginx/logs/
+nginx/recordings/
 nginx/html/iptv.m3u
 jellyfin/config/
 

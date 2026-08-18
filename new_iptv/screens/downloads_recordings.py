@@ -16,6 +16,7 @@ class DownloadsScreen(Screen):
         ("escape", "pop", "Back"),
         ("r", "refresh", "Refresh"),
         ("x", "cancel_selected", "Cancel"),
+        ("X", "clear_all", "Clear All"),
     ]
 
     def __init__(self, **kwargs):
@@ -93,6 +94,10 @@ class DownloadsScreen(Screen):
             self.query_one(StatusBar).set_status(result["message"])
             self.app.notify(result["message"])
             self.run_worker(self._load)
+
+    def action_clear_all(self) -> None:
+        from new_iptv.screens.clear_all import ClearAllConfirmScreen
+        self.app.push_screen(ClearAllConfirmScreen())
 
     def action_pop(self) -> None:
         self.app.pop_screen()

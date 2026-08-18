@@ -62,15 +62,42 @@ def add_recording(
 
 
 def cancel_recording(recording_id: int) -> bool:
-    """Mark a recording as cancelled in the database."""
+    """Mark a recording as cancelled in the database and stop its systemd timer."""
     with db.connection() as conn:
         cursor = conn.cursor()
+        cursor.execute(
+            "SELECT timer_unit FROM scheduled_recordings WHERE id = ?", (recording_id,)
+        )
+        row = cursor.fetchone()
+        if row and row[0]:
+            stop_timer(row[0])
+
         cursor.execute(
             "UPDATE scheduled_recordings SET status = 'cancelled' WHERE id = ?",
             (recording_id,),
         )
         conn.commit()
         return cursor.rowcount > 0
+
+
+def stop_timer(timer_unit: str) -> dict:
+    """Stop and disable a systemd user timer so it never fires."""
+    try:
+        subprocess.run(
+            ["systemctl", "--user", "stop", f"{timer_unit}.timer"],
+            capture_output=True, timeout=5,
+        )
+        subprocess.run(
+            ["systemctl", "--user", "disable", f"{timer_unit}.timer"],
+            capture_output=True, timeout=5,
+        )
+        subprocess.run(
+            ["systemctl", "--user", "reset-failed", f"{timer_unit}.timer"],
+            capture_output=True, timeout=5,
+        )
+        return {"success": True, "message": "Timer stopped"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
 
 
 def check_timer_status(timer_unit: str) -> str:
@@ -85,6 +112,19 @@ def check_timer_status(timer_unit: str) -> str:
         return result.stdout.strip()
     except Exception:
         return "unknown"
+
+
+def delete_all_recordings() -> int:
+    """Stop every recording's systemd timer and delete all rows. Returns rows deleted."""
+    with db.connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT timer_unit FROM scheduled_recordings")
+        for (timer_unit,) in cursor.fetchall():
+            if timer_unit:
+                stop_timer(timer_unit)
+        cursor.execute("DELETE FROM scheduled_recordings")
+        conn.commit()
+        return cursor.rowcount
 
 
 def parse_start_time(start_input: str) -> datetime:
