@@ -16,7 +16,9 @@ import time
 
 from new_iptv.domain import db, downloads, recordings
 
-_STORE_PATH = db.data_dir() / "jobs.json"
+_LOGS_DIR = db.data_dir() / "logs"
+_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+_STORE_PATH = _LOGS_DIR / "jobs.json"
 
 _jobs: dict[str, dict] = {}
 _id_counter = itertools.count(1)

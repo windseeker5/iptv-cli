@@ -537,7 +537,9 @@ def download_database(
                 action = "get_series"
             data[component] = fetch_component(action)
             if save_json:
-                path = db.data_dir() / f"{component}.json"
+                cache_dir = db.data_dir() / "cache"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                path = cache_dir / f"{component}.json"
                 with open(path, "w", encoding="utf-8") as f:
                     json.dump(data[component], f, indent=2)
     except Exception as exc:
