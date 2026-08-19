@@ -207,7 +207,7 @@ def build_systemd_command(
 ) -> tuple[list[str], str]:
     """Build the systemd-run command and timer unit name."""
     timer_unit = f"iptv-record-{int(datetime.now().timestamp())}"
-    wrapper_path = Path(__file__).resolve().parents[2] / "record_wrapper.sh"
+    wrapper_path = Path(__file__).resolve().parents[2] / "scripts" / "record_wrapper.sh"
 
     if start_now:
         trigger_arg = "--on-active=10s"

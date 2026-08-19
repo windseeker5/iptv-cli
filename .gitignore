@@ -12,6 +12,9 @@
 # Restream process files
 .restream_*.pid
 
+# wget's default progress log when output isn't a controlling terminal
+wget-log*
+
 # Python
 __pycache__/
 *.pyc

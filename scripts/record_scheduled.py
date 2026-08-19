@@ -20,7 +20,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 # Setup logging
-LOG_DIR = Path(__file__).parent / "data" / "logs"
+LOG_DIR = Path(__file__).parent.parent / "data" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = LOG_DIR / f"recording_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 def load_credentials():
     """Load IPTV credentials from .env file."""
-    env_path = Path(__file__).parent / ".env"
+    env_path = Path(__file__).parent.parent / ".env"
     if not env_path.exists():
         logger.error(f".env file not found at {env_path}")
         sys.exit(1)
@@ -141,7 +141,7 @@ def update_recording_status(recording_id: int, status: str):
     """Update the recording status in the database."""
     try:
         import sqlite3
-        db_path = Path(__file__).parent / "data" / "iptv.db"
+        db_path = Path(__file__).parent.parent / "data" / "iptv.db"
         if db_path.exists():
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()

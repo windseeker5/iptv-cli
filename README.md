@@ -43,8 +43,9 @@ A terminal UI for browsing, searching, playing, downloading, and recording IPTV 
 
 ```
 iptv.py                    entrypoint — launches the Textual app (iptv_tui/app.py)
-record_scheduled.py         standalone recorder invoked by scheduled systemd timers
-record_wrapper.sh           bash wrapper (activates venv) used by systemd-run
+scripts/
+├── record_scheduled.py     standalone recorder invoked by scheduled systemd timers
+└── record_wrapper.sh       bash wrapper (activates venv) used by systemd-run
 
 iptv_tui/
 ├── app.py                  Textual App, screen registry, theme

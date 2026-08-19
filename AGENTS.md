@@ -7,7 +7,7 @@ Operational guidance for coding agents working in `/home/kdresdell/Documents/DEV
 - Python CLI/TUI app for IPTV browsing, restreaming, downloads, and container control.
 - `iptv.py` is the new Textual-based TUI entrypoint (replaced the legacy monolithic app).
 - `iptv_tui/` contains the modular app: `domain/` for business logic, `screens/` for Textual UI.
-- `record_scheduled.py` is a standalone recorder entrypoint (automation/systemd style).
+- `scripts/record_scheduled.py` is a standalone recorder entrypoint (automation/systemd style).
 - `util.py` contains image/logo helper workflows.
 - `docker-compose.yml` manages `nginx-rtmp`, `jellyfin`, `caddy`, `viewer-counter`, and `samba` services.
 - Primary persistent state is user data in `data/`; some artifacts are mirrored to `nginx/html/` for web serving.
@@ -46,13 +46,12 @@ There is no separate build system; execution is script + Docker driven.
 
 ```bash
 python3 iptv.py
-python3 record_scheduled.py --stream-id 12345 --duration 3600 --output /tmp/test.ts
+python3 scripts/record_scheduled.py --stream-id 12345 --duration 3600 --output /tmp/test.ts
 python3 util.py
-python3 test_tty.py          # TTY smoke test; may need an interactive terminal
 ```
 
 `iptv.py` auto-detects and activates `venv/` if present and changes the working directory to the script's directory before running.
-`record_wrapper.sh` is the Bash wrapper for scheduled recordings (activates `venv` then runs `record_scheduled.py`).
+`scripts/record_wrapper.sh` is the Bash wrapper for scheduled recordings (activates `venv` then runs `record_scheduled.py`).
 
 ## Docker Commands
 
@@ -79,7 +78,7 @@ No `pyproject.toml`, `setup.cfg`, `pytest.ini`, or `Makefile` is checked in.
 Use Python syntax compilation as the safest default validation:
 
 ```bash
-python3 -m py_compile iptv.py record_scheduled.py util.py test_tty.py
+python3 -m py_compile iptv.py scripts/record_scheduled.py util.py
 python3 -m compileall iptv_tui
 ```
 
@@ -91,12 +90,9 @@ docker-compose config -q
 
 ## Test Commands
 
-- No formal unit/integration test suite is checked in.
-- `test_tty.py` is a smoke/diagnostic script and may require an interactive TTY.
-
 ```bash
-python3 test_tty.py
-python3 -m py_compile record_scheduled.py
+python3 -m unittest iptv_tui.test_domain_smoke iptv_tui.test_integration iptv_tui.test_app_smoke -v
+python3 -m py_compile scripts/record_scheduled.py
 ```
 
 If pytest tests are added later, prefer:
@@ -128,7 +124,7 @@ pytest -k "specific_behavior"
 - Codebase is mostly dynamic; avoid forced large typing retrofits.
 - Add light type hints for new helper functions where they improve clarity.
 - Keep annotations simple (`str`, `int`, `list`, `dict`) unless stronger typing is useful.
-- Match local file conventions (`record_scheduled.py` is more typed than `iptv.py`).
+- Match local file conventions (`scripts/record_scheduled.py` is more typed than `iptv.py`).
 
 ## Naming Conventions
 
