@@ -105,7 +105,7 @@ services:
       - ${USB_MOVIES_PATH:-./media/movies}:/shared/movies
       - ${USB_MUSIC_PATH:-./media/music}:/shared/music
       - ${USB_PHOTOS_PATH:-./media/photos}:/shared/photos
-      - ./downloads:/shared/downloads
+      - ./data/downloads:/shared/downloads
     environment:
       - TZ=${TZ:-UTC}
     command: >

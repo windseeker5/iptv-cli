@@ -6,7 +6,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-from new_iptv.domain import config, db, iptv_provider
+from iptv_tui.domain import config, db, iptv_provider
 
 
 def data_dir() -> Path:

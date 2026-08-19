@@ -14,7 +14,7 @@ import os
 import signal
 import time
 
-from new_iptv.domain import db, downloads, recordings
+from iptv_tui.domain import db, downloads, recordings
 
 _LOGS_DIR = db.data_dir() / "logs"
 _LOGS_DIR.mkdir(parents=True, exist_ok=True)

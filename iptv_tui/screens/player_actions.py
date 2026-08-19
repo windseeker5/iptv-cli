@@ -4,9 +4,9 @@ from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import Header, ListView, ListItem, Label
 
-from new_iptv.domain import actions
-from new_iptv.widgets.header import AppHeader
-from new_iptv.widgets.status_bar import StatusBar
+from iptv_tui.domain import actions
+from iptv_tui.widgets.header import AppHeader
+from iptv_tui.widgets.status_bar import StatusBar
 
 
 class PlayerActionsScreen(Screen):
@@ -49,7 +49,7 @@ class PlayerActionsScreen(Screen):
             status.set_status(result["message"])
             self.app.notify(result["message"])
         elif action_label == "Schedule Recording":
-            from new_iptv.screens.schedule_recording import ScheduleRecordingScreen
+            from iptv_tui.screens.schedule_recording import ScheduleRecordingScreen
             self.app.push_screen(ScheduleRecordingScreen(self.item))
         elif action_label == "Download":
             result = actions.download_vod_item(self.item)
@@ -68,10 +68,10 @@ class PlayerActionsScreen(Screen):
             status.set_status(result["message"])
             self.app.notify(result["message"])
         elif action_label == "Browse Episodes":
-            from new_iptv.screens.series_episodes import SeriesEpisodesScreen
+            from iptv_tui.screens.series_episodes import SeriesEpisodesScreen
             self.app.push_screen(SeriesEpisodesScreen(self.item))
         elif action_label == "Info":
-            from new_iptv.screens.info import InfoScreen
+            from iptv_tui.screens.info import InfoScreen
             self.app.push_screen(InfoScreen(self.result_type, self.item))
         elif action_label == "Back":
             self.app.pop_screen()

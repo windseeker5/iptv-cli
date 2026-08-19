@@ -2,15 +2,15 @@
 
 import unittest
 
-from new_iptv.app import IPTVApp
-from new_iptv.screens.main_menu import MainMenuScreen
-from new_iptv.screens.search import SearchScreen
-from new_iptv.screens.results import ResultsScreen
-from new_iptv.screens.favorites import FavoritesScreen
-from new_iptv.screens.category_browser import CategoryBrowserScreen
-from new_iptv.screens.container_status import ContainerStatusScreen
-from new_iptv.screens.downloads_recordings import DownloadsScreen
-from new_iptv.screens.youtube import YouTubeScreen
+from iptv_tui.app import IPTVApp
+from iptv_tui.screens.main_menu import MainMenuScreen
+from iptv_tui.screens.search import SearchScreen
+from iptv_tui.screens.results import ResultsScreen
+from iptv_tui.screens.favorites import FavoritesScreen
+from iptv_tui.screens.category_browser import CategoryBrowserScreen
+from iptv_tui.screens.container_status import ContainerStatusScreen
+from iptv_tui.screens.downloads_recordings import DownloadsScreen
+from iptv_tui.screens.youtube import YouTubeScreen
 
 
 class IPTVIntegrationTest(unittest.IsolatedAsyncioTestCase):

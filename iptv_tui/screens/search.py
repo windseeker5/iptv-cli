@@ -4,9 +4,9 @@ from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import Header, Input, Static
 
-from new_iptv.screens.results import ResultsScreen
-from new_iptv.widgets.header import AppHeader
-from new_iptv.widgets.status_bar import StatusBar
+from iptv_tui.screens.results import ResultsScreen
+from iptv_tui.widgets.header import AppHeader
+from iptv_tui.widgets.status_bar import StatusBar
 
 
 class SearchScreen(Screen):

@@ -20,7 +20,7 @@ elif os.path.exists(os.path.join(script_dir, "venv", "bin", "python")):
     if sys.executable != venv_python:
         os.execv(venv_python, [venv_python] + sys.argv)
 
-from new_iptv.app import IPTVApp
+from iptv_tui.app import IPTVApp
 
 
 if __name__ == "__main__":

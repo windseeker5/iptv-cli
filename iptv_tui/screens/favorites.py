@@ -4,9 +4,9 @@ from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import Header, ListView, ListItem, Label
 
-from new_iptv.domain import favorites as favorites_domain
-from new_iptv.widgets.header import AppHeader
-from new_iptv.widgets.status_bar import StatusBar
+from iptv_tui.domain import favorites as favorites_domain
+from iptv_tui.widgets.header import AppHeader
+from iptv_tui.widgets.status_bar import StatusBar
 
 
 class FavoritesScreen(Screen):
@@ -64,7 +64,7 @@ class FavoritesScreen(Screen):
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         item = self._selected_item()
         if item:
-            from new_iptv.screens.player_actions import PlayerActionsScreen
+            from iptv_tui.screens.player_actions import PlayerActionsScreen
             self.app.push_screen(PlayerActionsScreen(item.get("type", "live"), item))
 
     def action_play_selected(self) -> None:

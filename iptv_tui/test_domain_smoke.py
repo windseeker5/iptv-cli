@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from new_iptv.domain import config, db
+from iptv_tui.domain import config, db
 
 
 class ConfigSmokeTest(unittest.TestCase):

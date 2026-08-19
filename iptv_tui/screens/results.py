@@ -12,10 +12,10 @@ from textual.screen import Screen
 from textual.timer import Timer
 from textual.widgets import Header, ListView, ListItem, Label, Static
 
-from new_iptv.domain import actions, iptv_provider, favorites as favorites_domain
-from new_iptv.screens.message import MessageScreen
-from new_iptv.widgets.header import AppHeader
-from new_iptv.widgets.status_bar import StatusBar
+from iptv_tui.domain import actions, iptv_provider, favorites as favorites_domain
+from iptv_tui.screens.message import MessageScreen
+from iptv_tui.widgets.header import AppHeader
+from iptv_tui.widgets.status_bar import StatusBar
 
 
 class ResultsScreen(Screen):
@@ -235,14 +235,14 @@ class ResultsScreen(Screen):
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         selected = self._selected_item()
         if selected:
-            from new_iptv.screens.player_actions import PlayerActionsScreen
+            from iptv_tui.screens.player_actions import PlayerActionsScreen
             self.app.push_screen(PlayerActionsScreen(selected[0], selected[1]))
 
     def action_play_selected(self) -> None:
         selected = self._selected_item()
         if selected:
             if selected[0] == "series":
-                from new_iptv.screens.series_episodes import SeriesEpisodesScreen
+                from iptv_tui.screens.series_episodes import SeriesEpisodesScreen
                 self.app.push_screen(SeriesEpisodesScreen(selected[1]))
             else:
                 result = actions.play_item(selected[1], selected[0])
@@ -251,7 +251,7 @@ class ResultsScreen(Screen):
     def action_info_selected(self) -> None:
         selected = self._selected_item()
         if selected:
-            from new_iptv.screens.info import InfoScreen
+            from iptv_tui.screens.info import InfoScreen
             self.app.push_screen(InfoScreen(selected[0], selected[1]))
 
     def action_restream_selected(self) -> None:

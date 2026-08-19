@@ -9,7 +9,7 @@ from pathlib import Path
 
 from dateutil import parser as dateparser
 
-from new_iptv.domain import config, db, iptv_provider
+from iptv_tui.domain import config, db, iptv_provider
 
 
 def list_recordings(limit: int = 50) -> list[dict]:

@@ -3,9 +3,9 @@
 import asyncio
 import unittest
 
-from new_iptv.app import IPTVApp
-from new_iptv.screens.main_menu import MainMenuScreen
-from new_iptv.screens.search import SearchScreen
+from iptv_tui.app import IPTVApp
+from iptv_tui.screens.main_menu import MainMenuScreen
+from iptv_tui.screens.search import SearchScreen
 
 
 class IPTVAppSmokeTest(unittest.IsolatedAsyncioTestCase):

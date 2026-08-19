@@ -12,7 +12,7 @@ from pathlib import Path
 
 import requests
 
-from new_iptv.domain import config, db, transcode
+from iptv_tui.domain import config, db, transcode
 
 
 def _downloads_dir() -> Path:

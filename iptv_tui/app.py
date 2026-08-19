@@ -2,13 +2,13 @@
 
 from textual.app import App
 
-from new_iptv.domain import config
-from new_iptv.screens.main_menu import MainMenuScreen
-from new_iptv.screens.search import SearchScreen
-from new_iptv.screens.results import ResultsScreen
-from new_iptv.screens.player_actions import PlayerActionsScreen
-from new_iptv.screens.container_status import ContainerStatusScreen
-from new_iptv.screens.message import MessageScreen
+from iptv_tui.domain import config
+from iptv_tui.screens.main_menu import MainMenuScreen
+from iptv_tui.screens.search import SearchScreen
+from iptv_tui.screens.results import ResultsScreen
+from iptv_tui.screens.player_actions import PlayerActionsScreen
+from iptv_tui.screens.container_status import ContainerStatusScreen
+from iptv_tui.screens.message import MessageScreen
 
 
 class IPTVApp(App):

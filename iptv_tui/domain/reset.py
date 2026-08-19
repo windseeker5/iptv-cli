@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from new_iptv.domain import db, downloads, jobs, recordings, youtube
+from iptv_tui.domain import db, downloads, jobs, recordings, youtube
 
 
 def _dir_stats(path: Path) -> tuple[int, int]:

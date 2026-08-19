@@ -9,9 +9,9 @@ import asyncio
 
 from rich.text import Text
 
-from new_iptv.domain import config, docker_ctl, favorites, iptv_provider, jobs, restream
-from new_iptv.widgets.header import AppHeader
-from new_iptv.widgets.status_bar import StatusBar
+from iptv_tui.domain import config, docker_ctl, favorites, iptv_provider, jobs, restream
+from iptv_tui.widgets.header import AppHeader
+from iptv_tui.widgets.status_bar import StatusBar
 
 
 class MainMenuScreen(Screen):
@@ -167,18 +167,18 @@ class MainMenuScreen(Screen):
         elif action == "search":
             self.app.push_screen("search")
         elif action == "favorites":
-            from new_iptv.screens.favorites import FavoritesScreen
+            from iptv_tui.screens.favorites import FavoritesScreen
             self.app.push_screen(FavoritesScreen())
         elif action == "browse":
-            from new_iptv.screens.category_browser import CategoryBrowserScreen
+            from iptv_tui.screens.category_browser import CategoryBrowserScreen
             self.app.push_screen(CategoryBrowserScreen())
         elif action == "downloads":
-            from new_iptv.screens.downloads_recordings import DownloadsScreen
+            from iptv_tui.screens.downloads_recordings import DownloadsScreen
             self.app.push_screen(DownloadsScreen())
         elif action == "settings":
             self.app.push_screen("settings")
         elif action == "youtube":
-            from new_iptv.screens.youtube import YouTubeScreen
+            from iptv_tui.screens.youtube import YouTubeScreen
             self.app.push_screen(YouTubeScreen())
 
     def action_push_search(self) -> None:

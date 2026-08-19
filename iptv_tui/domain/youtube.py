@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, urlparse, urlencode, urlunparse
 import yt_dlp
 from yt_dlp.utils import DownloadCancelled
 
-from new_iptv.domain import db
+from iptv_tui.domain import db
 
 
 YOUTUBE_DIR = db.data_dir() / "youtube"

@@ -4,9 +4,9 @@ from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import Input, Label
 
-from new_iptv.domain import actions
-from new_iptv.widgets.header import AppHeader
-from new_iptv.widgets.status_bar import StatusBar
+from iptv_tui.domain import actions
+from iptv_tui.widgets.header import AppHeader
+from iptv_tui.widgets.status_bar import StatusBar
 
 
 class ScheduleRecordingScreen(Screen):

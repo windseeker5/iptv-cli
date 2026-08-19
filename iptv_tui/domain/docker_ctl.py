@@ -4,7 +4,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from new_iptv.domain import config
+from iptv_tui.domain import config
 
 
 def compose_binary() -> list[str]:

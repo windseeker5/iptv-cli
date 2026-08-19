@@ -4,7 +4,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from new_iptv.domain import downloads, iptv_provider, jobs, recordings, restream
+from iptv_tui.domain import downloads, iptv_provider, jobs, recordings, restream
 
 
 def is_raspberry_pi() -> bool:

@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 
 import requests
 
-from new_iptv.domain import config, db
+from iptv_tui.domain import config, db
 
 
 def _decode_base64_if_needed(text):

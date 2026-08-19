@@ -4,9 +4,9 @@ from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import Header, ListView, ListItem, Label
 
-from new_iptv.domain import iptv_provider
-from new_iptv.widgets.header import AppHeader
-from new_iptv.widgets.status_bar import StatusBar
+from iptv_tui.domain import iptv_provider
+from iptv_tui.widgets.header import AppHeader
+from iptv_tui.widgets.status_bar import StatusBar
 
 
 class CategoryBrowserScreen(Screen):
@@ -74,7 +74,7 @@ class CategoryBrowserScreen(Screen):
         else:
             idx = event.list_view.index
             if 0 <= idx < len(self.items):
-                from new_iptv.screens.player_actions import PlayerActionsScreen
+                from iptv_tui.screens.player_actions import PlayerActionsScreen
                 self.app.push_screen(PlayerActionsScreen(self.mode, self.items[idx]))
 
     def action_mode_live(self) -> None:

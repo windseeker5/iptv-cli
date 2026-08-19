@@ -42,12 +42,11 @@ A terminal UI for browsing, searching, playing, downloading, and recording IPTV 
 ## Project layout
 
 ```
-iptv.py                    entrypoint — launches the Textual app (new_iptv/app.py)
-iptv_legacy.py              previous simple-term-menu implementation, kept for reference only
+iptv.py                    entrypoint — launches the Textual app (iptv_tui/app.py)
 record_scheduled.py         standalone recorder invoked by scheduled systemd timers
 record_wrapper.sh           bash wrapper (activates venv) used by systemd-run
 
-new_iptv/
+iptv_tui/
 ├── app.py                  Textual App, screen registry, theme
 ├── domain/                 business logic — no UI dependencies
 │   ├── iptv_provider.py    provider API client, catalog cache/sync
@@ -121,9 +120,9 @@ Container status, start/stop, and logs are also available from the TUI's **Setti
 ## Testing
 
 ```bash
-python3 -m unittest new_iptv.test_domain_smoke new_iptv.test_integration new_iptv.test_app_smoke -v
+python3 -m unittest iptv_tui.test_domain_smoke iptv_tui.test_integration iptv_tui.test_app_smoke -v
 ```
 
 ## Status
 
-`iptv.py` is the Textual TUI (`new_iptv/`) — this is the actively developed application. `iptv_legacy.py` is the original `simple-term-menu` CLI it replaced; it's kept in the repo for reference but is no longer maintained.
+`iptv.py` is the Textual TUI (`iptv_tui/`) — this is the application. The previous `simple-term-menu` CLI it replaced has been removed; see git history if you ever need it back.

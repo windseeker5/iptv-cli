@@ -4,9 +4,9 @@ from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import Header, ListView, ListItem, Label
 
-from new_iptv.domain import jobs
-from new_iptv.widgets.header import AppHeader
-from new_iptv.widgets.status_bar import StatusBar
+from iptv_tui.domain import jobs
+from iptv_tui.widgets.header import AppHeader
+from iptv_tui.widgets.status_bar import StatusBar
 
 
 class DownloadsScreen(Screen):
@@ -96,7 +96,7 @@ class DownloadsScreen(Screen):
             self.run_worker(self._load)
 
     def action_clear_all(self) -> None:
-        from new_iptv.screens.clear_all import ClearAllConfirmScreen
+        from iptv_tui.screens.clear_all import ClearAllConfirmScreen
         self.app.push_screen(ClearAllConfirmScreen())
 
     def action_pop(self) -> None:

@@ -10,7 +10,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from new_iptv.domain import config, db
+from iptv_tui.domain import config, db
 
 
 def _data_dir() -> Path:
