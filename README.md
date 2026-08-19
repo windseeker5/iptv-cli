@@ -1,203 +1,129 @@
-# NGINX-RTMP Restreaming Feature
+# IPTV TUI
 
-This document describes the new NGINX-RTMP restreaming functionality added to the IPTV CLI application.
+A terminal UI for browsing, searching, playing, downloading, and recording IPTV content — with an optional self-hosted stack (Jellyfin, restreaming, network share) to organize and serve it afterward.
 
-## Overview
+## Tech stack
 
-The NGINX-RTMP feature allows you to:
-1. Build and manage a Docker-based NGINX-RTMP server
-2. Restream IPTV content through your own server
-3. Share restreamed content via HLS and RTMP protocols
-4. Provide your own streaming endpoints for redistribution
-
-## Quick Start
-
-### 1. Prerequisites
-
-```bash
-# Install Docker and Docker Compose
-sudo apt install docker.io docker-compose  # Ubuntu/Debian
-# or
-brew install docker docker-compose         # macOS
-
-# Install FFmpeg
-sudo apt install ffmpeg                    # Ubuntu/Debian
-# or  
-brew install ffmpeg                        # macOS
-```
-
-### 2. Configuration
-
-Update your `.env` file with NGINX ports (optional - defaults provided):
-
-```bash
-# NGINX-RTMP Docker Configuration
-NGINX_RTMP_PORT=1935
-NGINX_HTTP_PORT=8080
-NGINX_ADMIN_PORT=8081
-
-# HTTPS for Jellyfin via Caddy + Let's Encrypt
-CADDY_DOMAIN=tv.dresdell.com
-LETSENCRYPT_EMAIL=you@example.com
-JELLYFIN_PUBLISHED_SERVER_URL=https://tv.dresdell.com
-```
-
-### 3. Using the Feature
-
-1. Start the IPTV application: `python3 iptv.py`
-2. Select **"Build NGINX Container"** from the main menu
-3. Choose **"Build & Start NGINX Container"** to create and start the server
-4. Navigate to any stream and select **"Restream (Placeholder)"**
-5. Choose restreaming options and start the stream
+| Layer | Technology |
+|---|---|
+| UI | [Textual](https://textual.textualize.io/) (Python TUI framework) |
+| Language | Python 3 |
+| Local storage | SQLite (WAL mode) for the provider catalog + job/recording history |
+| Playback | [mpv](https://mpv.io/) |
+| Downloads | `wget`/`curl` (falls back to `requests` if neither is installed) |
+| YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) |
+| Video processing | `ffmpeg` / `ffprobe` — live recording, restream transcoding, TV-compatible conversion |
+| Scheduled recordings | systemd user timers (`systemd-run`) |
+| Self-hosted stack | Docker Compose: NGINX-RTMP, Jellyfin, Caddy (Cloudflare DNS plugin), Samba, a small viewer-counter service |
+| Tests | `unittest` — domain smoke tests + Textual headless integration tests |
 
 ## Features
 
-### Container Management
+**Browse & play**
+- Search and browse live channels, VOD, and series by category
+- Live "now playing" EPG preview while browsing channels
+- Play any stream or downloaded file via `mpv`
+- Favorites list with an auto-generated M3U playlist
 
-- **Build & Start NGINX Container**: Creates and starts the NGINX-RTMP server
-- **Stop Container**: Gracefully stops the container
-- **View Container Logs**: Monitor server logs and debug issues
-- **Container Status & URLs**: Shows all available endpoints
-- **Test Restream Setup**: Validates the complete setup with a test stream
+**Download & record**
+- Download a single VOD/episode, or an entire series in one batch
+- Optional **TV-compatible conversion**: re-encodes to H.264 / 1080p max / 30fps max / AAC — no 4K, no 60fps, no HEVC/AV1 — so cheap smart TVs can direct-play through Jellyfin without it transcoding live
+- Record a live channel immediately, or **schedule** a recording for later via a systemd timer
+- One unified **Downloads & Recordings** screen: live status for everything in flight, cancel any active job, and a type-to-confirm **Clear All** that wipes downloaded files, recordings, and tracking history in one step
 
-### Restreaming Options
+**YouTube**
+- Search, play, and download YouTube videos (best quality, 720p, or audio-only) via `yt-dlp`
 
-- **Start Restream**: Direct copy of the stream (best quality)
-- **Start with Transcoding**: Transcodes for lower bandwidth (854x480 @ 1Mbps)
-- **View Stream URLs**: Shows all sharing URLs and player instructions
-- **Stop Active Restream**: Terminates running restreams
+**Restream & self-host**
+- Restream any IPTV channel to your own NGINX-RTMP server (HLS/RTMP output)
+- Manage the Docker stack (start/stop/status/logs) from inside the TUI
+- Jellyfin for library playback, Caddy for HTTPS reverse-proxying, Samba for browsing recordings/downloads from other devices on the network
 
-### Server Endpoints
-
-Once the container is running, you'll have access to:
-
-- **Jellyfin (HTTPS)**: `https://tv.dresdell.com`
-- **Web Interface**: `http://localhost:8080`
-- **HLS Streams**: `http://localhost:8080/hls/[stream_key].m3u8`
-- **RTMP Input**: `rtmp://localhost:1935/live/[stream_key]`
-- **Statistics**: `http://localhost:8080/stat`
-- **Admin Panel**: `http://localhost:8081`
-
-## Usage Examples
-
-### Restreaming a Live Channel
-
-1. Search for "CNN" in the main menu
-2. Select a CNN channel from results
-3. Choose "Restream (Placeholder)"
-4. Select "Start Restream" for best quality
-5. Share the generated HLS URL: `http://localhost:8080/hls/cnn.m3u8`
-
-### Viewing Restreamed Content
-
-- **VLC Player**: Open Network Stream → Paste HLS URL
-- **Browser**: Use HLS.js or native HTML5 support
-- **OBS Studio**: Add Media Source → Paste HLS URL
-- **FFplay**: `ffplay 'http://localhost:8080/hls/stream_key.m3u8'`
-
-### Multiple Quality Streams
-
-The NGINX server automatically creates multiple quality versions:
-- **Source**: Original quality (direct copy)
-- **Mid**: 854x480 @ 768kbps (automatic)
-- **Low**: 480x270 @ 256kbps (automatic)
-
-Access these by appending suffixes to stream keys:
-- `http://localhost:8080/hls/cnn_src.m3u8` (source)
-- `http://localhost:8080/hls/cnn_mid.m3u8` (medium)
-- `http://localhost:8080/hls/cnn_low.m3u8` (low)
-
-## Architecture
-
-### Docker Services
-
-- **nginx-rtmp**: Main NGINX-RTMP server container
-- **jellyfin**: Media server container (proxied through Caddy)
-- **caddy**: Reverse proxy with automatic Let's Encrypt certificates
-
-### Directory Structure
+## Project layout
 
 ```
-iptv/
-├── docker-compose.yml           # Multi-service configuration
-├── nginx/
-│   ├── Dockerfile              # NGINX container build
-│   ├── nginx.conf              # RTMP server configuration
-│   ├── index.html              # Web interface
-│   ├── hls/                    # Generated HLS files
-│   ├── recordings/             # Stream recordings
-│   └── logs/                   # Server logs
-└── .restream_*.pid             # Active restream PIDs
+iptv.py                    entrypoint — launches the Textual app (new_iptv/app.py)
+iptv_legacy.py              previous simple-term-menu implementation, kept for reference only
+record_scheduled.py         standalone recorder invoked by scheduled systemd timers
+record_wrapper.sh           bash wrapper (activates venv) used by systemd-run
+
+new_iptv/
+├── app.py                  Textual App, screen registry, theme
+├── domain/                 business logic — no UI dependencies
+│   ├── iptv_provider.py    provider API client, catalog cache/sync
+│   ├── downloads.py        VOD/series downloads
+│   ├── recordings.py       scheduled recordings + systemd timers
+│   ├── transcode.py        TV-compatible ffmpeg conversion
+│   ├── youtube.py          yt-dlp search/download
+│   ├── restream.py         NGINX-RTMP restreaming
+│   ├── jobs.py             unified, disk-persisted job/history registry
+│   ├── reset.py            "Clear All" — wipe files + history
+│   ├── docker_ctl.py       docker-compose control
+│   ├── favorites.py, db.py, config.py, actions.py
+└── screens/                one Textual Screen per view
+└── widgets/                shared widgets (header, status bar)
+
+data/                       all runtime state (gitignored)
+├── iptv.db                 SQLite catalog + job/recording history
+├── favorites.json          your saved favorites
+├── iptv.m3u                generated playlist
+├── cache/                  raw provider API dumps (regenerated on each "Update Database")
+├── logs/                   job history (jobs.json) + series-batch download logs
+├── downloads/               downloaded VOD/series files
+├── recordings/              recorded live files (falls back here if USB_RECORDS_PATH isn't writable)
+└── youtube/                  downloaded YouTube files
+
+docker-compose.yml          nginx-rtmp, jellyfin, caddy, samba, viewer-counter
+infrastructure/             Caddyfile + Caddy image (Cloudflare DNS plugin) for HTTPS
+nginx/                       NGINX-RTMP image, config, served web pages
 ```
 
-### Network Flow
-
-```
-IPTV Source → FFmpeg → NGINX-RTMP → HLS/RTMP Output
-```
-
-1. **Input**: IPTV stream URLs from your provider
-2. **Processing**: FFmpeg transcodes and pushes to NGINX-RTMP
-3. **Distribution**: NGINX-RTMP serves HLS and RTMP streams
-4. **Consumption**: Clients connect via HTTP/RTMP protocols
-
-## Troubleshooting
-
-### Container Won't Start
+## Setup
 
 ```bash
-# Check Docker status
-docker --version
-docker-compose --version
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 
-# View container logs
-docker logs iptv-nginx-rtmp
+cp .env.example .env
+# edit .env with your IPTV provider credentials
 
-# Restart containers
-docker-compose down && docker-compose up -d --build
+python3 iptv.py
 ```
 
-### FFmpeg Issues
+`iptv.py` auto-detects and activates `venv/` and switches to the script's own directory, so it can be run from anywhere.
+
+External tools expected on `PATH`: `ffmpeg`/`ffprobe`, `mpv`, and `wget` or `curl` (optional — falls back to Python `requests`). `docker` + `docker-compose` are only needed if you use the self-hosted stack; scheduled recordings need `systemd` (Linux).
+
+## Configuration (`.env`)
+
+| Variable | Purpose |
+|---|---|
+| `IPTV_SERVER_URL`, `IPTV_USERNAME`, `IPTV_PASSWORD` | required — your IPTV provider |
+| `EPG_SERVER_URL` | optional override if EPG is served from a different host |
+| `USB_RECORDS_PATH`, `USB_MOVIES_PATH`, `USB_MUSIC_PATH`, `USB_PHOTOS_PATH` | mount points shared with Jellyfin/Samba and used for recordings |
+| `NGINX_RTMP_PORT`, `NGINX_HTTP_PORT`, `NGINX_ADMIN_PORT` | restream server ports |
+| `JELLYFIN_PUBLISHED_SERVER_URL`, `JELLYFIN_DOMAIN`, `CADDY_DOMAIN`, `LETSENCRYPT_EMAIL`, `CLOUDFLARE_API_TOKEN` | HTTPS reverse-proxy for Jellyfin via Caddy |
+| `SAMBA_*_PORT`, `TZ` | network share configuration |
+
+See `.env.example` for the full list and defaults.
+
+## Self-hosted stack
 
 ```bash
-# Test FFmpeg installation
-ffmpeg -version
-
-# Test RTMP connectivity
-ffmpeg -re -f lavfi -i testsrc2 -t 10 -f flv rtmp://localhost:1935/live/test
+docker-compose up -d --build      # start everything
+docker-compose logs -f <service>  # nginx-rtmp | jellyfin | caddy | samba | viewer-counter
+docker-compose down               # stop everything
 ```
 
-### Port Conflicts
+Container status, start/stop, and logs are also available from the TUI's **Settings** screen.
 
-If ports 1935 or 8080 are in use, update your `.env` file:
+## Testing
 
 ```bash
-NGINX_RTMP_PORT=1936
-NGINX_HTTP_PORT=8081
+python3 -m unittest new_iptv.test_domain_smoke new_iptv.test_integration new_iptv.test_app_smoke -v
 ```
 
-### Stream Not Playing
+## Status
 
-1. Verify the NGINX container is running
-2. Check that FFmpeg restream process is active
-3. Wait 10-15 seconds for HLS segments to generate
-4. Try the RTMP URL instead of HLS
-5. Check firewall settings for port access
-
-## Future Enhancements
-
-- Jellyfin integration for media library management
-- Authentication and access control
-- Recording management interface
-- Multi-bitrate streaming controls
-- Stream analytics and monitoring
-
-## Security Notes
-
-⚠️ **Important**: This setup is intended for local/development use. For production:
-
-1. Enable authentication in NGINX configuration
-2. Use HTTPS/SSL certificates
-3. Configure firewall rules appropriately
-4. Restrict publishing permissions
-5. Monitor resource usage and connections
+`iptv.py` is the Textual TUI (`new_iptv/`) — this is the actively developed application. `iptv_legacy.py` is the original `simple-term-menu` CLI it replaced; it's kept in the repo for reference but is no longer maintained.
