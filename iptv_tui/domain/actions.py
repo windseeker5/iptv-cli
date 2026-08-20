@@ -166,39 +166,33 @@ def schedule_live_recording(item: dict, start_input: str, duration_minutes: int)
     )
 
 
-def download_vod_item(item: dict, tv_compatible: bool = False) -> dict:
-    """Start downloading a VOD item, optionally converting it for TV playback after."""
-    job_id = jobs.register("vod", downloads.item_display_name(item))
+def download_vod_item(item: dict) -> dict:
+    """Queue a VOD item for download; downloads run one at a time app-wide."""
+    job_id = jobs.register("vod", downloads.item_display_name(item), status="queued")
+
+    def on_start(pid: int | None) -> None:
+        jobs.update(job_id, status="running", pid=pid)
 
     def on_done(success: bool, error: str | None) -> None:
         jobs.update(job_id, status="done" if success else "failed", detail=error or "")
 
-    def on_progress(pct: int) -> None:
-        jobs.update(job_id, detail=f"converting {pct}%")
-
-    def on_pid(pid: int) -> None:
-        jobs.update(job_id, pid=pid)
-
-    result = downloads.start_vod_download(
+    result = downloads.queue_vod_download(
         item,
+        on_start=on_start,
         on_done=on_done,
-        tv_compatible=tv_compatible,
-        on_progress=on_progress if tv_compatible else None,
-        on_pid=on_pid if tv_compatible else None,
+        cancel_check=lambda: jobs.cancel_requested(job_id),
     )
-    if result["success"]:
-        jobs.update(job_id, pid=result.get("pid"))
-    else:
+    if not result["success"]:
         jobs.update(job_id, status="failed", detail=result["message"])
     return result
 
 
-def download_series(item: dict, tv_compatible: bool = False) -> dict:
-    """Queue all episodes of a series for download, optionally converting each for TV playback."""
+def download_series(item: dict) -> dict:
+    """Queue all episodes of a series for download, one at a time."""
     series_id = item.get("series_id")
     if not series_id:
         return {"success": False, "message": "No series ID"}
     episodes = iptv_provider.get_series_episodes(series_id)
     if not episodes:
         return {"success": False, "message": "No episodes found"}
-    return downloads.queue_series_batch(item, episodes, tv_compatible=tv_compatible)
+    return downloads.queue_series_batch(item, episodes)

@@ -58,14 +58,14 @@ def _load() -> None:
 _load()
 
 
-def register(job_type: str, title: str, pid: int | None = None) -> str:
+def register(job_type: str, title: str, pid: int | None = None, status: str = "running") -> str:
     """Register a new job and return its id."""
     job_id = f"job{next(_id_counter)}"
     _jobs[job_id] = {
         "id": job_id,
         "type": job_type,
         "title": title,
-        "status": "running",
+        "status": status,
         "pid": pid,
         "detail": "",
         "started_at": time.time(),
@@ -99,6 +99,7 @@ def _icon(status: str) -> str:
     return {
         "running": "🟢",
         "pending": "⚪",
+        "queued": "⚪",
         "scheduled": "⚪",
         "done": "✅",
         "completed": "✅",

@@ -12,7 +12,13 @@ from pathlib import Path
 
 import requests
 
-from iptv_tui.domain import config, db, transcode
+from iptv_tui.domain import config, db
+
+# Guards the actual network transfer so only one download (single VOD or
+# series-batch episode) is ever pulling data from the provider at once —
+# it only allows one concurrent connection, so parallel downloads knock
+# each other off.
+_transfer_lock = threading.Lock()
 
 
 def _downloads_dir() -> Path:
@@ -75,29 +81,6 @@ def detect_downloader() -> str:
     return "python"
 
 
-def _download_with_requests(url: str, filepath: str, on_done=None) -> bool:
-    """Download a URL to a file using Python requests in a background thread."""
-    def thread():
-        try:
-            headers = {"User-Agent": "VLC/3.0.0 LibVLC/3.0.0"}
-            with requests.get(url, headers=headers, stream=True, timeout=30) as resp:
-                resp.raise_for_status()
-                with open(filepath, "wb") as f:
-                    for chunk in resp.iter_content(chunk_size=8192):
-                        if chunk:
-                            f.write(chunk)
-            if on_done:
-                on_done(True, None)
-        except Exception as e:
-            print(f"Download failed: {e}")
-            if on_done:
-                on_done(False, str(e))
-
-    t = threading.Thread(target=thread, daemon=True)
-    t.start()
-    return True
-
-
 def _wait_and_report(process: subprocess.Popen, on_done) -> None:
     """Wait for a subprocess to exit in a background thread and report the result."""
     def thread():
@@ -145,20 +128,62 @@ def build_download_command(url: str, filepath: str, downloader: str) -> list[str
     raise ValueError(f"Unsupported downloader: {downloader}")
 
 
-def start_vod_download(
+def _download_worker(url: str, filepath: str, on_start=None, on_done=None, cancel_check=None) -> None:
+    """Run one VOD transfer, holding `_transfer_lock` for its full duration
+    so it never overlaps another download."""
+    with _transfer_lock:
+        if cancel_check and cancel_check():
+            if on_done:
+                on_done(False, "Cancelled")
+            return
+        downloader = detect_downloader()
+        try:
+            if downloader == "python":
+                if on_start:
+                    on_start(None)
+                headers = {"User-Agent": "VLC/3.0.0 LibVLC/3.0.0"}
+                with requests.get(url, headers=headers, stream=True, timeout=30) as resp:
+                    resp.raise_for_status()
+                    with open(filepath, "wb") as f:
+                        for chunk in resp.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+                if on_done:
+                    on_done(True, None)
+            else:
+                cmd = build_download_command(url, filepath, downloader)
+                process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if on_start:
+                    on_start(process.pid)
+                returncode = process.wait()
+                if returncode == 0:
+                    if on_done:
+                        on_done(True, None)
+                else:
+                    if on_done:
+                        on_done(False, f"Exited with code {returncode}")
+        except Exception as e:
+            if on_done:
+                on_done(False, str(e))
+
+
+def queue_vod_download(
     item: dict,
     output_dir: str | None = None,
+    on_start=None,
     on_done=None,
-    tv_compatible: bool = False,
-    on_progress=None,
-    on_pid=None,
+    cancel_check=None,
 ) -> dict:
-    """Start a VOD download in the background.
+    """Queue a VOD download to run as soon as any earlier queued download finishes.
 
-    `on_done`, if given, is called as `on_done(success: bool, error: str | None)`
-    once the download (and, if `tv_compatible`, the conversion) finishes.
+    `on_start`, if given, is called as `on_start(pid: int | None)` right
+    before the transfer actually begins (pid is `None` for the python/
+    requests fallback). `on_done`, if given, is called as
+    `on_done(success: bool, error: str | None)` once the download finishes.
+    `cancel_check`, if given, is polled right before the transfer starts so
+    a download cancelled while still queued never starts at all.
 
-    Returns dict with success, pid or thread, filepath, message.
+    Returns dict with success, filepath, message.
     """
     url = item.get("stream_url", "")
     if not url:
@@ -170,42 +195,18 @@ def start_vod_download(
     folder.mkdir(parents=True, exist_ok=True)
     filepath = str(folder / filename)
 
-    effective_on_done = on_done
-    if tv_compatible:
-        def effective_on_done(success: bool, error: str | None) -> None:
-            if not success:
-                if on_done:
-                    on_done(False, error)
-                return
-            result = transcode.transcode_to_tv_compatible(
-                filepath, on_progress=on_progress, on_pid=on_pid
-            )
-            if on_done:
-                on_done(result["success"], None if result["success"] else result["message"])
+    threading.Thread(
+        target=_download_worker,
+        args=(url, filepath),
+        kwargs={"on_start": on_start, "on_done": on_done, "cancel_check": cancel_check},
+        daemon=True,
+    ).start()
 
-    downloader = detect_downloader()
-
-    if downloader == "python":
-        _download_with_requests(url, filepath, on_done=effective_on_done)
-        return {
-            "success": True,
-            "filepath": filepath,
-            "message": "Download started in background thread",
-        }
-
-    cmd = build_download_command(url, filepath, downloader)
-    try:
-        process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if effective_on_done:
-            _wait_and_report(process, effective_on_done)
-        return {
-            "success": True,
-            "pid": process.pid,
-            "filepath": filepath,
-            "message": "Download started",
-        }
-    except Exception as e:
-        return {"success": False, "message": f"Failed to start download: {e}"}
+    return {
+        "success": True,
+        "filepath": filepath,
+        "message": "Download queued",
+    }
 
 
 def start_live_download(item: dict, duration_seconds: int = 3600, on_done=None) -> dict:
@@ -267,7 +268,7 @@ def _read_manifest(manifest: Path) -> dict:
         return json.load(f)
 
 
-def _run_series_batch(manifest: Path, series_name: str, tv_compatible: bool = False) -> None:
+def _run_series_batch(manifest: Path, series_name: str) -> None:
     """Download each episode in a manifest sequentially, updating status as it goes."""
     downloader = detect_downloader()
     folder = _downloads_dir() / _safe_name(series_name)
@@ -281,32 +282,38 @@ def _run_series_batch(manifest: Path, series_name: str, tv_compatible: bool = Fa
             break
 
         current = next((j for j in data["jobs"] if j["episode_id"] == job["episode_id"]), job)
-        current["status"] = "running"
+        current["status"] = "queued"
         _write_manifest(manifest, data)
 
         url = current.get("stream_url")
         filepath = str(folder / current["filename"])
         ok = False
         if url:
-            try:
-                if downloader == "python":
-                    headers = {"User-Agent": "VLC/3.0.0 LibVLC/3.0.0"}
-                    with requests.get(url, headers=headers, stream=True, timeout=30) as resp:
-                        resp.raise_for_status()
-                        with open(filepath, "wb") as f:
-                            for chunk in resp.iter_content(chunk_size=8192):
-                                if chunk:
-                                    f.write(chunk)
-                    ok = True
-                else:
-                    cmd = build_download_command(url, filepath, downloader)
-                    result = subprocess.run(cmd, capture_output=True, timeout=1800)
-                    ok = result.returncode == 0
-
-                if ok and tv_compatible:
-                    ok = transcode.transcode_to_tv_compatible(filepath)["success"]
-            except Exception:
-                ok = False
+            with _transfer_lock:
+                data = _read_manifest(manifest)
+                if data.get("cancelled"):
+                    break
+                current = next(
+                    (j for j in data["jobs"] if j["episode_id"] == job["episode_id"]), current
+                )
+                current["status"] = "running"
+                _write_manifest(manifest, data)
+                try:
+                    if downloader == "python":
+                        headers = {"User-Agent": "VLC/3.0.0 LibVLC/3.0.0"}
+                        with requests.get(url, headers=headers, stream=True, timeout=30) as resp:
+                            resp.raise_for_status()
+                            with open(filepath, "wb") as f:
+                                for chunk in resp.iter_content(chunk_size=8192):
+                                    if chunk:
+                                        f.write(chunk)
+                        ok = True
+                    else:
+                        cmd = build_download_command(url, filepath, downloader)
+                        result = subprocess.run(cmd, capture_output=True, timeout=1800)
+                        ok = result.returncode == 0
+                except Exception:
+                    ok = False
 
         data = _read_manifest(manifest)
         current = next((j for j in data["jobs"] if j["episode_id"] == job["episode_id"]), None)
@@ -319,7 +326,6 @@ def queue_series_batch(
     series_item: dict,
     episodes: list[dict],
     batch_label: str | None = None,
-    tv_compatible: bool = False,
 ) -> dict:
     """Create a manifest and download all episodes sequentially in a background thread.
 
@@ -356,7 +362,7 @@ def queue_series_batch(
     _write_manifest(manifest, manifest_data)
 
     threading.Thread(
-        target=_run_series_batch, args=(manifest, series_name, tv_compatible), daemon=True
+        target=_run_series_batch, args=(manifest, series_name), daemon=True
     ).start()
 
     return {
@@ -401,7 +407,7 @@ def read_batch_state(manifest_path: Path) -> dict:
                 state["completed"] += 1
             elif status == "failed":
                 state["failed"] += 1
-            elif status == "running":
+            elif status in ("running", "queued"):
                 state["in_progress"] = True
     except Exception:
         pass

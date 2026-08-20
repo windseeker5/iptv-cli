@@ -12,7 +12,7 @@ A terminal UI for browsing, searching, playing, downloading, and recording IPTV 
 | Playback | [mpv](https://mpv.io/) |
 | Downloads | `wget`/`curl` (falls back to `requests` if neither is installed) |
 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) |
-| Video processing | `ffmpeg` / `ffprobe` — live recording, restream transcoding, TV-compatible conversion |
+| Video processing | `ffmpeg` / `ffprobe` — live recording, restream transcoding |
 | Scheduled recordings | systemd user timers (`systemd-run`) |
 | Self-hosted stack | Docker Compose: NGINX-RTMP, Jellyfin, Caddy (Cloudflare DNS plugin), Samba, a small viewer-counter service |
 | Tests | `unittest` — domain smoke tests + Textual headless integration tests |
@@ -26,8 +26,7 @@ A terminal UI for browsing, searching, playing, downloading, and recording IPTV 
 - Favorites list with an auto-generated M3U playlist
 
 **Download & record**
-- Download a single VOD/episode, or an entire series in one batch
-- Optional **TV-compatible conversion**: re-encodes to H.264 / 1080p max / 30fps max / AAC — no 4K, no 60fps, no HEVC/AV1 — so cheap smart TVs can direct-play through Jellyfin without it transcoding live
+- Download a single VOD/episode, or an entire series in one batch — downloads are queued and run one at a time (the provider only allows one concurrent connection)
 - Record a live channel immediately, or **schedule** a recording for later via a systemd timer
 - One unified **Downloads & Recordings** screen: live status for everything in flight, cancel any active job, and a type-to-confirm **Clear All** that wipes downloaded files, recordings, and tracking history in one step
 
@@ -53,7 +52,6 @@ iptv_tui/
 │   ├── iptv_provider.py    provider API client, catalog cache/sync
 │   ├── downloads.py        VOD/series downloads
 │   ├── recordings.py       scheduled recordings + systemd timers
-│   ├── transcode.py        TV-compatible ffmpeg conversion
 │   ├── youtube.py          yt-dlp search/download
 │   ├── restream.py         NGINX-RTMP restreaming
 │   ├── jobs.py             unified, disk-persisted job/history registry
