@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
     container_name: iptv-nginx-rtmp
     ports:
-      - "${NGINX_RTMP_PORT:-1935}:1935"    # RTMP port
+      - "127.0.0.1:${NGINX_RTMP_PORT:-1935}:1935"    # RTMP publishing (local app only)
       - "${NGINX_HTTP_PORT:-8080}:8080"    # HTTP port for HLS
       - "127.0.0.1:${NGINX_ADMIN_PORT:-8081}:8081"   # Admin/stats port (localhost only)
     volumes:
@@ -21,7 +21,7 @@ services:
       - iptv-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/stat"]
+      test: ["CMD", "nginx", "-t"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -66,6 +66,7 @@ services:
     environment:
       - CADDY_DOMAIN=${CADDY_DOMAIN:-tv.dresdell.com}
       - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL:-admin@tv.dresdell.com}
+      - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}
     depends_on:
       - viewer-counter
       - jellyfin

@@ -1,6 +1,5 @@
 """SQLite database helpers and migrations."""
 
-import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -39,14 +38,6 @@ def connection():
         yield conn
     finally:
         conn.close()
-
-
-def get_connection() -> sqlite3.Connection:
-    """Open a connection to the IPTV database.
-
-    Caller is responsible for closing. Prefer the `connection()` context manager.
-    """
-    return _configure(sqlite3.connect(str(db_path()), timeout=10))
 
 
 def init_db() -> None:
@@ -154,14 +145,6 @@ def init_db() -> None:
         conn.commit()
 
 
-def row_count(table: str) -> int:
-    """Return the number of rows in a table."""
-    with connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(f"SELECT COUNT(*) FROM {table}")
-        return cursor.fetchone()[0]
-
-
 def list_tables() -> list[str]:
     """Return a list of user tables in the database."""
     with connection() as conn:
@@ -170,9 +153,15 @@ def list_tables() -> list[str]:
         return [row[0] for row in cursor.fetchall()]
 
 
-def table_counts() -> dict[str, int]:
-    """Return row counts for all user tables."""
-    counts = {}
-    for table in list_tables():
-        counts[table] = row_count(table)
-    return counts
+def catalog_counts() -> dict[str, int]:
+    """Return the three catalog counts used by the main screen."""
+    with connection() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                (SELECT COUNT(*) FROM live_streams),
+                (SELECT COUNT(*) FROM vod_streams),
+                (SELECT COUNT(*) FROM series_streams)
+            """
+        ).fetchone()
+    return {"live_streams": row[0], "vod_streams": row[1], "series_streams": row[2]}

@@ -7,10 +7,15 @@ from dotenv import load_dotenv
 
 
 def _ensure_loaded() -> None:
-    """Load .env once if not already loaded."""
+    """Load .env without letting its container timezone replace local UI time."""
     env_path = Path(__file__).resolve().parents[2] / ".env"
     if env_path.exists():
+        host_timezone = os.environ.get("TZ")
         load_dotenv(env_path)
+        if host_timezone is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = host_timezone
 
 
 _ensure_loaded()

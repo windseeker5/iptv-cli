@@ -8,7 +8,7 @@
     @viewer_api path /api/viewers
     reverse_proxy @viewer_api 127.0.0.1:9090
 
-    @iptv path /live /live* /hls /hls* /stat /stat* /control /control* /iptv.m3u /usb-guide.html /kdc-logo-transparent.png
+    @iptv path /live /live* /hls /hls* /stat /stat* /iptv.m3u /usb-guide.html /kdc-logo-transparent.png
     reverse_proxy @iptv 127.0.0.1:8080
 
     reverse_proxy 127.0.0.1:8096 {
@@ -50,4 +50,10 @@ ai.dresdell.com {
     encode zstd gzip
 
     reverse_proxy 127.0.0.1:8082
+}
+
+apk.dresdell.com {
+    encode zstd gzip
+
+    reverse_proxy 127.0.0.1:8500
 }

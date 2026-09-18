@@ -3,7 +3,6 @@
 import base64
 import io
 import json
-import os
 import re
 import sqlite3
 import time
@@ -34,11 +33,6 @@ def _decode_base64_if_needed(text):
 def build_stream_url(stream_id: int) -> str:
     """Build a direct stream URL from a stream ID."""
     return f"{config.Config.IPTV_SERVER_URL}/live/{config.Config.IPTV_USERNAME}/{config.Config.IPTV_PASSWORD}/{stream_id}.ts"
-
-
-def build_series_url(stream_id: int, container_extension: str = "mp4") -> str:
-    """Build a series episode stream URL."""
-    return f"{config.Config.IPTV_SERVER_URL}/series/{config.Config.IPTV_USERNAME}/{config.Config.IPTV_PASSWORD}/{stream_id}.{container_extension}"
 
 
 def _search_table(query: str, table: str, columns: list[str], limit: int = 50):
@@ -138,6 +132,21 @@ def get_vod_categories() -> list[dict]:
         return [dict(row) for row in rows]
 
 
+def get_series_categories() -> list[dict]:
+    """Return distinct series categories."""
+    with db.connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT DISTINCT category_name
+            FROM series_streams
+            WHERE category_name IS NOT NULL AND category_name != ''
+            ORDER BY category_name
+            """
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
 def get_channels_by_category(category_name: str, limit: int = 200) -> list[dict]:
     """Return live channels for a given category."""
     with db.connection() as conn:
@@ -176,15 +185,21 @@ def get_vod_by_category(category_name: str, limit: int = 200) -> list[dict]:
         return [dict(row) for row in rows]
 
 
-def get_series_info(series_id: int) -> dict | None:
-    """Return series metadata."""
+def get_series_by_category(category_name: str, limit: int = 200) -> list[dict]:
+    """Return series for a given category."""
     with db.connection() as conn:
         conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        row = cursor.execute(
-            "SELECT * FROM series_streams WHERE series_id = ?", (series_id,)
-        ).fetchone()
-        return dict(row) if row else None
+        rows = conn.execute(
+            """
+            SELECT series_id, name, category_id, cover, plot, genre, rating, category_name
+            FROM series_streams
+            WHERE category_name = ?
+            ORDER BY name
+            LIMIT ?
+            """,
+            (category_name, limit),
+        ).fetchall()
+        return [dict(row) for row in rows]
 
 
 def get_series_episodes(series_id: int) -> list[dict]:
@@ -959,7 +974,7 @@ def get_now_playing_local(stream_id: int) -> dict | None:
         cursor = conn.cursor()
         row = cursor.execute(
             """
-            SELECT title, description, cached_at FROM epg
+            SELECT title, description, start_time, end_time, cached_at FROM epg
             WHERE stream_id = ? AND start_time <= ? AND end_time > ?
             ORDER BY start_time DESC
             LIMIT 1
@@ -971,6 +986,93 @@ def get_now_playing_local(stream_id: int) -> dict | None:
             return {
                 "title": row["title"] if row["title"] else None,
                 "description": row["description"] if row["description"] else None,
+                "start": row["start_time"],
+                "end": row["end_time"],
+            }
+    return None
+
+
+def _extend_through_repeats(stream_id: int, title: str | None, end: int) -> int:
+    """Extend an end time across back-to-back listings sharing the same title.
+
+    Broadcasters often split one long show into consecutive guide blocks, so
+    recording only the first block would stop partway through.
+    """
+    if not title:
+        return end
+
+    with db.connection() as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        while True:
+            row = cursor.execute(
+                """
+                SELECT title, end_time FROM epg
+                WHERE stream_id = ? AND start_time = ?
+                LIMIT 1
+                """,
+                (stream_id, end),
+            ).fetchone()
+            if not row or (row["title"] or "") != title or row["end_time"] <= end:
+                return end
+            end = row["end_time"]
+
+
+def get_program_at(
+    stream_id: int,
+    when: float,
+    channel_name: str | None = None,
+    stream_url: str | None = None,
+) -> dict | None:
+    """Return the program airing on a channel at a given timestamp.
+
+    Looks in the local EPG cache first and falls back to a network fetch, so a
+    recording can be sized to the show even when the cache has no entry yet.
+    """
+    when = int(when)
+
+    with db.connection() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.cursor().execute(
+            """
+            SELECT title, description, start_time, end_time FROM epg
+            WHERE stream_id = ? AND start_time <= ? AND end_time > ?
+            ORDER BY start_time DESC
+            LIMIT 1
+            """,
+            (stream_id, when, when),
+        ).fetchone()
+        if row:
+            return {
+                "title": row["title"] or None,
+                "description": row["description"] or None,
+                "start": row["start_time"],
+                "end": _extend_through_repeats(
+                    stream_id, row["title"], row["end_time"]
+                ),
+            }
+
+    listings = fetch_epg_listings(
+        stream_id, channel_name=channel_name, stream_url=stream_url, limit=50
+    )
+    if not listings:
+        return None
+    cache_epg_listings(stream_id, listings)
+
+    for program in listings:
+        try:
+            start = int(program.get("start_timestamp", program.get("start", "0")) or 0)
+            end = int(program.get("stop_timestamp", program.get("stop", "0")) or 0)
+        except (ValueError, TypeError):
+            continue
+        if start <= when < end:
+            title = _decode_base64_if_needed(program.get("title", "")) or None
+            return {
+                "title": title,
+                "description": _decode_base64_if_needed(program.get("description", ""))
+                or None,
+                "start": start,
+                "end": _extend_through_repeats(stream_id, title, end),
             }
     return None
 
@@ -1027,50 +1129,3 @@ def get_now_playing(
         "start": start,
         "end": end,
     }
-
-
-def get_epg_with_upcoming(
-    stream_id: int,
-    channel_name: str | None = None,
-    stream_url: str | None = None,
-) -> dict:
-    """Return now playing and upcoming program for a channel."""
-    listings = fetch_epg_listings(
-        stream_id, channel_name=channel_name, stream_url=stream_url, limit=10
-    )
-    if listings:
-        cache_epg_listings(stream_id, listings)
-
-    now = int(time.time())
-    result = {"now": None, "next": None}
-
-    with db.connection() as conn:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT title, description, start_time, end_time FROM epg
-            WHERE stream_id = ? AND start_time <= ? AND end_time > ?
-            ORDER BY start_time DESC
-            LIMIT 1
-            """,
-            (stream_id, now, now),
-        )
-        now_row = cursor.fetchone()
-        if now_row:
-            result["now"] = dict(now_row)
-
-        cursor.execute(
-            """
-            SELECT title, description, start_time, end_time FROM epg
-            WHERE stream_id = ? AND start_time > ?
-            ORDER BY start_time ASC
-            LIMIT 1
-            """,
-            (stream_id, now),
-        )
-        next_row = cursor.fetchone()
-        if next_row:
-            result["next"] = dict(next_row)
-
-    return result

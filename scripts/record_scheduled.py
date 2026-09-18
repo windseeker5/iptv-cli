@@ -15,6 +15,8 @@ import os
 import sys
 import subprocess
 import logging
+import threading
+import time
 from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
@@ -39,8 +41,7 @@ def load_credentials():
     """Load IPTV credentials from .env file."""
     env_path = Path(__file__).parent.parent / ".env"
     if not env_path.exists():
-        logger.error(f".env file not found at {env_path}")
-        sys.exit(1)
+        raise RuntimeError(f".env file not found at {env_path}")
 
     load_dotenv(env_path)
 
@@ -50,8 +51,7 @@ def load_credentials():
     records_path = os.getenv("USB_RECORDS_PATH", "/mnt/media/RECORDS")
 
     if not all([server, username, password]):
-        logger.error("Missing IPTV credentials in .env file")
-        sys.exit(1)
+        raise RuntimeError("Missing IPTV credentials in .env file")
 
     return server, username, password, records_path
 
@@ -61,9 +61,17 @@ def generate_stream_url(server: str, username: str, password: str, stream_id: in
     return f"{server}/live/{username}/{password}/{stream_id}.ts"
 
 
+RETRY_DELAY_SECONDS = 30
+MIN_USEFUL_SECONDS = 60
+
+
 def record_stream(stream_url: str, output_path: str, duration: int, channel_name: str = None):
-    """
-    Record a stream using FFmpeg.
+    """Record a stream, retrying until the intended end time.
+
+    The provider refuses new connections with HTTP 458 when the account's
+    connection limit is already in use, and FFmpeg gives up on that in under a
+    second. Retrying until the show would have ended means a recording survives
+    a slot that is busy at start time or drops out midway.
 
     Args:
         stream_url: The IPTV stream URL
@@ -71,9 +79,47 @@ def record_stream(stream_url: str, output_path: str, duration: int, channel_name
         duration: Duration in seconds
         channel_name: Optional channel name for metadata
     """
-    # Ensure output directory exists
     output_dir = Path(output_path).parent
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    deadline = time.monotonic() + duration
+    attempt = 0
+    captured_any = False
+
+    while True:
+        attempt += 1
+        remaining = int(deadline - time.monotonic())
+        if remaining < MIN_USEFUL_SECONDS:
+            logger.error("Giving up: less than a minute of the requested window remains")
+            return captured_any
+
+        # Keep earlier footage by writing each retry that follows real capture
+        # to its own part file.
+        target = output_path
+        if captured_any:
+            target = str(Path(output_path).with_suffix(f".part{attempt}.ts"))
+
+        if attempt > 1:
+            logger.info(
+                f"Retry {attempt - 1}: {remaining}s of the window left, recording to {target}"
+            )
+
+        ok, wrote_bytes = _record_once(stream_url, target, remaining, channel_name)
+        captured_any = captured_any or wrote_bytes
+        if ok:
+            return True
+
+        remaining = int(deadline - time.monotonic())
+        if remaining < MIN_USEFUL_SECONDS:
+            logger.error("Recording window has run out; stopping retries")
+            return captured_any
+
+        logger.warning(f"Attempt {attempt} failed; retrying in {RETRY_DELAY_SECONDS}s")
+        time.sleep(min(RETRY_DELAY_SECONDS, max(0, remaining - MIN_USEFUL_SECONDS)))
+
+
+def _record_once(stream_url: str, output_path: str, duration: int, channel_name: str = None):
+    """Run one FFmpeg capture. Returns (success, wrote_any_bytes)."""
 
     # Build FFmpeg command with reconnect options for reliability
     cmd = [
@@ -81,7 +127,9 @@ def record_stream(stream_url: str, output_path: str, duration: int, channel_name
         "-y",  # Overwrite output file if exists
         "-reconnect", "1",
         "-reconnect_streamed", "1",
+        "-reconnect_at_eof", "1",
         "-reconnect_delay_max", "30",
+        "-rw_timeout", "30000000",
         "-i", stream_url,
         "-c", "copy",  # Copy codec (no transcoding)
         "-t", str(duration),
@@ -94,13 +142,13 @@ def record_stream(stream_url: str, output_path: str, duration: int, channel_name
 
     cmd.append(output_path)
 
-    logger.info(f"Starting recording...")
-    logger.info(f"  Stream: {stream_url[:50]}...")
+    logger.info("Starting recording...")
+    logger.info("  Stream: provider URL hidden because it contains credentials")
     logger.info(f"  Output: {output_path}")
     logger.info(f"  Duration: {duration} seconds ({duration // 3600}h {(duration % 3600) // 60}m)")
 
     try:
-        # Run FFmpeg and capture output
+        started_at = time.monotonic()
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -108,33 +156,57 @@ def record_stream(stream_url: str, output_path: str, duration: int, channel_name
             universal_newlines=True
         )
 
+        def stop_if_stalled() -> None:
+            try:
+                process.wait(timeout=duration + 300)
+            except subprocess.TimeoutExpired:
+                logger.error("Recording exceeded its deadline, probably due to a stalled stream")
+                process.terminate()
+
+        threading.Thread(target=stop_if_stalled, daemon=True).start()
+
         # Log FFmpeg output
         for line in process.stdout:
-            line = line.strip()
+            line = line.strip().replace(stream_url, "<provider-url>")
             if line:
-                # Only log important lines (progress, errors)
-                if any(x in line.lower() for x in ['error', 'warning', 'time=', 'size=']):
+                important = [
+                    "error", "warning", "time=", "size=", "eof", "connection",
+                    "reconnect", "invalid", "failed", "timed out", "http",
+                ]
+                if any(text in line.lower() for text in important):
                     logger.info(f"FFmpeg: {line}")
 
         process.wait()
 
+        elapsed = time.monotonic() - started_at
         if process.returncode == 0:
-            logger.info(f"Recording completed successfully!")
-            # Check file size
-            if Path(output_path).exists():
-                size_mb = Path(output_path).stat().st_size / (1024 * 1024)
-                logger.info(f"Output file size: {size_mb:.2f} MB")
-            return True
+            if not Path(output_path).exists() or Path(output_path).stat().st_size == 0:
+                logger.error("FFmpeg exited successfully but produced no recording")
+                return False, False
+
+            size_mb = Path(output_path).stat().st_size / (1024 * 1024)
+            logger.info(f"Output file size: {size_mb:.2f} MB")
+            if elapsed < duration * 0.9:
+                logger.error(
+                    "Recording ended early after %.0f of %d requested seconds",
+                    elapsed,
+                    duration,
+                )
+                return False, True
+
+            logger.info("Recording completed successfully!")
+            return True, True
         else:
             logger.error(f"FFmpeg exited with code {process.returncode}")
-            return False
+            wrote = Path(output_path).exists() and Path(output_path).stat().st_size > 0
+            return False, wrote
 
     except FileNotFoundError:
         logger.error("FFmpeg not found. Please install FFmpeg.")
-        return False
+        return False, False
     except Exception as e:
         logger.error(f"Recording failed: {e}")
-        return False
+        return False, False
 
 
 def update_recording_status(recording_id: int, status: str):
@@ -146,7 +218,10 @@ def update_recording_status(recording_id: int, status: str):
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             cursor.execute(
-                "UPDATE scheduled_recordings SET status = ? WHERE id = ?",
+                """
+                UPDATE scheduled_recordings SET status = ?
+                WHERE id = ? AND status != 'cancelled'
+                """,
                 (status, recording_id)
             )
             conn.commit()
@@ -220,13 +295,18 @@ Examples:
     if args.channel_name:
         logger.info(f"Channel: {args.channel_name}")
 
-    # Load credentials and generate stream URL
-    server, username, password, _ = load_credentials()
-    stream_url = generate_stream_url(server, username, password, args.stream_id)
-
-    # Update status to recording if tracking enabled
+    # Update status before setup so the UI shows that the timer fired.
     if args.recording_id:
         update_recording_status(args.recording_id, "recording")
+
+    try:
+        server, username, password, _ = load_credentials()
+    except RuntimeError as exc:
+        logger.error(str(exc))
+        if args.recording_id:
+            update_recording_status(args.recording_id, "failed")
+        sys.exit(1)
+    stream_url = generate_stream_url(server, username, password, args.stream_id)
 
     # Start recording
     success = record_stream(

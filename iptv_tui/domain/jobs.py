@@ -42,12 +42,19 @@ def _load() -> None:
         return
     max_n = 0
     for job_id, job in data.items():
-        if job.get("status") == "running":
-            # The process/thread that owned this job is gone now that we're
-            # starting fresh — it can never actually finish.
-            job["status"] = "interrupted"
-            job["detail"] = "Interrupted by app restart"
-            job["pid"] = None
+        if job.get("status") in ("running", "queued"):
+            pid = job.get("pid")
+            process_alive = False
+            if pid:
+                try:
+                    os.kill(pid, 0)
+                    process_alive = True
+                except (OSError, ProcessLookupError):
+                    pass
+            if not process_alive:
+                job["status"] = "interrupted"
+                job["detail"] = "Interrupted by app restart"
+                job["pid"] = None
         _jobs[job_id] = job
         if job_id.startswith("job") and job_id[3:].isdigit():
             max_n = max(max_n, int(job_id[3:]))
@@ -98,6 +105,7 @@ def update(job_id: str, **fields) -> None:
 def _icon(status: str) -> str:
     return {
         "running": "🟢",
+        "recording": "🟢",
         "pending": "⚪",
         "queued": "⚪",
         "scheduled": "⚪",
@@ -134,7 +142,7 @@ def _scheduled_rows() -> list[dict]:
     for item in recordings.list_recordings(limit=50):
         status = item.get("status", "pending")
         start_dt = recordings.datetime.fromtimestamp(item["start_time"])
-        duration_h = item["duration"] / 3600
+        duration_minutes = max(1, round(item["duration"] / 60))
         rows.append(
             {
                 "job_id": f"rec{item['id']}",
@@ -143,8 +151,12 @@ def _scheduled_rows() -> list[dict]:
                 "icon": _icon(status),
                 "type": "scheduled",
                 "title": item["channel_name"],
-                "detail": f"{status}  {start_dt.strftime('%Y-%m-%d %H:%M')}  {duration_h:.1f}h",
+                "detail": (
+                    f"{status}  {start_dt.strftime('%Y-%m-%d %H:%M')}  "
+                    f"{duration_minutes} min"
+                ),
                 "status": status,
+                "output_path": item.get("output_path"),
                 "sort_key": item["start_time"],
             }
         )
@@ -186,6 +198,20 @@ def _series_rows() -> list[dict]:
 
 def list_jobs() -> list[dict]:
     """Return all known jobs (in-memory, scheduled, series) newest first."""
+    changed = False
+    for job in _jobs.values():
+        pid = job.get("pid")
+        if job.get("status") == "running" and pid:
+            try:
+                os.kill(pid, 0)
+            except (OSError, ProcessLookupError):
+                job["status"] = "interrupted"
+                job["detail"] = "Process ended without a completion report"
+                job["pid"] = None
+                changed = True
+    if changed:
+        _save()
+
     rows = _in_memory_rows() + _scheduled_rows() + _series_rows()
     rows.sort(key=lambda r: r["sort_key"], reverse=True)
     return rows

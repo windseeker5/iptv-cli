@@ -38,7 +38,7 @@ def preview() -> dict:
     yt_count, yt_bytes = _dir_stats(youtube.YOUTUBE_DIR)
     rec_count, rec_bytes = _dir_stats(downloads._records_dir())
     manifests = downloads.list_batch_manifests(limit=1000)
-    logs = list((db.data_dir() / "logs").glob("series_batch_*.log"))
+    logs = list((db.data_dir() / "logs").glob("*.log"))
     scheduled = recordings.list_recordings(limit=1000)
 
     return {
@@ -65,7 +65,7 @@ def clear_all() -> dict:
 
     for manifest in downloads.list_batch_manifests(limit=1000):
         manifest.unlink(missing_ok=True)
-    for log in (db.data_dir() / "logs").glob("series_batch_*.log"):
+    for log in (db.data_dir() / "logs").glob("*.log"):
         log.unlink(missing_ok=True)
 
     return summary

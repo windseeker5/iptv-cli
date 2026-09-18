@@ -1,18 +1,11 @@
 # IPTV CLI Requirements - Menu Navigation
 # Install with: pip install -r requirements.txt
 
-# Core CLI and formatting
+# Core terminal formatting
 rich
-click
 pyfiglet
 
-# Menu navigation with arrow keys
-simple-term-menu
-
-# Advanced terminal input with styling
-prompt_toolkit
-
-# Modern TUI framework for beautiful interfaces
+# Modern TUI framework
 textual
 
 # Database and HTTP requests
@@ -26,6 +19,10 @@ python-dotenv
 
 # Date parsing for scheduled recordings
 python-dateutil
+
+# Logo maintenance utility (util.py)
+Pillow
+numpy
 
 # Note: MPV player should be installed separately:
 # Ubuntu/Debian: sudo apt install mpv

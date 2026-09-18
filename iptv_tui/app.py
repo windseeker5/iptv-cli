@@ -5,8 +5,6 @@ from textual.app import App
 from iptv_tui.domain import config
 from iptv_tui.screens.main_menu import MainMenuScreen
 from iptv_tui.screens.search import SearchScreen
-from iptv_tui.screens.results import ResultsScreen
-from iptv_tui.screens.player_actions import PlayerActionsScreen
 from iptv_tui.screens.container_status import ContainerStatusScreen
 from iptv_tui.screens.message import MessageScreen
 
@@ -19,10 +17,7 @@ class IPTVApp(App):
     SCREENS = {
         "main": MainMenuScreen,
         "search": SearchScreen,
-        "results": ResultsScreen,
-        "actions": PlayerActionsScreen,
         "settings": ContainerStatusScreen,
-        "message": MessageScreen,
     }
 
     def __init__(self, **kwargs):
@@ -38,6 +33,7 @@ class IPTVApp(App):
                     f"Missing environment variables: {missing}\n\n"
                     "Copy .env.example to .env and add your IPTV credentials.",
                     title="Configuration Required",
+                    close_app=True,
                 )
             )
         else:

@@ -2,7 +2,7 @@
 
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.widgets import Header, Input, Static
+from textual.widgets import Input, Static
 
 from iptv_tui.screens.results import ResultsScreen
 from iptv_tui.widgets.header import AppHeader

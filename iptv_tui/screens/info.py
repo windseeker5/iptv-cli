@@ -2,7 +2,7 @@
 
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.widgets import Header, Static, Button
+from textual.widgets import Static, Button
 
 from iptv_tui.domain import iptv_provider
 from iptv_tui.widgets.header import AppHeader
@@ -14,7 +14,7 @@ class InfoScreen(Screen):
 
     BINDINGS = [
         ("escape", "pop", "Back"),
-        ("q", "quit", "Quit"),
+        ("q", "pop", "Back"),
     ]
 
     def __init__(self, result_type: str, item: dict, **kwargs):
@@ -35,10 +35,8 @@ class InfoScreen(Screen):
 
         if self.result_type == "live":
             lines.append(f"Category: {self.item.get('category_name', 'N/A')}")
-            epg = iptv_provider.get_now_playing(
-                self.item.get("stream_id", 0),
-                self.item.get("name"),
-                self.item.get("stream_url"),
+            epg = iptv_provider.get_now_playing_local(
+                self.item.get("stream_id", 0)
             )
             if epg and epg.get("title"):
                 lines.append(f"\nNow Playing: {epg['title']}")

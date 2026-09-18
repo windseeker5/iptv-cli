@@ -1,11 +1,7 @@
 """Docker and docker-compose orchestration helpers."""
 
-import os
 import subprocess
 from pathlib import Path
-
-from iptv_tui.domain import config
-
 
 def compose_binary() -> list[str]:
     """Return the docker-compose command as a list."""
@@ -171,14 +167,3 @@ def service_logs(service: str, tail: int = 50) -> str:
         return result.stderr or f"Could not read logs for {container_name}"
     except Exception as e:
         return f"Error reading logs: {e}"
-
-
-def validate_compose() -> dict:
-    """Validate docker-compose.yml configuration."""
-    try:
-        result = run_compose(["config", "-q"], timeout=10)
-        return {"valid": result.returncode == 0, "message": ""}
-    except subprocess.CalledProcessError as e:
-        return {"valid": False, "message": e.stderr or "Validation failed"}
-    except Exception as e:
-        return {"valid": False, "message": str(e)}

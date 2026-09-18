@@ -2,8 +2,9 @@
 
 from textual.app import ComposeResult
 from textual.binding import Binding
+from textual.css.query import NoMatches
 from textual.screen import Screen
-from textual.widgets import Header, ListView, ListItem, Label
+from textual.widgets import ListView, ListItem, Label
 
 import asyncio
 
@@ -24,13 +25,15 @@ class MainMenuScreen(Screen):
     ]
 
     MENU_ITEMS = [
-        ("Update Database", "update_db"),
-        ("Search", "search"),
+        ("Movies", "movies"),
+        ("Series", "series"),
+        ("Search Everything", "search"),
         ("Favorites", "favorites"),
-        ("Browse by Category", "browse"),
-        ("Downloads & Recordings", "downloads"),
-        ("YouTube Tool", "youtube"),
-        ("Settings", "settings"),
+        ("My Videos", "library"),
+        ("Recording & Download Queue", "downloads"),
+        ("YouTube", "youtube"),
+        ("System & Services", "settings"),
+        ("Update Channel Guide", "update_db"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -43,7 +46,7 @@ class MainMenuScreen(Screen):
             options.append((display, action))
 
         yield AppHeader("IPTV")
-        yield StatusBar(self._status_text())
+        yield StatusBar("Loading system status...")
         yield ListView(
             *[ListItem(Label(label), name=action) for label, action in options],
             id="main-menu",
@@ -51,12 +54,13 @@ class MainMenuScreen(Screen):
 
     def on_mount(self) -> None:
         self.run_worker(self._background_refresh)
-        self.set_interval(2.0, self._refresh_status)
+        self._refresh_status()
+        self.set_interval(10.0, self._refresh_status)
 
     async def _background_refresh(self) -> None:
         status = self.query_one(StatusBar)
         try:
-            counts = iptv_provider.db.table_counts()
+            counts = iptv_provider.db.catalog_counts()
             live = counts.get("live_streams", 0)
             if live == 0:
                 status.set_status("Database empty — downloading from provider...")
@@ -78,19 +82,32 @@ class MainMenuScreen(Screen):
         status.set_status("Downloading database from provider...")
         try:
             result = await asyncio.to_thread(iptv_provider.download_database)
-            status.set_status(result["message"])
+            if not result["success"]:
+                status.set_status(result["message"])
+                return
+            epg_result = await asyncio.to_thread(iptv_provider.download_full_epg, True)
+            status.set_status(
+                epg_result["message"] if not epg_result["success"] else result["message"]
+            )
         except Exception as exc:
             status.set_status(f"DB download error: {exc}")
 
     def _refresh_status(self) -> None:
-        self.query_one(StatusBar).set_status(self._status_text())
+        self.run_worker(self._refresh_status_async, group="status", exclusive=True)
+
+    async def _refresh_status_async(self) -> None:
+        status = await asyncio.to_thread(self._status_text)
+        try:
+            self.query_one(StatusBar).set_status(status)
+        except NoMatches:
+            pass
 
     def _status_text(self) -> Text:
         status = Text()
 
         # Database indicator
         try:
-            counts = iptv_provider.db.table_counts()
+            counts = iptv_provider.db.catalog_counts()
             live = counts.get("live_streams", 0)
             vod = counts.get("vod_streams", 0)
             db_ok = live > 0
@@ -125,7 +142,8 @@ class MainMenuScreen(Screen):
         # Active recording indicator
         recording_jobs = [
             row for row in jobs.list_jobs()
-            if row["type"] == "live" and row["status"] == "running"
+            if row["type"] in ("live", "scheduled")
+            and row["status"] in ("running", "recording")
         ]
         if recording_jobs:
             status.append("  |  ", style="dim")
@@ -145,7 +163,8 @@ class MainMenuScreen(Screen):
     def action_stop_recording(self) -> None:
         recording_jobs = [
             row for row in jobs.list_jobs()
-            if row["type"] == "live" and row["status"] == "running"
+            if row["type"] in ("live", "scheduled")
+            and row["status"] in ("running", "recording")
         ]
         if not recording_jobs:
             self.query_one(StatusBar).set_status("No active recording")
@@ -164,14 +183,18 @@ class MainMenuScreen(Screen):
         action = event.item.name
         if action == "update_db":
             self.run_worker(self._run_db_update)
+        elif action in ("movies", "series"):
+            from iptv_tui.screens.category_browser import CategoryBrowserScreen
+            mode = {"movies": "vod", "series": "series"}[action]
+            self.app.push_screen(CategoryBrowserScreen(mode))
         elif action == "search":
             self.app.push_screen("search")
         elif action == "favorites":
             from iptv_tui.screens.favorites import FavoritesScreen
             self.app.push_screen(FavoritesScreen())
-        elif action == "browse":
-            from iptv_tui.screens.category_browser import CategoryBrowserScreen
-            self.app.push_screen(CategoryBrowserScreen())
+        elif action == "library":
+            from iptv_tui.screens.library import LibraryScreen
+            self.app.push_screen(LibraryScreen())
         elif action == "downloads":
             from iptv_tui.screens.downloads_recordings import DownloadsScreen
             self.app.push_screen(DownloadsScreen())

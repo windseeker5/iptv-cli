@@ -14,15 +14,9 @@ COPY nginx.conf /etc/nginx/nginx.conf
 # Set permissions first
 RUN chmod 755 /nginx/hls /nginx/html /nginx/log /nginx/recordings
 
-# Copy web content
-COPY index.html /nginx/html/index.html
-COPY live.html /nginx/html/live.html
-RUN chmod 644 /nginx/html/index.html /nginx/html/live.html
-
-# Install additional tools
-RUN apt-get update && \
-    apt-get install -y curl nano iproute2 && \
-    rm -rf /var/lib/apt/lists/*
+# Copy the same web content used by the Compose bind mount.
+COPY html/ /nginx/html/
+RUN chmod -R a+rX /nginx/html
 
 # Set the working directory
 WORKDIR /nginx

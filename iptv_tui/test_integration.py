@@ -6,11 +6,10 @@ from iptv_tui.app import IPTVApp
 from iptv_tui.screens.main_menu import MainMenuScreen
 from iptv_tui.screens.search import SearchScreen
 from iptv_tui.screens.results import ResultsScreen
-from iptv_tui.screens.favorites import FavoritesScreen
 from iptv_tui.screens.category_browser import CategoryBrowserScreen
 from iptv_tui.screens.container_status import ContainerStatusScreen
 from iptv_tui.screens.downloads_recordings import DownloadsScreen
-from iptv_tui.screens.youtube import YouTubeScreen
+from iptv_tui.screens.library import LibraryScreen
 
 
 class IPTVIntegrationTest(unittest.IsolatedAsyncioTestCase):
@@ -45,6 +44,13 @@ class IPTVIntegrationTest(unittest.IsolatedAsyncioTestCase):
             pilot.app.push_screen(ContainerStatusScreen())
             await pilot.pause(1)
             self.assertIsInstance(pilot.app.screen, ContainerStatusScreen)
+
+    async def test_library_screen_mounts(self):
+        app = IPTVApp()
+        async with app.run_test() as pilot:
+            pilot.app.push_screen(LibraryScreen())
+            await pilot.pause(1)
+            self.assertIsInstance(pilot.app.screen, LibraryScreen)
 
     async def test_downloads_screen_mounts(self):
         app = IPTVApp()

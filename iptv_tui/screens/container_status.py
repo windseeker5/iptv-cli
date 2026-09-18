@@ -5,7 +5,7 @@ from functools import partial
 
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.widgets import Header, ListView, ListItem, Label, Static
+from textual.widgets import ListView, ListItem, Label, Static
 
 from iptv_tui.domain import docker_ctl
 from iptv_tui.widgets.header import AppHeader
@@ -106,9 +106,8 @@ class ContainerStatusScreen(Screen):
         service = self._selected_service()
         if service:
             logs = docker_ctl.service_logs(service)
-            self.query_one(StatusBar).set_status(f"Showing logs for {service}")
-            # For now, just print to console; a log viewer screen would be next.
-            print(logs[:2000])
+            from iptv_tui.screens.log_viewer import LogViewerScreen
+            self.app.push_screen(LogViewerScreen(f"{service} logs", logs))
 
     def action_pop(self) -> None:
         self.app.pop_screen()

@@ -65,7 +65,14 @@ def remux_for_tv(input_path: str) -> dict:
         }
 
     final_output = src.with_suffix(".mp4")
-    src.unlink(missing_ok=True)
-    temp_output.replace(final_output)
+    try:
+        temp_output.replace(final_output)
+        src.unlink()
+    except OSError as exc:
+        return {
+            "success": False,
+            "filepath": str(src),
+            "message": f"Could not replace original safely: {exc}",
+        }
 
     return {"success": True, "filepath": str(final_output), "message": "Remuxed to MP4"}

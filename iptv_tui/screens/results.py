@@ -10,7 +10,7 @@ from textual.containers import Horizontal
 from textual.css.query import NoMatches
 from textual.screen import Screen
 from textual.timer import Timer
-from textual.widgets import Header, ListView, ListItem, Label, Static
+from textual.widgets import ListView, ListItem, Label, Static
 
 from iptv_tui.domain import actions, iptv_provider, favorites as favorites_domain
 from iptv_tui.screens.message import MessageScreen
@@ -26,8 +26,10 @@ class ResultsScreen(Screen):
         Binding("escape", "pop", "Back", show=False),
         Binding("p", "play_selected", "Play", show=False, priority=True),
         Binding("i", "info_selected", "Info", show=False, priority=True),
-        Binding("s", "toggle_favorite", "Star", show=False, priority=True),
-        Binding("r", "restream_selected", "Restream", show=False, priority=True),
+        Binding("f", "toggle_favorite", "Favorite", show=False, priority=True),
+        Binding("s", "toggle_favorite", "Favorite", show=False, priority=True),
+        Binding("t", "restream_selected", "Restream", show=False, priority=True),
+        Binding("r", "record_or_download", "Record/Download", show=False, priority=True),
         Binding("c", "record_or_download", "Record/Download", show=False, priority=True),
     ]
 
@@ -57,9 +59,11 @@ class ResultsScreen(Screen):
     async def _load_results(self) -> None:
         self.results = []
         try:
-            live = iptv_provider.search_live_channels(self.search_query)
-            vod = iptv_provider.search_vod_content(self.search_query)
-            series = iptv_provider.search_series_content(self.search_query)
+            live, vod, series = await asyncio.gather(
+                asyncio.to_thread(iptv_provider.search_live_channels, self.search_query),
+                asyncio.to_thread(iptv_provider.search_vod_content, self.search_query),
+                asyncio.to_thread(iptv_provider.search_series_content, self.search_query),
+            )
         except Exception as exc:
             self.app.push_screen(
                 MessageScreen(
@@ -85,7 +89,9 @@ class ResultsScreen(Screen):
             return
 
         info.update(f"{len(self.results)} results for '{self.search_query}'")
-        self.query_one(StatusBar).set_status("")
+        self.query_one(StatusBar).set_status(
+            "Enter actions  •  P play  •  F favorite  •  R record/download  •  T restream"
+        )
 
         for idx, (result_type, item) in enumerate(self.results):
             item_id = item.get("stream_id") or item.get("series_id")
@@ -265,9 +271,10 @@ class ResultsScreen(Screen):
         selected = self._selected_item()
         if selected and selected[0] != "series":
             if selected[0] == "live":
-                result = actions.record_live_item(selected[1])
-            else:
-                result = actions.download_vod_item(selected[1])
+                from iptv_tui.screens.schedule_recording import ScheduleRecordingScreen
+                self.app.push_screen(ScheduleRecordingScreen(selected[1]))
+                return
+            result = actions.download_vod_item(selected[1])
             self.query_one(StatusBar).set_status(result["message"])
             self.app.notify(result["message"])
 
@@ -288,11 +295,11 @@ class ResultsScreen(Screen):
         if idx < 0 or idx >= len(self.results):
             return
         list_view = self.query_one("#results-list", ListView)
-        result_type, item = self.results[idx]
-        is_fav = favorites_domain.is_favorite(item, result_type)
-        star = "★ " if is_fav else "  "
         list_view.clear()
+        favs = favorites_domain.get_favorites_set()
         for i, (rt, it) in enumerate(self.results):
+            item_id = it.get("stream_id") or it.get("series_id")
+            star = "★ " if (item_id, rt) in favs else "  "
             list_view.append(
                 ListItem(Label(self._format_item(rt, it, star)), name=f"{i}")
             )

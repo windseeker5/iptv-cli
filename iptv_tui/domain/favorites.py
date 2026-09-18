@@ -1,12 +1,11 @@
 """Favorites persistence and M3U playlist generation."""
 
 import json
-import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-from iptv_tui.domain import config, db, iptv_provider
+from iptv_tui.domain import db
 
 
 def data_dir() -> Path:
@@ -62,7 +61,7 @@ def save_favorites(favorites: list[dict]) -> None:
 def add_favorite(item: dict, item_type: str = "live") -> int:
     """Add an item to favorites. Returns total count, or -1 if already present."""
     favs = load_favorites()
-    stream_id = item.get("stream_id", 0)
+    stream_id = item.get("stream_id") or item.get("series_id", 0)
 
     for existing in favs:
         if existing.get("stream_id") == stream_id and existing.get("type") == item_type:
@@ -70,6 +69,7 @@ def add_favorite(item: dict, item_type: str = "live") -> int:
 
     favorite_item = {
         "stream_id": stream_id,
+        "series_id": stream_id if item_type == "series" else None,
         "name": item.get("name", "Unknown"),
         "stream_url": item.get("stream_url", ""),
         "category": item.get("category_name", "Uncategorized"),
@@ -86,7 +86,7 @@ def add_favorite(item: dict, item_type: str = "live") -> int:
 def remove_favorite(item: dict, item_type: str = "live") -> int:
     """Remove an item from favorites. Returns new count, or -1 if not found."""
     favs = load_favorites()
-    stream_id = item.get("stream_id", 0)
+    stream_id = item.get("stream_id") or item.get("series_id", 0)
     original_count = len(favs)
 
     favs = [
@@ -106,7 +106,7 @@ def remove_favorite(item: dict, item_type: str = "live") -> int:
 
 def is_favorite(item: dict, item_type: str = "live") -> bool:
     """Check if an item is in favorites."""
-    stream_id = item.get("stream_id", 0)
+    stream_id = item.get("stream_id") or item.get("series_id", 0)
     return any(
         f.get("stream_id") == stream_id and f.get("type") == item_type
         for f in load_favorites()
@@ -182,6 +182,7 @@ def import_favorites_seed() -> list[dict]:
             favs.append(
                 {
                     "stream_id": item.get("stream_id", 0),
+                    "series_id": item.get("stream_id", 0) if item.get("type") == "series" else None,
                     "name": item.get("name", "Unknown"),
                     "stream_url": "",
                     "category": item.get("category", "Uncategorized"),
@@ -212,6 +213,12 @@ def hydrate_favorites_with_database(favorites: list[dict]) -> list[dict]:
         item["stream_id"]
         for item in refreshed
         if item.get("type") == "vod" and item.get("stream_id")
+    ]
+    series_ids = [
+        item.get("series_id") or item.get("stream_id")
+        for item in refreshed
+        if item.get("type") == "series"
+        and (item.get("series_id") or item.get("stream_id"))
     ]
 
     if live_ids:
@@ -253,5 +260,26 @@ def hydrate_favorites_with_database(favorites: list[dict]) -> list[dict]:
                 item["name"] = meta.get("name", item["name"])
                 item["category"] = meta.get("category_name", item.get("category"))
                 item["stream_url"] = meta.get("stream_url", item.get("stream_url"))
+
+    if series_ids:
+        with db.connection() as conn:
+            conn.row_factory = sqlite3.Row
+            placeholders = ",".join("?" * len(series_ids))
+            rows = conn.execute(
+                f"SELECT series_id, name, category_name, plot, genre, rating "
+                f"FROM series_streams WHERE series_id IN ({placeholders})",
+                series_ids,
+            ).fetchall()
+            series_meta = {row["series_id"]: dict(row) for row in rows}
+
+        for item in refreshed:
+            if item.get("type") != "series":
+                continue
+            series_id = item.get("series_id") or item.get("stream_id")
+            item["series_id"] = series_id
+            meta = series_meta.get(series_id)
+            if meta:
+                item.update(meta)
+                item["category"] = meta.get("category_name", item.get("category"))
 
     return refreshed

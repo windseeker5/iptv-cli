@@ -27,8 +27,10 @@ A terminal UI for browsing, searching, playing, downloading, and recording IPTV 
 
 **Download & record**
 - Download a single VOD/episode, or an entire series in one batch — downloads are queued and run one at a time (the provider only allows one concurrent connection)
-- Record a live channel immediately, or **schedule** a recording for later via a systemd timer
-- One unified **Downloads & Recordings** screen: live status for everything in flight, cancel any active job, and a type-to-confirm **Clear All** that wipes downloaded files, recordings, and tracking history in one step
+- Use one recording form to start now or **schedule** a recording, choose its duration, and optionally record until the current program ends
+- **Recording & Download Queue** shows queued/running work, supports cancellation, and opens recording logs
+- **My Videos** browses completed media, plays or deletes files, and remuxes files for TV playback
+- A type-to-confirm **Clear All** wipes downloaded files, recordings, and tracking history in one step
 
 **YouTube**
 - Search, play, and download YouTube videos (best quality, 720p, or audio-only) via `yt-dlp`
@@ -51,14 +53,15 @@ iptv_tui/
 ├── domain/                 business logic — no UI dependencies
 │   ├── iptv_provider.py    provider API client, catalog cache/sync
 │   ├── downloads.py        VOD/series downloads
-│   ├── recordings.py       scheduled recordings + systemd timers
+│   ├── recordings.py       immediate/scheduled recordings + systemd timers
+│   ├── library.py          completed media discovery and safe deletion
 │   ├── youtube.py          yt-dlp search/download
 │   ├── restream.py         NGINX-RTMP restreaming
 │   ├── jobs.py             unified, disk-persisted job/history registry
 │   ├── reset.py            "Clear All" — wipe files + history
 │   ├── docker_ctl.py       docker-compose control
 │   ├── favorites.py, db.py, config.py, actions.py
-└── screens/                one Textual Screen per view
+├── screens/                Textual screens, including Library and log viewer
 └── widgets/                shared widgets (header, status bar)
 
 data/                       all runtime state (gitignored)
@@ -66,7 +69,7 @@ data/                       all runtime state (gitignored)
 ├── favorites.json          your saved favorites
 ├── iptv.m3u                generated playlist
 ├── cache/                  raw provider API dumps (regenerated on each "Update Database")
-├── logs/                   job history (jobs.json) + series-batch download logs
+├── logs/                   job history plus recording/restream diagnostics
 ├── downloads/               downloaded VOD/series files
 ├── recordings/              recorded live files (falls back here if USB_RECORDS_PATH isn't writable)
 └── youtube/                  downloaded YouTube files

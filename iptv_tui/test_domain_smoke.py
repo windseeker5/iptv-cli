@@ -1,11 +1,11 @@
 """Smoke tests for domain modules."""
 
-import os
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
-from iptv_tui.domain import config, db
+from iptv_tui.domain import config, db, recordings
 
 
 class ConfigSmokeTest(unittest.TestCase):
@@ -14,6 +14,24 @@ class ConfigSmokeTest(unittest.TestCase):
         self.assertIsInstance(config.Config.IPTV_SERVER_URL, str)
         self.assertIsInstance(config.Config.IPTV_USERNAME, str)
         self.assertIsInstance(config.Config.IPTV_PASSWORD, str)
+
+
+class RecordingSmokeTest(unittest.TestCase):
+    def test_systemd_command_tracks_database_recording(self):
+        cmd, unit = recordings.build_systemd_command(
+            stream_id=123,
+            channel_name="Test Channel",
+            duration_seconds=1800,
+            output_path="/tmp/test.ts",
+            start_time=datetime.now(),
+            start_now=True,
+            recording_id=42,
+            timer_unit="iptv-test",
+        )
+        self.assertEqual(unit, "iptv-test")
+        self.assertIn("--recording-id", cmd)
+        self.assertIn("42", cmd)
+        self.assertIn("--property=RuntimeMaxSec=2100", cmd)
 
 
 class DbSmokeTest(unittest.TestCase):

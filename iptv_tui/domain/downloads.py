@@ -6,7 +6,6 @@ import os
 import re
 import subprocess
 import threading
-import time
 from datetime import datetime
 from pathlib import Path
 
@@ -79,18 +78,6 @@ def detect_downloader() -> str:
     except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
         pass
     return "python"
-
-
-def _wait_and_report(process: subprocess.Popen, on_done) -> None:
-    """Wait for a subprocess to exit in a background thread and report the result."""
-    def thread():
-        returncode = process.wait()
-        if returncode == 0:
-            on_done(True, None)
-        else:
-            on_done(False, f"Exited with code {returncode}")
-
-    threading.Thread(target=thread, daemon=True).start()
 
 
 def build_download_command(url: str, filepath: str, downloader: str) -> list[str]:
@@ -207,47 +194,6 @@ def queue_vod_download(
         "filepath": filepath,
         "message": "Download queued",
     }
-
-
-def start_live_download(item: dict, duration_seconds: int = 3600, on_done=None) -> dict:
-    """Start recording a live stream to disk.
-
-    `on_done`, if given, is called as `on_done(success: bool, error: str | None)`
-    once the recording finishes (from a background thread).
-    """
-    url = item.get("stream_url", "")
-    if not url:
-        return {"success": False, "message": "No stream URL available"}
-
-    folder = _records_dir()
-    filename = f"{_safe_name(item.get('name', 'unknown'))}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.ts"
-    filepath = str(folder / filename)
-
-    cmd = [
-        "ffmpeg",
-        "-i",
-        url,
-        "-c",
-        "copy",
-        "-t",
-        str(duration_seconds),
-        filepath,
-    ]
-
-    try:
-        process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if on_done:
-            _wait_and_report(process, on_done)
-        return {
-            "success": True,
-            "pid": process.pid,
-            "filepath": filepath,
-            "message": "Recording started",
-        }
-    except FileNotFoundError:
-        return {"success": False, "message": "FFmpeg not installed"}
-    except Exception as e:
-        return {"success": False, "message": f"Recording failed: {e}"}
 
 
 # Series batch downloads

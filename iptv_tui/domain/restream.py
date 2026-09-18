@@ -6,6 +6,7 @@ import os
 import re
 import signal
 import subprocess
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -139,7 +140,13 @@ def build_ffmpeg_command(source_url: str, stream_key: str, transcode: bool = Fal
     ]
 
 
-def save_restream_meta(stream_key: str, channel_name: str, pid: int, source_url: str) -> None:
+def save_restream_meta(
+    stream_key: str,
+    channel_name: str,
+    pid: int,
+    source_url: str,
+    log_path: str | None = None,
+) -> None:
     """Write active restream metadata to disk."""
     data = {
         "stream_key": stream_key,
@@ -147,6 +154,7 @@ def save_restream_meta(stream_key: str, channel_name: str, pid: int, source_url:
         "pid": pid,
         "source_url": source_url,
         "started_at": datetime.now().isoformat(),
+        "log_path": log_path,
     }
     with open(meta_file(), "w", encoding="utf-8") as f:
         json.dump(data, f)
@@ -244,19 +252,40 @@ def start_restream(
     stream_key = stream_key or generate_stream_key(channel_name)
 
     ffmpeg_cmd = build_ffmpeg_command(source_url, stream_key, transcode)
+    logs_dir = _data_dir() / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    log_path = logs_dir / f"restream_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
     try:
         process = subprocess.Popen(
             ffmpeg_cmd,
-            stdout=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
+            text=True,
             start_new_session=True,
         )
+
+        def drain_stderr() -> None:
+            with open(log_path, "w", encoding="utf-8") as log_file:
+                if process.stderr is None:
+                    return
+                for line in process.stderr:
+                    log_file.write(line.replace(source_url, "<provider-url>"))
+                    log_file.flush()
+
+        threading.Thread(target=drain_stderr, daemon=True).start()
         time.sleep(1)
         if process.poll() is not None:
-            return {"success": False, "message": "FFmpeg process exited immediately"}
+            detail = log_path.read_text(errors="replace")[-500:].strip()
+            return {
+                "success": False,
+                "message": f"FFmpeg exited immediately: {detail or 'see restream log'}",
+                "log_path": str(log_path),
+            }
 
-        save_restream_meta(stream_key, channel_name, process.pid, source_url)
+        save_restream_meta(
+            stream_key, channel_name, process.pid, source_url, str(log_path)
+        )
         return {
             "success": True,
             "pid": process.pid,
@@ -264,6 +293,7 @@ def start_restream(
             "channel_name": channel_name,
             "hls_url": f"http://localhost:{config.Config.NGINX_HTTP_PORT}/hls/{stream_key}.m3u8",
             "rtmp_url": f"rtmp://localhost:{config.Config.NGINX_RTMP_PORT}/live/{stream_key}",
+            "log_path": str(log_path),
             "message": "Restream started",
         }
     except Exception as e:
@@ -302,12 +332,4 @@ def stop_restream() -> dict:
         "success": bool(stopped),
         "stopped": stopped,
         "message": f"Stopped {len(stopped)} restream(s)" if stopped else "No active restreams",
-    }
-
-
-def stream_urls(stream_key: str) -> dict:
-    """Return viewing URLs for a stream key."""
-    return {
-        "hls": f"http://localhost:{config.Config.NGINX_HTTP_PORT}/hls/{stream_key}.m3u8",
-        "rtmp": f"rtmp://localhost:{config.Config.NGINX_RTMP_PORT}/live/{stream_key}",
     }

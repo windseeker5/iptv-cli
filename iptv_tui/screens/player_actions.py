@@ -2,7 +2,7 @@
 
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.widgets import Header, ListView, ListItem, Label
+from textual.widgets import ListView, ListItem, Label
 
 from iptv_tui.domain import actions
 from iptv_tui.widgets.header import AppHeader
@@ -17,7 +17,7 @@ class PlayerActionsScreen(Screen):
     ]
 
     ACTIONS = {
-        "live": ["Play", "Restream", "Record", "Schedule Recording", "Info", "Back"],
+        "live": ["Play", "Record", "Restream", "Info", "Back"],
         "vod": ["Play", "Restream", "Download", "Info", "Back"],
         "series": ["Browse Episodes", "Download Series", "Info", "Back"],
     }
@@ -44,11 +44,7 @@ class PlayerActionsScreen(Screen):
             result = actions.restream_item(self.item)
             status.set_status(result["message"])
             self.app.notify(result["message"])
-        elif action_label == "Record":
-            result = actions.record_live_item(self.item)
-            status.set_status(result["message"])
-            self.app.notify(result["message"])
-        elif action_label == "Schedule Recording":
+        elif action_label in ("Record", "Schedule Recording"):
             from iptv_tui.screens.schedule_recording import ScheduleRecordingScreen
             self.app.push_screen(ScheduleRecordingScreen(self.item))
         elif action_label == "Download":

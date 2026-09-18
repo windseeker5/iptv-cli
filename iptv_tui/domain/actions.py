@@ -1,7 +1,7 @@
 """Execute playback, restream, and download actions without UI dependencies."""
 
-import os
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 from iptv_tui.domain import downloads, iptv_provider, jobs, recordings, restream
@@ -131,32 +131,30 @@ def restream_item(item: dict) -> dict:
     return restream.start_restream(item)
 
 
-def stop_active_restream() -> dict:
-    """Stop the active restream."""
-    return restream.stop_restream()
+def record_live_item(item: dict, duration_seconds: int = 1800) -> dict:
+    """Record a live stream now using the reliable scheduled recorder."""
+    return recordings.schedule_recording(
+        stream_id=item.get("stream_id", 0),
+        channel_name=item.get("name", "Unknown"),
+        start_time=datetime.now(),
+        duration_seconds=duration_seconds,
+    )
 
 
-def record_live_item(item: dict, duration_seconds: int = 3600) -> dict:
-    """Start recording a live stream."""
-    job_id = jobs.register("live", item.get("name", "Unknown"))
+def schedule_live_recording(
+    item: dict, start_input: str | datetime, duration_minutes: int
+) -> dict:
+    """Schedule a recording for a live channel.
 
-    def on_done(success: bool, error: str | None) -> None:
-        jobs.update(job_id, status="done" if success else "failed", detail=error or "")
-
-    result = downloads.start_live_download(item, duration_seconds, on_done=on_done)
-    if result["success"]:
-        jobs.update(job_id, pid=result.get("pid"))
+    start_input may be raw user text or an already parsed datetime.
+    """
+    if isinstance(start_input, datetime):
+        start_time = start_input
     else:
-        jobs.update(job_id, status="failed", detail=result["message"])
-    return result
-
-
-def schedule_live_recording(item: dict, start_input: str, duration_minutes: int) -> dict:
-    """Schedule a recording for a live channel."""
-    try:
-        start_time = recordings.parse_start_time(start_input)
-    except ValueError as e:
-        return {"success": False, "message": str(e)}
+        try:
+            start_time = recordings.parse_start_time(start_input)
+        except ValueError as e:
+            return {"success": False, "message": str(e)}
 
     return recordings.schedule_recording(
         stream_id=item.get("stream_id", 0),

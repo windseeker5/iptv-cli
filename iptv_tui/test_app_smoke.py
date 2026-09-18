@@ -1,6 +1,5 @@
 """Headless smoke tests for the new IPTV TUI."""
 
-import asyncio
 import unittest
 
 from iptv_tui.app import IPTVApp

@@ -1,8 +1,10 @@
 """Series episodes browser."""
 
+import asyncio
+
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.widgets import Header, ListView, ListItem, Label
+from textual.widgets import ListView, ListItem, Label
 
 from iptv_tui.domain import actions, iptv_provider
 from iptv_tui.widgets.header import AppHeader
@@ -33,7 +35,11 @@ class SeriesEpisodesScreen(Screen):
 
     async def _load(self) -> None:
         series_id = self.series_item.get("series_id")
-        self.episodes = iptv_provider.get_series_episodes(series_id) if series_id else []
+        self.episodes = (
+            await asyncio.to_thread(iptv_provider.get_series_episodes, series_id)
+            if series_id
+            else []
+        )
         list_view = self.query_one("#episodes-list", ListView)
         list_view.clear()
 

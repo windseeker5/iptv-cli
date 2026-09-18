@@ -5,6 +5,8 @@ Includes image processing utilities for logo and media handling
 """
 
 import os
+from pathlib import Path
+
 from PIL import Image
 import numpy as np
 
@@ -192,9 +194,10 @@ if __name__ == "__main__":
     print("IPTV Utility - Background Removal Tool")
     print("=" * 40)
     
-    # Process the KDC logo
-    input_logo = "/home/kdresdell/Documents/DEV/iptv/nginx/html/kdc-logo.png"
-    output_logo = "/home/kdresdell/Documents/DEV/iptv/nginx/html/kdc-logo-transparent.png"
+    # Process the KDC logo relative to this repository.
+    project_root = Path(__file__).resolve().parent
+    input_logo = str(project_root / "nginx" / "html" / "kdc-logo.png")
+    output_logo = str(project_root / "nginx" / "html" / "kdc-logo-transparent.png")
     
     if os.path.exists(input_logo):
         print(f"\nProcessing KDC logo...")

@@ -97,9 +97,19 @@ Footer > .footer--key {
     padding: 1;
 }
 
-#favorites-list, #category-list, #service-list, #episodes-list, #jobs-list, #youtube-results {
+#favorites-list, #category-list, #service-list, #episodes-list, #jobs-list, #youtube-results, #library-list {
     height: 1fr;
     border: round $primary;
+}
+
+#log-scroll {
+    height: 1fr;
+    border: round $primary;
+    padding: 1;
+}
+
+#log-content {
+    width: 1fr;
 }
 
 AppHeader {

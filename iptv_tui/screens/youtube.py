@@ -5,7 +5,7 @@ from functools import partial
 
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.widgets import Header, Input, ListView, ListItem, Label, Static
+from textual.widgets import Input, ListView, ListItem, Label, Static
 
 from iptv_tui.domain import actions, jobs, youtube
 from iptv_tui.widgets.header import AppHeader

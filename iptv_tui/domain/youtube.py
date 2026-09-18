@@ -1,7 +1,5 @@
 """YouTube search, info, and download helpers using yt-dlp."""
 
-import os
-from pathlib import Path
 from urllib.parse import parse_qs, urlparse, urlencode, urlunparse
 
 import yt_dlp
