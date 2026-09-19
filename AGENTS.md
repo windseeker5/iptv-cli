@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Operational guidance for coding agents working in `/home/kdresdell/Documents/DEV/iptv`.
+Operational guidance for coding agents working in `/home/kdresdell/Documents/DEV/kdtv/cli` (KD CLI, part of the KDtv folder; siblings are `../app` and `../site`).
 
 ## Project Snapshot
 
@@ -9,7 +9,7 @@ Operational guidance for coding agents working in `/home/kdresdell/Documents/DEV
 - `iptv_tui/` contains the modular app: `domain/` for business logic, `screens/` for Textual UI.
 - `scripts/record_scheduled.py` is a standalone recorder entrypoint (automation/systemd style).
 - `util.py` contains image/logo helper workflows.
-- Docker lives one folder up, in the DEV folder: `../docker-compose.yml` manages `caddy`, `kdtv`, `jellyfin`, `nginx-rtmp`, `samba`, `tv-counter`, and `ollama` (off by default). This folder only holds their data (`jellyfin/`, `nginx/`, `data/`).
+- Docker lives in the DEV folder, two levels up: `../../docker-compose.yml` manages `caddy`, `kdtv`, `jellyfin`, `nginx-rtmp`, `samba`, `tv-counter`, and `ollama` (off by default). This folder only holds their data (`jellyfin/`, `nginx/`, `data/`).
 - Primary persistent state is user data in `data/`; some artifacts are mirrored to `nginx/html/` for web serving.
 
 ## Rule Sources Checked
@@ -55,7 +55,7 @@ python3 util.py
 
 ## Docker Commands
 
-Run from the DEV folder (`cd ..`), not from `iptv/`.
+Run from the DEV folder (`cd ../..`), not from `kdtv/cli/`. Jellyfin's data is in `DEV/jellyfin/`; `nginx/` and `data/` stay here.
 
 ```bash
 docker-compose config -q                          # validate compose file
@@ -84,7 +84,7 @@ python3 -m py_compile iptv.py scripts/record_scheduled.py util.py
 python3 -m compileall iptv_tui
 ```
 
-If Docker files are edited, also run (from the DEV folder):
+If Docker files are edited, also run (from the DEV folder, `cd ../..`):
 
 ```bash
 docker-compose config -q

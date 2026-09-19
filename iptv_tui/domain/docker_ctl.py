@@ -16,8 +16,11 @@ def compose_binary() -> list[str]:
 
 
 def compose_dir() -> Path:
-    """Return the directory holding the shared docker-compose.yml (the DEV folder above iptv/)."""
-    return Path(__file__).resolve().parents[3]
+    """Return the directory holding the shared docker-compose.yml (found by walking up from here)."""
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "docker-compose.yml").exists():
+            return parent
+    raise FileNotFoundError("docker-compose.yml not found in any parent folder")
 
 
 def run_compose(
