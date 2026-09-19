@@ -9,7 +9,7 @@ Operational guidance for coding agents working in `/home/kdresdell/Documents/DEV
 - `iptv_tui/` contains the modular app: `domain/` for business logic, `screens/` for Textual UI.
 - `scripts/record_scheduled.py` is a standalone recorder entrypoint (automation/systemd style).
 - `util.py` contains image/logo helper workflows.
-- `docker-compose.yml` manages `nginx-rtmp`, `jellyfin`, `caddy`, `viewer-counter`, and `samba` services.
+- Docker lives one folder up, in the DEV folder: `../docker-compose.yml` manages `caddy`, `kdtv`, `jellyfin`, `nginx-rtmp`, `samba`, `tv-counter`, and `ollama` (off by default). This folder only holds their data (`jellyfin/`, `nginx/`, `data/`).
 - Primary persistent state is user data in `data/`; some artifacts are mirrored to `nginx/html/` for web serving.
 
 ## Rule Sources Checked
@@ -55,6 +55,8 @@ python3 util.py
 
 ## Docker Commands
 
+Run from the DEV folder (`cd ..`), not from `iptv/`.
+
 ```bash
 docker-compose config -q                          # validate compose file
 docker-compose up -d --build                      # start all services
@@ -69,7 +71,7 @@ Key service defaults:
 - NGINX HLS output: `http://localhost:8080/hls/<key>.m3u8`
 - NGINX stats/admin: `http://localhost:8080/stat`, `http://localhost:8081`
 - Jellyfin: `http://localhost:8096`
-- Caddy proxy depends on `viewer-counter` and `jellyfin`
+- Caddy (host network) proxies to `tv-counter`, `jellyfin`, `nginx-rtmp` and `kdtv` on localhost ports
 
 ## Lint / Static Validation
 
@@ -82,7 +84,7 @@ python3 -m py_compile iptv.py scripts/record_scheduled.py util.py
 python3 -m compileall iptv_tui
 ```
 
-If Docker files are edited, also run:
+If Docker files are edited, also run (from the DEV folder):
 
 ```bash
 docker-compose config -q

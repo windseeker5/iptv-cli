@@ -14,7 +14,7 @@ A terminal UI for browsing, searching, playing, downloading, and recording IPTV 
 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) |
 | Video processing | `ffmpeg` / `ffprobe` — live recording, restream transcoding |
 | Scheduled recordings | systemd user timers (`systemd-run`) |
-| Self-hosted stack | Docker Compose: NGINX-RTMP, Jellyfin, Caddy (Cloudflare DNS plugin), Samba, a small viewer-counter service |
+| Self-hosted stack | One Docker Compose file in the DEV folder above this one: Caddy, KDTV, Jellyfin, NGINX-RTMP, Samba, tv-counter, Ollama (off by default) |
 | Tests | `unittest` — domain smoke tests + Textual headless integration tests |
 
 ## Features
@@ -74,8 +74,7 @@ data/                       all runtime state (gitignored)
 ├── recordings/              recorded live files (falls back here if USB_RECORDS_PATH isn't writable)
 └── youtube/                  downloaded YouTube files
 
-docker-compose.yml          nginx-rtmp, jellyfin, caddy, samba, viewer-counter
-infrastructure/             Caddyfile + Caddy image (Cloudflare DNS plugin) for HTTPS
+(docker-compose.yml and the Caddyfile now live one folder up, in DEV/)
 nginx/                       NGINX-RTMP image, config, served web pages
 ```
 
@@ -112,9 +111,11 @@ See `.env.example` for the full list and defaults.
 ## Self-hosted stack
 
 ```bash
-docker-compose up -d --build      # start everything
-docker-compose logs -f <service>  # nginx-rtmp | jellyfin | caddy | samba | viewer-counter
-docker-compose down               # stop everything
+# run these from the DEV folder (cd ..)
+docker compose up -d                 # start everything (Ollama stays off)
+docker compose logs -f <service>     # caddy | kdtv | jellyfin | nginx-rtmp | samba | tv-counter
+docker compose pull && docker compose up -d --build --pull always   # update to latest versions
+docker compose down                  # stop everything
 ```
 
 Container status, start/stop, and logs are also available from the TUI's **Settings** screen.

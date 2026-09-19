@@ -27,7 +27,7 @@ The primary user workflows are:
 - `scripts/remux_downloads_for_tv.py`: optional on-demand MP4 remux tool.
 - `data/`: runtime database, cache, logs, downloads, and fallback recordings.
 - `nginx/html/`: web dashboard and HLS player used by the restream service.
-- `docker-compose.yml`: NGINX-RTMP, Jellyfin, Caddy, Samba, and viewer counter.
+- Docker: the shared `../docker-compose.yml` (DEV folder) runs Caddy, KDTV, Jellyfin, NGINX-RTMP, Samba, tv-counter and Ollama; this folder holds their data.
 
 ## Important behavior
 
@@ -59,7 +59,7 @@ python3 -m compileall iptv_tui
 python3 -m py_compile iptv.py scripts/*.py util.py
 ```
 
-Validate infrastructure changes with:
+Validate infrastructure changes with (run from the DEV folder, one level up):
 
 ```bash
 docker compose config -q

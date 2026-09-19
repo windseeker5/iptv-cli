@@ -15,9 +15,9 @@ def compose_binary() -> list[str]:
         return ["docker-compose"]
 
 
-def project_root() -> Path:
-    """Return the project root directory."""
-    return Path(__file__).resolve().parents[2]
+def compose_dir() -> Path:
+    """Return the directory holding the shared docker-compose.yml (the DEV folder above iptv/)."""
+    return Path(__file__).resolve().parents[3]
 
 
 def run_compose(
@@ -25,7 +25,7 @@ def run_compose(
 ) -> subprocess.CompletedProcess:
     """Run docker-compose with the given arguments."""
     cmd = compose_binary() + args
-    kwargs = {"cwd": project_root()}
+    kwargs = {"cwd": compose_dir()}
     if capture:
         kwargs["capture_output"] = True
         kwargs["text"] = True
@@ -99,8 +99,8 @@ def service_status() -> dict[str, dict]:
         "nginx-rtmp": container_status("iptv-nginx-rtmp"),
         "jellyfin": container_status("iptv-jellyfin"),
         "samba": container_status("iptv-samba"),
-        "caddy": container_status("iptv-caddy"),
-        "viewer-counter": container_status("iptv-viewer-counter"),
+        "caddy": container_status("caddy"),
+        "tv-counter": container_status("tv-counter"),
     }
 
 
@@ -151,8 +151,8 @@ def service_logs(service: str, tail: int = 50) -> str:
         "nginx-rtmp": "iptv-nginx-rtmp",
         "jellyfin": "iptv-jellyfin",
         "samba": "iptv-samba",
-        "caddy": "iptv-caddy",
-        "viewer-counter": "iptv-viewer-counter",
+        "caddy": "caddy",
+        "tv-counter": "tv-counter",
     }
     container_name = container_map.get(service, service)
     try:

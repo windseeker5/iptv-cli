@@ -23,7 +23,7 @@ class ContainerStatusScreen(Screen):
         ("l", "logs_selected", "Logs"),
     ]
 
-    SERVICES = ["nginx-rtmp", "jellyfin", "samba", "caddy", "viewer-counter"]
+    SERVICES = ["nginx-rtmp", "jellyfin", "samba", "caddy", "tv-counter"]
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
