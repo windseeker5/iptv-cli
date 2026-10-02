@@ -319,6 +319,12 @@ Examples:
         help="Show name used in the placed episode's filename (optional)"
     )
 
+    parser.add_argument(
+        "--notify-discord",
+        action="store_true",
+        help="Send a Discord message when a recording without post-processing finishes (optional)"
+    )
+
     args = parser.parse_args()
 
     logger.info("=" * 60)
@@ -380,6 +386,11 @@ Examples:
                 )
         except Exception as exc:
             logger.error(f"Post-processing failed: {exc}")
+    elif args.notify_discord:
+        notify_discord(
+            f"{'✅ Recorded' if success else '❌ Recording failed'}: "
+            f"**{args.channel_name or 'stream'}** ({args.duration // 60} min) → {Path(args.output).name}"
+        )
 
     sys.exit(0 if success else 1)
 

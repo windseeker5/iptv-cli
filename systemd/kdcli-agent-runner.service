@@ -1,0 +1,13 @@
+[Unit]
+Description=Pépère: OMT agent runner (KD CLI toolbox + Claude Code)
+After=network-online.target docker.service
+
+[Service]
+WorkingDirectory=%h/Documents/DEV/kdtv/cli
+ExecStart=%h/Documents/DEV/kdtv/cli/venv/bin/python %h/Documents/DEV/kdtv/cli/scripts/agent_runner.py
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
