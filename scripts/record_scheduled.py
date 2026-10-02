@@ -21,6 +21,8 @@ from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 # Setup logging
 LOG_DIR = Path(__file__).parent.parent / "data" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -54,6 +56,22 @@ def load_credentials():
         raise RuntimeError("Missing IPTV credentials in .env file")
 
     return server, username, password, records_path
+
+
+def notify_discord(message: str) -> None:
+    """Post a message to DISCORD_WEBHOOK_URL from .env; never fails the recording."""
+    webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
+    if not webhook_url:
+        return
+    try:
+        import requests
+
+        resp = requests.post(webhook_url, json={"content": message}, timeout=20)
+        resp.raise_for_status()
+        logger.info("Discord notification sent")
+    except Exception as exc:
+        # The exception text can include the webhook URL, which is a secret.
+        logger.error(f"Discord notification failed: {type(exc).__name__}")
 
 
 def generate_stream_url(server: str, username: str, password: str, stream_id: int) -> str:
@@ -283,6 +301,24 @@ Examples:
         help="Database recording ID for status updates (optional)"
     )
 
+    parser.add_argument(
+        "--postprocess-library-dir",
+        type=str,
+        default=None,
+        help=(
+            "Opt in to post-recording processing: remux to MP4, move into "
+            "this Jellyfin show folder with season/episode naming, and "
+            "trigger a Jellyfin library scan (optional)"
+        )
+    )
+
+    parser.add_argument(
+        "--postprocess-show-name",
+        type=str,
+        default="Occupation Double",
+        help="Show name used in the placed episode's filename (optional)"
+    )
+
     args = parser.parse_args()
 
     logger.info("=" * 60)
@@ -323,6 +359,27 @@ Examples:
     logger.info("=" * 60)
     logger.info(f"Recording {'COMPLETED' if success else 'FAILED'}")
     logger.info("=" * 60)
+
+    if success and args.postprocess_library_dir:
+        logger.info("Post-processing: starting remux + Jellyfin placement")
+        try:
+            from iptv_tui.domain import recording_pipeline
+
+            pipeline_result = recording_pipeline.postprocess_recording(
+                args.output,
+                show_dir=args.postprocess_library_dir,
+                show_name=args.postprocess_show_name,
+            )
+            logger.info(f"Post-processing result: {pipeline_result}")
+            steps = [pipeline_result.get(k) or {} for k in ("remux", "placement", "jellyfin_scan")]
+            if all(step.get("success") for step in steps):
+                episode = Path(pipeline_result["placement"]["path"]).stem
+                notify_discord(
+                    f"✅ Recorded and added to Jellyfin: **{episode}** "
+                    f"({args.channel_name or 'stream'}, {args.duration // 60} min)"
+                )
+        except Exception as exc:
+            logger.error(f"Post-processing failed: {exc}")
 
     sys.exit(0 if success else 1)
 

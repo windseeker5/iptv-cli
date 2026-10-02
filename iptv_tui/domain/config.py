@@ -45,6 +45,13 @@ class Config:
     JELLYFIN_DOMAIN: str = os.getenv("JELLYFIN_DOMAIN", "tv.dresdell.com")
     JELLYFIN_HTTP_PORT: str = os.getenv("JELLYFIN_HTTP_PORT", "8096")
     JELLYFIN_HTTPS_PORT: str = os.getenv("JELLYFIN_HTTPS_PORT", "8920")
+    JELLYFIN_USERNAME: str = os.getenv("JELLYFIN_USERNAME", "")
+    JELLYFIN_PASSWORD: str = os.getenv("JELLYFIN_PASSWORD", "")
+
+    # Nightly NOOVO recording automation
+    NOOVO_LIBRARY_DIR: str = os.getenv(
+        "NOOVO_LIBRARY_DIR", "/mnt/homemedia/HomeMedia/TvShow/Occupation Double"
+    )
 
     # USB / media paths
     USB_RECORDS_PATH: str = os.getenv("USB_RECORDS_PATH", "./nginx/recordings")

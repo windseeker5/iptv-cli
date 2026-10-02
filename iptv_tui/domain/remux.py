@@ -1,12 +1,18 @@
 """Remux a downloaded video into an MP4 container any TV can direct-play.
 
-Stream copy only — no re-encode. Video/audio bits, frame rate, and profile
-level are left exactly as the provider sent them; only the container
-changes (e.g. .mkv -> .mp4) and any subtitle track is converted to
-MP4-compatible soft subs (mov_text). This is deliberately *not* the old
-transcode approach (see iptv_tui/domain/transcode.py history) — that did a
-full re-encode and forced a higher H.264 level / frame rate than the source,
-which caused judder on TV. A stream copy can't introduce that problem.
+Video is stream copy only — no re-encode, so frame rate and H.264 profile
+level are left exactly as the provider sent them. This is deliberately
+*not* the old transcode approach (see iptv_tui/domain/transcode.py
+history) — that did a full re-encode and forced a higher H.264 level /
+frame rate than the source, which caused judder on TV. A stream copy can't
+introduce that problem.
+
+Audio is transcoded to AAC rather than copied. Some live feeds (observed on
+NOOVO) switch to E-AC3 mid-stream, which Jellyfin's web client can't
+direct-play; re-encoding the audio track (cheap relative to video) keeps
+playback universally compatible regardless of what codec the provider sent
+that night. Any subtitle track is converted to MP4-compatible soft subs
+(mov_text).
 """
 
 import subprocess
@@ -14,7 +20,7 @@ from pathlib import Path
 
 
 def _run_ffmpeg(cmd: list[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
 
 
 def remux_for_tv(input_path: str) -> dict:
@@ -32,14 +38,14 @@ def remux_for_tv(input_path: str) -> dict:
     with_subs = [
         "ffmpeg", "-y", "-i", str(src),
         "-map", "0:v", "-map", "0:a", "-map", "0:s?",
-        "-c:v", "copy", "-c:a", "copy", "-c:s", "mov_text",
+        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-c:s", "mov_text",
         "-movflags", "+faststart",
         str(temp_output),
     ]
     without_subs = [
         "ffmpeg", "-y", "-i", str(src),
         "-map", "0:v", "-map", "0:a",
-        "-c:v", "copy", "-c:a", "copy",
+        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
         "-movflags", "+faststart",
         str(temp_output),
     ]
