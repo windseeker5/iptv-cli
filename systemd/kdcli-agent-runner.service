@@ -1,5 +1,5 @@
 [Unit]
-Description=Pépère: OMT agent runner (KD CLI toolbox + Claude Code)
+Description=JP: OMT agent runner (KD CLI toolbox + Claude Code)
 After=network-online.target docker.service
 
 [Service]

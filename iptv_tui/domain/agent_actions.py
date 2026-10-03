@@ -24,9 +24,9 @@ AGENT_DIR = Path(__file__).resolve().parents[2] / "data" / "agent"
 PENDING_DIR = AGENT_DIR / "pending"
 HISTORY_FILE = AGENT_DIR / "history.jsonl"
 PENDING_TTL = 30 * 60
-# What a family member may do (the owner can do everything).
-FAMILY_ACTIONS = {"create_schedule"}
-OWNER_ONLY_TOOLS = {"propose_delete_schedule", "propose_pause_schedule", "propose_start_restream", "propose_stop_restream"}
+# Family can do everything the owner can (record, delete, pause, restream).
+FAMILY_ACTIONS = {"create_schedule", "delete_schedule", "pause_schedule", "start_restream", "stop_restream"}
+OWNER_ONLY_TOOLS: set[str] = set()
 
 
 # ── look-ups ─────────────────────────────────────────────────────────────
@@ -56,7 +56,8 @@ def list_schedules() -> list[dict]:
     for s in schedules.list_schedules():
         out.append({"id": s.id, "what": s.describe(), "enabled": s.enabled, "next_run": schedules.next_run(s.id),
                     "channel_name": s.channel_name, "days": s.days, "date": s.date, "time": s.time,
-                    "duration_min": s.duration_min, "show_name": s.show_name})
+                    "duration_min": s.duration_min, "show_name": s.show_name,
+                    "created_by": getattr(s, "created_by", None)})
     return out
 
 
@@ -116,9 +117,26 @@ def propose_pause_schedule(session: str, schedule_id: str, paused: bool) -> dict
                     ("Pause: " if paused else "Resume: ") + s.describe())
 
 
-def propose_start_restream(session: str, stream_id: int, channel_name: str) -> dict:
-    return _propose(session, "start_restream", {"stream_id": int(stream_id), "channel_name": channel_name},
-                    f"Restream {channel_name} on live.dresdell.com")
+def streaming_by() -> str | None:
+    """Who started the restream that's on now (from the action log)."""
+    for h in history(200):
+        if h.get("action") in ("start_restream", "stop_restream") and h.get("ok"):
+            return h.get("user") if h["action"] == "start_restream" else None
+    return None
+
+
+def propose_start_restream(session: str, stream_id: int, channel_name: str, user: str | None = None) -> dict:
+    st = restream_status()
+    summary = f"Restream {channel_name} on live.dresdell.com"
+    if st.get("live"):
+        by = streaming_by()
+        summary = f"Replace {st.get('channel_name')}{f' (started by {by})' if by else ''} with {channel_name} on live.dresdell.com"
+    out = _propose(session, "start_restream", {"stream_id": int(stream_id), "channel_name": channel_name}, summary, user)
+    if st.get("live"):
+        out["warning"] = (f"Something is already live: {st.get('channel_name')}"
+                          + (f", started by {streaming_by()}" if streaming_by() else "")
+                          + ". Tell the user it will be replaced if they confirm.")
+    return out
 
 
 def propose_stop_restream(session: str) -> dict:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MCP server (stdio) exposing Pépère's toolbox to Claude Code.
+"""MCP server (stdio) exposing JP's toolbox to Claude Code.
 
 Started by Claude Code itself, per chat turn, from the config the agent
 runner writes (scripts/agent_runner.py). Minimal JSON-RPC over stdin/stdout,
@@ -40,7 +40,7 @@ TOOLS = {
     "propose_recording": (
         "Propose a recording. Repeating: give `days` (e.g. ['Mon','Tue','Wed','Thu']). One time: give `date` "
         "(YYYY-MM-DD) and no days. `time` is 24h local 'HH:MM'. Give `show_name` to convert to MP4 and put it "
-        "in Jellyfin as that TV show (with a Discord ping when done). Nothing happens until the owner confirms.",
+        "in Jellyfin as that TV show (with a Discord ping when done). Nothing happens until the user confirms.",
         {"stream_id": {"type": "integer"}, "channel_name": {"type": "string"}, "time": {"type": "string"},
          "duration_minutes": {"type": "integer"}, "days": DAYS, "date": {"type": "string"},
          "show_name": {"type": "string"}, "notify": {"type": "boolean"}},
@@ -56,9 +56,10 @@ TOOLS = {
         {"schedule_id": {"type": "string"}, "paused": {"type": "boolean"}}, ["schedule_id", "paused"],
         lambda a: A.propose_pause_schedule(SESSION, a["schedule_id"], a["paused"])),
     "propose_start_restream": (
-        "Propose restreaming a live channel to live.dresdell.com (replaces any current restream).",
+        "Propose restreaming a live channel to live.dresdell.com. If something is already live, the result has a "
+        "`warning`: tell the user who is streaming what, and that confirming replaces it.",
         {"stream_id": {"type": "integer"}, "channel_name": {"type": "string"}}, ["stream_id", "channel_name"],
-        lambda a: A.propose_start_restream(SESSION, a["stream_id"], a["channel_name"])),
+        lambda a: A.propose_start_restream(SESSION, a["stream_id"], a["channel_name"], USER)),
     "propose_stop_restream": (
         "Propose stopping the current restream.",
         {}, [], lambda a: A.propose_stop_restream(SESSION)),

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pépère's runner: the bridge between the OMT site and KD CLI on this host.
+"""JP's runner: the bridge between the OMT site and KD CLI on this host.
 
 Runs as the owner (systemd user service, see systemd/kdcli-agent-runner.service)
 and listens on a Unix socket (data/agent/run/runner.sock) that is mounted into
@@ -56,21 +56,45 @@ def read_token() -> str:
 def system_prompt(user: str | None, role: str) -> str:
     now = datetime.now()
     who = (f"You are talking with {user}, the owner." if role == "owner"
-           else f"You are talking with {user or 'a family member'}, family. They can ask what's on and ask for recordings; "
-                "deleting or pausing schedules and restreaming are for the owner only (say so kindly).")
-    return f"""You are Pépère, the helper on the OMT site (Old Man Tricks). The owner is a retired
-self-taught builder from Rimouski, Québec. He uses KD CLI, his own IPTV app, to record and restream TV.
+           else f"You are talking with {user or 'a family member'}, family. They can do everything: record, delete or "
+                "pause schedules, and restream.")
+    return f"""You are JP (named in honour of Jean-Paul), the helper on the OMT site (Old Man Tricks).
+The owner is a self-taught builder from Rimouski, Québec. He uses KD CLI, his own IPTV app, to record and restream TV.
 {who}
-Always reply in the same language as his latest message (French or English), short and warm, plain words, no jargon.
+Always reply in the same language as the latest message (French or English), short and warm, plain words, no jargon.
 
 Now: {now:%A %Y-%m-%d %H:%M} (local time). TV shows recorded "into Jellyfin" go to
 {schedules.tv_library_root()}/<show name>, converted to MP4, then Jellyfin rescans and Discord pings him.
 
+Your ONLY topics:
+1. What's on TV (channels, the guide, finding a game or a show).
+2. Recordings (make, list, pause, delete) and restreams to the live page.
+3. The OMT apps:
+   - KD.tv for Google TV / Android TV: install the free "Downloader" app from the Play Store on the TV,
+     type apk.dresdell.com/latest.apk, press Go, tap Install, then add your IPTV provider.
+   - KD.tv phone app (Android, casts to the TV): download from omt.dresdell.com (Apps section).
+   - KD CLI: Linux terminal app, install steps on omt.dresdell.com.
+   - The apps are free; people bring their own IPTV subscription. Other projects are listed on omt.dresdell.com.
+4. The OMT tricks: short, funny everyday phone and computer tips, coming soon on TikTok and on omt.dresdell.com.
+Anything else (sports predictions or scores, news, weather, general questions, homework, advice, chit-chat
+beyond a hello) is OFF-TOPIC. Do not answer it, not even partly or "just this once". Reply in one or two short
+sentences that you only help with TV, recordings, the OMT apps and the tricks, and offer a related thing you can do
+(e.g. "Who will win tonight?" -> you can't predict games, but you can check what channel the game is on or record it).
+
+Format (the chat shows simple markdown):
+- Short. Lead with the answer in one sentence. No preamble, no recap of the question, no "here's what I found".
+- Up to 6 items: a short bullet list ("- 19:00 · Canadiens vs Leafs · RDS"). More than 6 rows: a table with at most
+  3 short columns, then offer to show more. Never more than 10 rows.
+- Only list what was asked; drop junk entries (youth, minor, women's leagues, replays) unless asked for.
+- Bold only the key item (the channel, the time). No headings, no emojis, no closing questions longer than one line.
+
 Rules:
 - Use only your kdtv tools. Always look a channel up with find_channel and use the exact stream_id;
   if several match (HD / 2 / English), pick the obvious one or ask.
-- Actions (record, delete, pause, restream) are only PROPOSED: call the propose_* tool, then tell him to
-  check the card and tap Confirm. Never say it's done; it isn't until he confirms.
+- Actions (record, delete, pause, restream) are only PROPOSED: call the propose_* tool, then tell them to
+  check the card and tap Confirm. Never say it's done; it isn't until they confirm.
+- Only one restream can be live. If propose_start_restream returns a `warning`, say who is streaming what
+  and that Confirm will replace it.
 - Times are 24h local. "6.29" in the evening = 18:29. Days: Mon Tue Wed Thu Fri Sat Sun.
 - One-time recordings need a date (YYYY-MM-DD); "tonight"/"tomorrow" = compute from today.
 - If he wants it in Jellyfin, ask for the show name if it's not obvious.
@@ -119,7 +143,7 @@ def ask_claude(session_id: str, message: str, user: str | None = None, role: str
         out = json.loads(json_line)
     except ValueError:
         tail = (proc.stderr or proc.stdout or "").strip()[-300:]
-        return {"reply": f"Pépère couldn't answer ({tail or 'no output'}).", "ok": False}
+        return {"reply": f"JP couldn't answer ({tail or 'no output'}).", "ok": False}
     save_session(session_id)
     if out.get("is_error"):
         msg = out.get("result") or out.get("subtype") or "error"
@@ -138,7 +162,7 @@ class UnixHTTPServer(ThreadingMixIn, UnixStreamServer):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "pepere/1"
+    server_version = "jp/1"
 
     def address_string(self):  # Unix sockets have no client address
         return "omt"
@@ -208,7 +232,7 @@ def main():
     SOCKET_PATH.unlink(missing_ok=True)
     srv = UnixHTTPServer(str(SOCKET_PATH), Handler)
     os.chmod(SOCKET_PATH, 0o660)
-    print(f"Pépère runner on {SOCKET_PATH}", file=sys.stderr)
+    print(f"JP runner on {SOCKET_PATH}", file=sys.stderr)
     srv.serve_forever()
 
 
