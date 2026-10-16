@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from iptv_tui.domain import agent_actions as A, agent_eyes as E  # noqa: E402
+from iptv_tui.domain import agent_actions as A, agent_eyes as E, maxime as M  # noqa: E402
 
 SESSION = os.environ.get("AGENT_SESSION", "")
 USER = os.environ.get("AGENT_USER") or None
@@ -22,18 +22,27 @@ DAYS = {"type": "array", "items": {"type": "string", "enum": ["Mon", "Tue", "Wed
 TOOLS = {
     "find_channel": (
         "Search live TV channels by name (e.g. 'noovo', 'tva sports', 'rds'). Returns stream_id, full name, "
-        "category, and list_age_minutes (how old the saved channel list is).",
+        "category, list_age_minutes and guide_age_minutes (how old the saved channel list and guide are; background "
+        "jobs refresh the list every hour and the guide twice a day).",
         {"query": {"type": "string"}}, ["query"],
         lambda a: A.find_channel(a["query"])),
     "refresh_channels": (
-        "Download the provider's current channel list right now (about 5 s). Set include_guide=true to also "
-        "download the full TV guide (about 25 s more). Safe: it changes no recording or restream, no Confirm needed.",
+        "Download the provider's current channel list right now (about 5 s). Rarely needed: it is refreshed every hour "
+        "in the background. Set include_guide=true to also download the full TV guide (about 25 s more; it is "
+        "refreshed twice a day in the background). Safe: it changes no recording or restream, no Confirm needed.",
         {"include_guide": {"type": "boolean"}}, [],
         lambda a: A.refresh_channels(bool(a.get("include_guide")))),
     "whats_on": (
         "What's on a channel now and next (guide), by stream_id.",
         {"stream_id": {"type": "integer"}, "channel_name": {"type": "string"}}, ["stream_id"],
         lambda a: A.whats_on(a["stream_id"], a.get("channel_name"))),
+    "maxime_games": (
+        "Maxime's hockey games (UMass Minutemen): the next games with local time, home/away, opponent, TV network, "
+        "and for games in the next 3 days the channels WE have for it (ESPN+ event channels, guide matches) with "
+        "stream_id; plus the latest results and the team record. Official schedule, refreshed every morning. Use it "
+        "for ANY question about Maxime/Max/UMass games, before find_channel.",
+        {"upcoming": {"type": "integer"}, "past": {"type": "integer"}}, [],
+        lambda a: M.games(a.get("upcoming", 3), a.get("past", 1))),
     "list_schedules": (
         "List the recording schedules (once or repeating) with their next run.",
         {}, [], lambda a: A.list_schedules()),

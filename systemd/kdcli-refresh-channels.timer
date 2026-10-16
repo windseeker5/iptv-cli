@@ -1,8 +1,8 @@
 [Unit]
-Description=KD CLI: refresh the channel list every 3 hours (event channels appear a few hours before a game)
+Description=KD CLI: refresh the channel list every hour (event channels appear a few hours before a game)
 
 [Timer]
-OnCalendar=*-*-* 00/3:05:00
+OnCalendar=*-*-* *:05:00
 Persistent=true
 RandomizedDelaySec=2min
 

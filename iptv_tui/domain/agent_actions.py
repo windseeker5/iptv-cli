@@ -40,7 +40,8 @@ def find_channel(query: str) -> dict:
     rows = iptv_provider.search_live_channels(query, limit=8)
     return {"channels": [{"stream_id": r["stream_id"], "name": r["name"], "category": r.get("category_name")}
                          for r in rows],
-            "list_age_minutes": tv_refresh.age_minutes("channels")}
+            "list_age_minutes": tv_refresh.age_minutes("channels"),
+            "guide_age_minutes": tv_refresh.age_minutes("guide")}
 
 
 def refresh_channels(include_guide: bool = False) -> dict:
