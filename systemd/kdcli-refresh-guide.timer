@@ -1,0 +1,11 @@
+[Unit]
+Description=KD CLI: refresh the full TV guide twice a day
+
+[Timer]
+OnCalendar=*-*-* 05:30:00
+OnCalendar=*-*-* 14:30:00
+Persistent=true
+RandomizedDelaySec=2min
+
+[Install]
+WantedBy=timers.target

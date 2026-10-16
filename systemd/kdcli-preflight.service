@@ -1,0 +1,9 @@
+[Unit]
+Description=KD CLI: pre-flight check before scheduled recordings (Discord only when something is wrong)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Documents/DEV/kdtv/cli
+ExecStart=%h/Documents/DEV/kdtv/cli/venv/bin/python %h/Documents/DEV/kdtv/cli/scripts/preflight.py
+TimeoutStartSec=3min

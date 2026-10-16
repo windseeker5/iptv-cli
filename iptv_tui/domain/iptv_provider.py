@@ -351,15 +351,32 @@ def _parse_xmltv_time(text: str) -> int:
     return int(dt.timestamp())
 
 
-def epg_last_update_time() -> int:
-    """Return the latest cached_at timestamp from the epg table, or 0."""
+def _refresh_file():
+    return db.data_dir() / "cache" / "refresh.json"
+
+
+def last_refresh() -> dict:
+    """When the channel list and the full guide were last downloaded: {"channels": ts, "guide": ts}."""
     try:
-        with db.connection() as conn:
-            cursor = conn.cursor()
-            row = cursor.execute("SELECT MAX(cached_at) FROM epg").fetchone()
-            return row[0] or 0
-    except Exception:
-        return 0
+        return json.loads(_refresh_file().read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _mark_refreshed(kind: str) -> None:
+    data = last_refresh()
+    data[kind] = int(time.time())
+    path = _refresh_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data))
+
+
+def epg_last_update_time() -> int:
+    """When the full guide was last downloaded, or 0.
+
+    Not MAX(cached_at) from the epg table: every single-channel lookup re-caches
+    that channel with the current time, which made a stale guide look fresh."""
+    return int(last_refresh().get("guide", 0))
 
 
 def download_full_epg(force: bool = False) -> dict:
@@ -493,6 +510,7 @@ def download_full_epg(force: bool = False) -> dict:
             "channels_updated": len(channels_updated),
         }
 
+    _mark_refreshed("guide")
     return {
         "success": True,
         "message": f"EPG updated: {len(channels_updated)} channels, {len(rows)} programmes",
@@ -694,6 +712,8 @@ def download_database(
     except Exception as exc:
         return {"success": False, "message": f"Database write failed: {exc}"}
 
+    if "live_streams" in components:
+        _mark_refreshed("channels")
     counts = {
         "live": len(data.get("live_streams", []) or []),
         "vod": len(data.get("vod_streams", []) or []),

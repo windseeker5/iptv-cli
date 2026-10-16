@@ -47,6 +47,8 @@ class Config:
     JELLYFIN_HTTPS_PORT: str = os.getenv("JELLYFIN_HTTPS_PORT", "8920")
     JELLYFIN_USERNAME: str = os.getenv("JELLYFIN_USERNAME", "")
     JELLYFIN_PASSWORD: str = os.getenv("JELLYFIN_PASSWORD", "")
+    # Preferred over username/password: survives password changes.
+    JELLYFIN_API_KEY: str = os.getenv("JELLYFIN_API_KEY", "")
 
     # Nightly NOOVO recording automation
     NOOVO_LIBRARY_DIR: str = os.getenv(

@@ -26,13 +26,30 @@ HISTORY_FILE = AGENT_DIR / "history.jsonl"
 PENDING_TTL = 30 * 60
 # Family can do everything the owner can (record, delete, pause, restream).
 FAMILY_ACTIONS = {"create_schedule", "delete_schedule", "pause_schedule", "start_restream", "stop_restream"}
-OWNER_ONLY_TOOLS: set[str] = set()
+# The owner's extra eyes (read-only, see agent_eyes.py) and the fixes that need his Confirm.
+OWNER_ONLY_TOOLS: set[str] = {
+    "recent_runs", "run_report", "check_file", "probe_provider", "probe_stream", "system_health",
+    "read_log", "search_source", "read_source", "propose_retry_run", "propose_rescan_jellyfin",
+}
 
 
 # ── look-ups ─────────────────────────────────────────────────────────────
-def find_channel(query: str) -> list[dict]:
+def find_channel(query: str) -> dict:
+    """Matches plus how old the channel list is, so JP knows when to refresh first."""
+    from . import tv_refresh
     rows = iptv_provider.search_live_channels(query, limit=8)
-    return [{"stream_id": r["stream_id"], "name": r["name"], "category": r.get("category_name")} for r in rows]
+    return {"channels": [{"stream_id": r["stream_id"], "name": r["name"], "category": r.get("category_name")}
+                         for r in rows],
+            "list_age_minutes": tv_refresh.age_minutes("channels")}
+
+
+def refresh_channels(include_guide: bool = False) -> dict:
+    """Download the provider's current channel list now (about 5 s), plus the full guide
+    if asked (about 25 s more). A look-up, not an action: it changes no recording or restream."""
+    from . import tv_refresh
+    r = tv_refresh.refresh(guide=include_guide, if_older_than_min=2)
+    return {"ok": r["ok"], "channels": r.get("channels"), "guide": r.get("guide"),
+            "list_age_minutes": r["channels_age_min"], "guide_age_minutes": r["guide_age_min"]}
 
 
 def whats_on(stream_id: int, channel_name: str | None = None) -> dict:
@@ -62,6 +79,19 @@ def list_schedules() -> list[dict]:
 
 
 def recent_recordings(limit: int = 10) -> list[dict]:
+    """Latest recordings from the run diary (what actually happened, including
+    runs started by the systemd timers), falling back to the old table."""
+    from . import run_report
+    runs = run_report.recent(limit)
+    if runs:
+        out = []
+        for r in runs:
+            res = r.get("result") or {}
+            out.append({"id": r["run_id"], "channel_name": r.get("channel_name"), "start_time": r.get("started_at"),
+                        "planned": run_report.format_seconds(r.get("planned_seconds")),
+                        "recorded": run_report.format_seconds(res.get("final_seconds") or res.get("captured_seconds")),
+                        "status": r.get("status"), "problems": r.get("problems") or []})
+        return out
     rows = recordings.list_recordings(limit=limit) or []
     keep = ("id", "channel_name", "start_time", "duration_seconds", "status", "output_path")
     return [{k: r.get(k) for k in keep if k in r} for r in rows]
@@ -115,6 +145,41 @@ def propose_pause_schedule(session: str, schedule_id: str, paused: bool) -> dict
         return {"error": f"no schedule {schedule_id}"}
     return _propose(session, "pause_schedule", {"schedule_id": schedule_id, "paused": bool(paused)},
                     ("Pause: " if paused else "Resume: ") + s.describe())
+
+
+def propose_retry_run(session: str, run_id: str, user: str | None = None) -> dict:
+    """Rebuild a library episode from the recording pieces still on disk."""
+    from datetime import date as _date
+    from . import recording_pipeline, run_report
+    d = run_report.load(run_id) if run_id.replace("-", "").replace("_", "").replace(".", "").isalnum() else None
+    if not d:
+        return {"error": f"no recording report named {run_id}"}
+    show = d.get("show_name")
+    if not show:
+        return {"error": "that recording was not meant for the Jellyfin library, so there is nothing to rebuild"}
+    placed = (d.get("result") or {}).get("episode_path")
+    if placed and Path(placed).exists():
+        return {"error": f"an episode was already placed ({Path(placed).name}); nothing to rebuild"}
+    segs = recording_pipeline.find_segments(d.get("output") or "")
+    if not segs:
+        return {"error": "the recording pieces are no longer on disk, so it cannot be rebuilt"}
+    air = (d.get("started_at") or "")[:10]
+    try:
+        _date.fromisoformat(air)
+    except ValueError:
+        return {"error": "the report has no valid start date"}
+    existing = list((Path(schedules.tv_library_root()) / show).glob(f"Season */* - {air}.mp4"))
+    if existing:
+        return {"error": f"the library already has an episode for {air} ({existing[0].name}); "
+                         "say so and ask before adding a second one"}
+    total = sum(recording_pipeline.media_seconds(s) or 0 for s in segs)
+    summary = (f"Rebuild “{show}” of {air} from {len(segs)} saved piece(s) "
+               f"({run_report.format_seconds(total)} of footage) and add it to Jellyfin")
+    return _propose(session, "retry_run", {"run_id": run_id}, summary, user)
+
+
+def propose_rescan_jellyfin(session: str, user: str | None = None) -> dict:
+    return _propose(session, "rescan_jellyfin", {}, "Ask Jellyfin to rescan its library now", user)
 
 
 def streaming_by() -> str | None:
@@ -211,6 +276,12 @@ def execute(pending_id: str, user: str | None = None, role: str = "family") -> d
             r = restream.start_restream(item_)
             result = {"ok": bool(r.get("success")),
                       "message": "Live on live.dresdell.com in a few seconds." if r.get("success") else r.get("message", "Failed")}
+        elif kind == "retry_run":
+            result = _start_retry(a["run_id"])
+        elif kind == "rescan_jellyfin":
+            from . import recording_pipeline
+            ok, why = recording_pipeline.scan_library()
+            result = {"ok": ok, "message": "Jellyfin is rescanning its library." if ok else f"Could not rescan: {why}"}
         elif kind == "stop_restream":
             r = restream.stop_restream()
             result = {"ok": True, "message": "Restream stopped."}
@@ -220,6 +291,20 @@ def execute(pending_id: str, user: str | None = None, role: str = "family") -> d
         result = {"ok": False, "message": f"{type(exc).__name__}: {exc}"}
     _log({"action": kind, "summary": item.get("summary"), "ok": result["ok"], "message": result["message"], "user": user})
     return result
+
+
+def _start_retry(run_id: str) -> dict:
+    """Run the rebuild as its own process (it can take a minute or two) and
+    report on Discord when finished."""
+    import subprocess
+    import sys
+    root = Path(__file__).resolve().parents[2]
+    log_dir = root / "data" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    with open(log_dir / f"retry_{run_id}.log", "ab") as log:
+        subprocess.Popen([sys.executable, str(root / "scripts" / "retry_postprocess.py"), run_id],
+                         cwd=root, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    return {"ok": True, "message": "Started. It takes a minute or two, and Discord will ping when it's done."}
 
 
 def history(limit: int = 20) -> list[dict]:

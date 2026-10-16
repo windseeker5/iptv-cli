@@ -23,6 +23,8 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from iptv_tui.domain import run_report  # noqa: E402
+
 # Setup logging
 LOG_DIR = Path(__file__).parent.parent / "data" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -58,20 +60,26 @@ def load_credentials():
     return server, username, password, records_path
 
 
-def notify_discord(message: str) -> None:
-    """Post a message to DISCORD_WEBHOOK_URL from .env; never fails the recording."""
+def notify_discord(message: str) -> bool:
+    """Post a message to DISCORD_WEBHOOK_URL from .env; never fails the recording.
+
+    Returns True when Discord accepted the message.
+    """
     webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
     if not webhook_url:
-        return
+        logger.warning("Discord notification skipped: DISCORD_WEBHOOK_URL is not set")
+        return False
     try:
         import requests
 
-        resp = requests.post(webhook_url, json={"content": message}, timeout=20)
+        resp = requests.post(webhook_url, json={"content": message[:1900]}, timeout=20)
         resp.raise_for_status()
         logger.info("Discord notification sent")
+        return True
     except Exception as exc:
         # The exception text can include the webhook URL, which is a secret.
         logger.error(f"Discord notification failed: {type(exc).__name__}")
+        return False
 
 
 def generate_stream_url(server: str, username: str, password: str, stream_id: int) -> str:
@@ -83,7 +91,7 @@ RETRY_DELAY_SECONDS = 30
 MIN_USEFUL_SECONDS = 60
 
 
-def record_stream(stream_url: str, output_path: str, duration: int, channel_name: str = None):
+def record_stream(stream_url: str, output_path: str, duration: int, channel_name: str = None, report=None):
     """Record a stream, retrying until the intended end time.
 
     The provider refuses new connections with HTTP 458 when the account's
@@ -96,6 +104,7 @@ def record_stream(stream_url: str, output_path: str, duration: int, channel_name
         output_path: Path to save the recording
         duration: Duration in seconds
         channel_name: Optional channel name for metadata
+        report: Optional RunReport; gets one entry per attempt and dropout
     """
     output_dir = Path(output_path).parent
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -122,8 +131,21 @@ def record_stream(stream_url: str, output_path: str, duration: int, channel_name
                 f"Retry {attempt - 1}: {remaining}s of the window left, recording to {target}"
             )
 
-        ok, wrote_bytes = _record_once(stream_url, target, remaining, channel_name)
+        ok, wrote_bytes, info = _record_once(stream_url, target, remaining, channel_name)
         captured_any = captured_any or wrote_bytes
+        if report is not None:
+            size_mb = Path(target).stat().st_size / (1024 * 1024) if Path(target).exists() else 0
+            report.attempt(attempt, target, remaining, info["elapsed"], size_mb, ok, wrote_bytes, info["error"])
+            # A real dropout always gets a line; repeated empty attempts (a busy
+            # provider can mean hundreds) only the first few.
+            if not ok and (wrote_bytes or attempt <= 3):
+                reason = info["error"] or "no reason given"
+                if wrote_bytes:
+                    text = (f"provider dropout after {run_report.format_seconds(info['elapsed'])} "
+                            f"of footage ({reason}); retrying")
+                else:
+                    text = f"attempt {attempt} got no data from the provider ({reason}); retrying"
+                report.event("recording", run_report.WARNING, text)
         if ok:
             return True
 
@@ -136,8 +158,26 @@ def record_stream(stream_url: str, output_path: str, duration: int, channel_name
         time.sleep(min(RETRY_DELAY_SECONDS, max(0, remaining - MIN_USEFUL_SECONDS)))
 
 
+PROGRESS_LOG_SECONDS = 60
+
+
+def _file_seconds(path: str) -> float:
+    """Footage length of a capture via ffprobe; 0 when unreadable."""
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+            capture_output=True, text=True, timeout=60)
+        return float(out.stdout.strip().splitlines()[-1])
+    except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
+        return 0.0
+
+
 def _record_once(stream_url: str, output_path: str, duration: int, channel_name: str = None):
-    """Run one FFmpeg capture. Returns (success, wrote_any_bytes)."""
+    """Run one FFmpeg capture. Returns (success, wrote_any_bytes, info).
+
+    info = {"elapsed": seconds the capture ran, "error": last error line or None}.
+    """
+    info = {"elapsed": 0.0, "error": None}
 
     # Build FFmpeg command with reconnect options for reliability
     cmd = [
@@ -183,24 +223,42 @@ def _record_once(stream_url: str, output_path: str, duration: int, channel_name:
 
         threading.Thread(target=stop_if_stalled, daemon=True).start()
 
-        # Log FFmpeg output
+        # Log FFmpeg output. Progress lines arrive twice a second; keep one a
+        # minute so the journal stays readable.
+        last_progress = 0.0
         for line in process.stdout:
             line = line.strip().replace(stream_url, "<provider-url>")
             if line:
+                lowered = line.lower()
                 important = [
                     "error", "warning", "time=", "size=", "eof", "connection",
                     "reconnect", "invalid", "failed", "timed out", "http",
                 ]
-                if any(text in line.lower() for text in important):
+                if any(text in lowered for text in important):
+                    decoder_noise = "[h264" in lowered or "[aac" in lowered or "decoding" in lowered
+                    if not decoder_noise and ("error" in lowered or "failed" in lowered or "timed out" in lowered):
+                        info["error"] = line
+                    is_progress = "time=" in lowered and "size=" in lowered and "error" not in lowered
+                    if is_progress and "lsize=" not in lowered:
+                        now = time.monotonic()
+                        if now - last_progress < PROGRESS_LOG_SECONDS:
+                            continue
+                        last_progress = now
                     logger.info(f"FFmpeg: {line}")
 
         process.wait()
 
+        # A live stream sends a burst at the start, so footage can be longer
+        # than the wall-clock time it took. Judge by whichever is larger.
         elapsed = time.monotonic() - started_at
+        if Path(output_path).exists():
+            elapsed = max(elapsed, _file_seconds(output_path))
+        info["elapsed"] = elapsed
         if process.returncode == 0:
             if not Path(output_path).exists() or Path(output_path).stat().st_size == 0:
                 logger.error("FFmpeg exited successfully but produced no recording")
-                return False, False
+                info["error"] = info["error"] or "ffmpeg produced no recording"
+                return False, False, info
 
             size_mb = Path(output_path).stat().st_size / (1024 * 1024)
             logger.info(f"Output file size: {size_mb:.2f} MB")
@@ -210,21 +268,25 @@ def _record_once(stream_url: str, output_path: str, duration: int, channel_name:
                     elapsed,
                     duration,
                 )
-                return False, True
+                info["error"] = info["error"] or f"ended early after {elapsed:.0f}s"
+                return False, True, info
 
             logger.info("Recording completed successfully!")
-            return True, True
+            return True, True, info
         else:
             logger.error(f"FFmpeg exited with code {process.returncode}")
             wrote = Path(output_path).exists() and Path(output_path).stat().st_size > 0
-            return False, wrote
+            info["error"] = info["error"] or f"ffmpeg exit code {process.returncode}"
+            return False, wrote, info
 
     except FileNotFoundError:
         logger.error("FFmpeg not found. Please install FFmpeg.")
-        return False, False
+        info["error"] = "ffmpeg not installed"
+        return False, False, info
     except Exception as e:
         logger.error(f"Recording failed: {e}")
-        return False, False
+        info["error"] = f"{type(e).__name__}: {e}"
+        return False, False, info
 
 
 def update_recording_status(recording_id: int, status: str):
@@ -337,6 +399,20 @@ Examples:
     if args.channel_name:
         logger.info(f"Channel: {args.channel_name}")
 
+    # Start the diary for this run.
+    report = run_report.RunReport(
+        Path(args.output).stem,
+        channel_name=args.channel_name,
+        stream_id=args.stream_id,
+        planned_seconds=args.duration,
+        output=args.output,
+        show_name=args.postprocess_show_name if args.postprocess_library_dir else None,
+    )
+    report.event("start", run_report.OK,
+                 f"recording started: {args.channel_name or 'stream'}, "
+                 f"{run_report.format_seconds(args.duration)} planned")
+    _note_fallback_drive(report, args.output)
+
     # Update status before setup so the UI shows that the timer fired.
     if args.recording_id:
         update_recording_status(args.recording_id, "recording")
@@ -347,6 +423,8 @@ Examples:
         logger.error(str(exc))
         if args.recording_id:
             update_recording_status(args.recording_id, "failed")
+        report.event("start", run_report.FAILED, f"could not load the provider login: {exc}")
+        _finish_and_notify(report, args, library=False)
         sys.exit(1)
     stream_url = generate_stream_url(server, username, password, args.stream_id)
 
@@ -355,7 +433,8 @@ Examples:
         stream_url=stream_url,
         output_path=args.output,
         duration=args.duration,
-        channel_name=args.channel_name
+        channel_name=args.channel_name,
+        report=report,
     )
 
     # Update final status
@@ -366,8 +445,25 @@ Examples:
     logger.info(f"Recording {'COMPLETED' if success else 'FAILED'}")
     logger.info("=" * 60)
 
-    if success and args.postprocess_library_dir:
-        logger.info("Post-processing: starting remux + Jellyfin placement")
+    attempts = report.data["attempts"]
+    captured = sum(a["captured_seconds"] for a in attempts)
+    dropouts = sum(1 for a in attempts if not a["ok"] and a["wrote_data"])
+    report.set_result(captured_seconds=captured, dropouts=dropouts, pieces=sum(1 for a in attempts if a["wrote_data"]))
+    if success:
+        report.event("recording", run_report.OK,
+                     f"captured {run_report.format_seconds(captured)} in {len(attempts)} attempt(s), "
+                     f"{dropouts} provider dropout(s)")
+    else:
+        last_error = next((a["error"] for a in reversed(attempts) if a.get("error")), None)
+        report.event("recording", run_report.FAILED,
+                     (f"recording failed: captured {run_report.format_seconds(captured)} of "
+                      f"{run_report.format_seconds(args.duration)} planned"
+                      if captured else "recording failed: nothing was captured")
+                     + (f" (last error: {last_error}; {len(attempts)} attempts)" if last_error else ""))
+
+    library = bool(args.postprocess_library_dir)
+    if success and library:
+        logger.info("Post-processing: starting convert + join + Jellyfin placement")
         try:
             from iptv_tui.domain import recording_pipeline
 
@@ -375,24 +471,92 @@ Examples:
                 args.output,
                 show_dir=args.postprocess_library_dir,
                 show_name=args.postprocess_show_name,
+                report=report,
+                planned_seconds=args.duration,
             )
             logger.info(f"Post-processing result: {pipeline_result}")
-            steps = [pipeline_result.get(k) or {} for k in ("remux", "placement", "jellyfin_scan")]
-            if all(step.get("success") for step in steps):
-                episode = Path(pipeline_result["placement"]["path"]).stem
-                notify_discord(
-                    f"✅ Recorded and added to Jellyfin: **{episode}** "
-                    f"({args.channel_name or 'stream'}, {args.duration // 60} min)"
-                )
+            placement = pipeline_result.get("placement") or {}
+            length = pipeline_result.get("length") or {}
+            report.set_result(
+                episode_path=placement.get("path"),
+                final_seconds=length.get("actual_seconds"),
+            )
         except Exception as exc:
             logger.error(f"Post-processing failed: {exc}")
-    elif args.notify_discord:
-        notify_discord(
-            f"{'✅ Recorded' if success else '❌ Recording failed'}: "
-            f"**{args.channel_name or 'stream'}** ({args.duration // 60} min) → {Path(args.output).name}"
-        )
+            report.event("postprocess", run_report.FAILED,
+                         f"post-processing crashed: {type(exc).__name__}: {exc}")
+    elif success:
+        # No library step: still say how much footage the pieces hold.
+        try:
+            from iptv_tui.domain import recording_pipeline
 
-    sys.exit(0 if success else 1)
+            actual = sum(recording_pipeline.media_seconds(seg) or 0
+                         for seg in recording_pipeline.find_segments(args.output))
+            ratio = actual / args.duration if args.duration else 1
+            status = (run_report.OK if ratio >= recording_pipeline.LENGTH_OK
+                      else run_report.WARNING if ratio >= recording_pipeline.LENGTH_FAILED
+                      else run_report.FAILED)
+            report.set_result(final_seconds=actual)
+            report.event("length", status,
+                         f"{run_report.format_seconds(actual)} recorded of "
+                         f"{run_report.format_seconds(args.duration)} planned ({ratio:.0%})")
+        except Exception as exc:
+            logger.warning(f"Length check failed: {type(exc).__name__}: {exc}")
+
+    _finish_and_notify(report, args, library=library)
+    sys.exit(1 if report.status == run_report.FAILED else 0)
+
+
+def _note_fallback_drive(report, output: str) -> None:
+    """Warn in the diary when the backup drive was not usable."""
+    try:
+        from iptv_tui.domain import recordings
+
+        if Path(output).resolve().parent == Path(recordings.FALLBACK_RECORDS_PATH).resolve():
+            report.event("drive", run_report.WARNING,
+                         "the backup drive is not writable; recorded to the local fallback folder instead")
+    except Exception as exc:
+        logger.warning(f"Drive check skipped: {type(exc).__name__}")
+
+
+def _finish_and_notify(report, args, library: bool) -> None:
+    """Close the diary and tell Discord how it went.
+
+    Successes ping when the schedule asked for a ping (or fills a library);
+    warnings and failures always ping so a problem is never silent.
+    """
+    status = report.status
+    name = args.channel_name or "stream"
+    result = report.data["result"]
+    problems = report.problems()
+    run_id = report.data["run_id"]
+    actual = result.get("final_seconds") or result.get("captured_seconds")
+    planned = run_report.format_seconds(args.duration)
+    dropouts = result.get("dropouts") or 0
+    dropout_note = f", {dropouts} dropout(s) repaired" if dropouts else ""
+
+    if status == run_report.OK:
+        if library and result.get("episode_path"):
+            message = (f"✅ Recorded and added to Jellyfin: **{Path(result['episode_path']).stem}** "
+                       f"({name}, {run_report.format_seconds(actual)} of {planned}{dropout_note})")
+        else:
+            message = (f"✅ Recorded: **{name}** ({run_report.format_seconds(actual)} of {planned}"
+                       f"{dropout_note}) → {Path(args.output).name}")
+        should_send = library or args.notify_discord
+    elif status == run_report.WARNING:
+        message = f"⚠️ **{name}** recorded with problems: " + "; ".join(problems[:3]) + f" (run {run_id})"
+        should_send = True
+    else:
+        failed = [e["message"] for e in report.data["events"] if e["status"] == run_report.FAILED]
+        message = f"❌ **{name}** failed: " + (failed[0] if failed else "unknown problem") + f" (run {run_id})"
+        should_send = True
+
+    if should_send:
+        sent = notify_discord(message)
+        report.set_result(discord_sent=sent)
+        if not sent:
+            report.event("discord", run_report.WARNING, "the Discord message could not be delivered")
+    report.finish()
 
 
 if __name__ == "__main__":
