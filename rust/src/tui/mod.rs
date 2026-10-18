@@ -1,15 +1,24 @@
-//! The full-screen interface: search first, four tabs.
+//! The full-screen interface, laid out like design option B:
 //!
-//! Watch (live, movies, series) · Record (now, scheduled, recent) · Library
-//! (downloads, files) · Status. Slow work (starting a recording, a restream,
-//! fetching episodes) runs on a background thread so the screen never freezes.
+//! ```text
+//! ╭ sidebar ╮╭ list ─────────────────╮╭ details ───────╮
+//! │ Live    ││ what's in the section ││ the selection  │
+//! │ Movies  ││                       ││ and its        │
+//! │ …       ││                       ││ actions        │
+//! ╰─────────╯╰───────────────────────╯╰────────────────╯
+//!  REC …  │  ↓ download  │  message            keys
+//! ```
 //!
-//! Global keys: `/` search, 1-4 or Tab switch tabs, ctrl+r refresh, q quit.
+//! ↑↓ move, → or ↵ go into the list, ← or esc go back, Tab switches panel,
+//! 1-6 jump to a section, `/` search, `?` all keys, q quit. Slow work runs on a
+//! background thread so the screen never freezes.
 
 mod library;
 mod modal;
 mod record;
+mod sidebar;
 mod status;
+mod theme;
 mod watch;
 
 use crate::config::Config;
@@ -19,30 +28,34 @@ use anyhow::Result;
 use modal::{Action, Modal};
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Margin, Rect};
-use ratatui::style::{Color, Modifier, Style, Stylize};
+use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{HighlightSpacing, List, ListItem, ListState};
+use ratatui::widgets::{Block, HighlightSpacing, List, ListItem, ListState};
 use ratatui::{DefaultTerminal, Frame};
 use serde_json::json;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::{Duration, Instant};
+use theme::*;
 
-pub const ACCENT: Color = Color::Cyan;
-pub const DIM: Color = Color::DarkGray;
-pub const OK: Color = Color::Green;
-pub const WARN: Color = Color::Yellow;
-pub const BAD: Color = Color::Red;
 const REFRESH_EVERY: Duration = Duration::from_secs(30);
 
-#[derive(Clone, Copy, PartialEq)]
-enum Tab {
-    Watch,
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Section {
+    Live,
+    Movies,
+    Series,
     Record,
     Library,
     Status,
 }
 
-const TABS: [(Tab, &str); 4] = [(Tab::Watch, "Watch"), (Tab::Record, "Record"), (Tab::Library, "Library"), (Tab::Status, "Status")];
+const SECTIONS: [Section; 6] = [Section::Live, Section::Movies, Section::Series, Section::Record, Section::Library, Section::Status];
+
+#[derive(Clone, Copy, PartialEq)]
+enum Focus {
+    Sidebar,
+    List,
+}
 
 /// What a background task hands back to the screen (errors already redacted).
 type TaskResult = Result<Done, String>;
@@ -55,7 +68,8 @@ enum Done {
 struct App {
     cfg: Config,
     db: Db,
-    tab: Tab,
+    section: Section,
+    focus: Focus,
     watch: watch::Watch,
     record_list: ListState,
     library_list: ListState,
@@ -64,8 +78,9 @@ struct App {
     runs: Vec<runs::Run>,
     jobs: Vec<downloads::Job>,
     media: Vec<media::Media>,
+    favorites: usize,
     refreshed: Instant,
-    message: Option<(String, Color)>,
+    message: Option<(String, Color, Instant)>,
     modal: Option<Modal>,
     tasks: (Sender<TaskResult>, Receiver<TaskResult>),
     running: usize,
@@ -86,13 +101,15 @@ impl App {
         let mut app = App {
             status: st::collect(&cfg, Some(&db)),
             schedules: schedules::list(&cfg.data_dir),
-            runs: runs::recent(&cfg.data_dir, 8),
+            runs: runs::recent(&cfg.data_dir, 12),
             jobs: downloads::list(&cfg),
-            media: vec![],
+            media: media::list(&cfg),
+            favorites: crate::favorites::live(&cfg.data_dir).len(),
             watch: watch::Watch::default(),
             cfg,
             db,
-            tab: Tab::Watch,
+            section: Section::Live,
+            focus: Focus::List,
             record_list: ListState::default().with_selected(Some(0)),
             library_list: ListState::default().with_selected(Some(0)),
             refreshed: Instant::now(),
@@ -102,7 +119,6 @@ impl App {
             running: 0,
             quit: false,
         };
-        app.media = media::list(&app.cfg);
         app.watch.reset(&app.db, &app.cfg);
         app
     }
@@ -110,11 +126,8 @@ impl App {
     fn event_loop(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         while !self.quit {
             terminal.draw(|f| self.draw(f))?;
-            let wait = if self.running > 0 || self.jobs_active() {
-                Duration::from_millis(250)
-            } else {
-                REFRESH_EVERY.saturating_sub(self.refreshed.elapsed())
-            };
+            let busy = self.running > 0 || self.jobs.iter().any(|j| j.state == downloads::State::Downloading);
+            let wait = if busy { Duration::from_millis(250) } else { REFRESH_EVERY.saturating_sub(self.refreshed.elapsed()).min(Duration::from_secs(5)) };
             if event::poll(wait)? {
                 if let Event::Key(key) = event::read()?
                     && key.kind == KeyEventKind::Press
@@ -123,7 +136,7 @@ impl App {
                 }
             } else if self.refreshed.elapsed() >= REFRESH_EVERY {
                 self.refresh();
-            } else if self.jobs_active() {
+            } else if busy {
                 self.jobs = downloads::list(&self.cfg);
             }
             self.collect_tasks();
@@ -131,22 +144,22 @@ impl App {
         Ok(())
     }
 
-    fn jobs_active(&self) -> bool {
-        self.jobs.iter().any(|j| matches!(j.state, downloads::State::Downloading))
-    }
-
     fn refresh(&mut self) {
         self.status = st::collect(&self.cfg, Some(&self.db));
         self.schedules = schedules::list(&self.cfg.data_dir);
-        self.runs = runs::recent(&self.cfg.data_dir, 8);
+        self.runs = runs::recent(&self.cfg.data_dir, 12);
         self.jobs = downloads::list(&self.cfg);
         self.media = media::list(&self.cfg);
         self.refreshed = Instant::now();
-        self.watch.load_guide(&self.db);
+        self.watch.refresh_now(&self.db);
     }
 
     fn say(&mut self, text: impl Into<String>, color: Color) {
-        self.message = Some((text.into(), color));
+        self.message = Some((text.into(), color, Instant::now()));
+    }
+
+    fn fail(&mut self, text: impl Into<String>) {
+        self.modal = Some(Modal::message("That didn't work", text.into(), BAD));
     }
 
     // ── background work ──────────────────────────────────────────────────
@@ -171,7 +184,7 @@ impl App {
                 Ok(Done::Episodes { series_id, episodes }) => self.watch.episodes_loaded(series_id, episodes),
                 Err(e) => {
                     self.watch.episodes_failed();
-                    self.say(e, BAD)
+                    self.fail(e);
                 }
             }
         }
@@ -182,8 +195,8 @@ impl App {
 
     // ── actions ──────────────────────────────────────────────────────────
 
-    /// Run what the user picked. Anything that needs the provider connection while a
-    /// recording holds it asks first (`confirmed` is true once they said yes).
+    /// Run what the user picked. Anything that needs the provider connection while
+    /// something else holds it asks first (`confirmed` is true once they said yes).
     fn perform(&mut self, action: Action, confirmed: bool) {
         self.status = st::collect(&self.cfg, Some(&self.db));
         if !confirmed && let Some(question) = self.needs_confirmation(&action) {
@@ -194,17 +207,17 @@ impl App {
             Action::PlayLive(c) => self.play(&c.name, play::Target::Live(c.stream_id)),
             Action::PlayMovie(m) => match self.db.movie_url(m.stream_id) {
                 Ok(Some(url)) => self.play(&m.name, play::Target::Url(&url)),
-                _ => self.say("The provider no longer lists this movie.", BAD),
+                _ => self.fail("The provider no longer lists this movie."),
             },
             Action::PlayEpisode { series, episode } => match self.db.episode_url(&episode.episode_id) {
                 Ok(Some(url)) => {
                     let title = format!("{series} S{:02}E{:02} {}", episode.season, episode.episode_num, episode.title);
                     self.play(&title, play::Target::Url(&url))
                 }
-                _ => self.say("The provider no longer lists this episode.", BAD),
+                _ => self.fail("The provider no longer lists this episode."),
             },
             Action::PlayFile(m) => self.play(&m.name, play::Target::File(&m.path)),
-            Action::RecordMenu(c) => self.modal = Some(Modal::record_menu(&c, &self.watch.guide)),
+            Action::RecordMenu(c) => self.modal = Some(Modal::record_menu(&c, &self.watch.guide, &self.schedules)),
             Action::RecordForm(c) => self.modal = Some(Modal::record_form(c, &self.db)),
             Action::ScheduleForm(c) => self.modal = Some(Modal::schedule_form(c)),
             Action::RecordNow { channel, minutes, show } => {
@@ -213,7 +226,7 @@ impl App {
                     let req = rec::Request { stream_id: channel.stream_id, channel_name: &channel.name, minutes, show_name: show.as_deref() };
                     let started = rec::record_now(cfg, &req)?;
                     let extra = started.warning.map(|w| format!(" ({w})")).unwrap_or_default();
-                    Ok(Done::Message(format!("Recording {} for {minutes} min{extra}", channel.name)))
+                    Ok(Done::Message(format!("Recording {} for {} min{extra}", channel.name, started.minutes)))
                 });
             }
             Action::Schedule { channel, time, minutes, days, date, show } => self.spawn(move |cfg| {
@@ -234,7 +247,7 @@ impl App {
             }),
             Action::StopRecording(unit) => self.spawn(move |cfg| {
                 rec::stop(cfg, &unit)?;
-                Ok(Done::Message("Recording stopped; the file so far is kept.".into()))
+                Ok(Done::Message("Recording stopped; what was recorded is kept.".into()))
             }),
             Action::PauseSchedule { id, enabled } => self.spawn(move |cfg| {
                 let s = schedules::set_enabled(cfg, &id, enabled)?;
@@ -262,11 +275,11 @@ impl App {
             }),
             Action::DownloadMovie(m) => self.spawn(move |cfg| {
                 downloads::add_movie(cfg, &m)?;
-                Ok(Done::Message(format!("Queued {} (Library tab)", m.name)))
+                Ok(Done::Message(format!("Queued {} — see Library", m.name)))
             }),
             Action::DownloadEpisodes { series, episodes } => self.spawn(move |cfg| {
                 let jobs = downloads::add_episodes(cfg, &series, &episodes)?;
-                Ok(Done::Message(format!("Queued {} episode(s) of {series} (Library tab)", jobs.len())))
+                Ok(Done::Message(format!("Queued {} episode(s) of {series} — see Library", jobs.len())))
             }),
             Action::CancelDownload(id) => self.spawn(move |cfg| {
                 let job = downloads::cancel(cfg, &id)?;
@@ -300,7 +313,7 @@ impl App {
     fn play(&mut self, title: &str, target: play::Target) {
         match play::play(&self.cfg, title, target) {
             Ok(()) => self.say(format!("Playing {title} in mpv"), OK),
-            Err(e) => self.say(format!("{e:#}"), BAD),
+            Err(e) => self.fail(format!("{e:#}")),
         }
     }
 
@@ -320,127 +333,209 @@ impl App {
             }
             return;
         }
-        self.message = None;
-
-        if self.tab == Tab::Watch && self.watch.typing {
+        if self.watch.typing {
             self.watch.on_typing_key(key, &self.db, &self.cfg);
             return;
         }
         match key.code {
             KeyCode::Char('q') => self.quit = true,
+            KeyCode::Char('?') => self.modal = Some(Modal::help()),
             KeyCode::Char('r') if ctrl => {
                 self.refresh();
                 self.say("Refreshed", DIM);
             }
             KeyCode::Char('/') => {
-                self.tab = Tab::Watch;
+                if !self.browsing() {
+                    self.open_section(Section::Live);
+                }
+                self.focus = Focus::List;
                 self.watch.typing = true;
             }
-            KeyCode::Char('1') => self.tab = Tab::Watch,
-            KeyCode::Char('2') => self.tab = Tab::Record,
-            KeyCode::Char('3') => self.tab = Tab::Library,
-            KeyCode::Char('4') => self.tab = Tab::Status,
-            KeyCode::Tab => self.tab = TABS[(self.tab_index() + 1) % TABS.len()].0,
-            KeyCode::BackTab => self.tab = TABS[(self.tab_index() + TABS.len() - 1) % TABS.len()].0,
-            _ => {
-                let action = match self.tab {
-                    Tab::Watch => self.watch.on_key(key, &self.db, &self.cfg),
-                    Tab::Record => self.record_key(key),
-                    Tab::Library => self.library_key(key),
-                    Tab::Status => None,
-                };
-                if let Some(action) = action {
-                    self.perform(action, false);
-                }
-                if let Some(series_id) = self.watch.wants_episodes.take() {
-                    self.spawn(move |cfg| Ok(Done::Episodes { series_id, episodes: crate::episodes(cfg, series_id)? }));
-                }
+            KeyCode::Char(c @ '1'..='6') => {
+                self.open_section(SECTIONS[c as usize - '1' as usize]);
+                self.focus = Focus::List;
             }
+            KeyCode::Tab | KeyCode::BackTab => {
+                self.focus = if self.focus == Focus::Sidebar { Focus::List } else { Focus::Sidebar };
+            }
+            _ if self.focus == Focus::Sidebar => self.sidebar_key(key),
+            _ => self.list_key(key),
         }
     }
 
-    fn tab_index(&self) -> usize {
-        TABS.iter().position(|(t, _)| *t == self.tab).unwrap_or(0)
+    fn sidebar_key(&mut self, key: KeyEvent) {
+        let at = SECTIONS.iter().position(|s| *s == self.section).unwrap_or(0);
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => self.open_section(SECTIONS[(at + SECTIONS.len() - 1) % SECTIONS.len()]),
+            KeyCode::Down | KeyCode::Char('j') => self.open_section(SECTIONS[(at + 1) % SECTIONS.len()]),
+            KeyCode::Right | KeyCode::Enter | KeyCode::Char('l') => self.focus = Focus::List,
+            _ => {}
+        }
+    }
+
+    fn list_key(&mut self, key: KeyEvent) {
+        let back = matches!(key.code, KeyCode::Left | KeyCode::Esc | KeyCode::Backspace | KeyCode::Char('h'));
+        let action = match self.section {
+            Section::Live | Section::Movies | Section::Series => {
+                if back {
+                    if !self.watch.back(&self.db, &self.cfg) {
+                        self.focus = Focus::Sidebar;
+                    }
+                    None
+                } else {
+                    self.watch.on_key(key, &self.db)
+                }
+            }
+            _ if back => {
+                self.focus = Focus::Sidebar;
+                None
+            }
+            Section::Record => self.record_key(key),
+            Section::Library => self.library_key(key),
+            Section::Status => None,
+        };
+        if let Some(action) = action {
+            self.perform(action, false);
+        }
+        if let Some(series_id) = self.watch.wants_episodes.take() {
+            self.spawn(move |cfg| Ok(Done::Episodes { series_id, episodes: crate::episodes(cfg, series_id)? }));
+        }
+    }
+
+    fn browsing(&self) -> bool {
+        matches!(self.section, Section::Live | Section::Movies | Section::Series)
+    }
+
+    fn open_section(&mut self, section: Section) {
+        if self.section == section {
+            return;
+        }
+        self.section = section;
+        let mode = match section {
+            Section::Live => Some(watch::Mode::Live),
+            Section::Movies => Some(watch::Mode::Movies),
+            Section::Series => Some(watch::Mode::Series),
+            _ => None,
+        };
+        if let Some(mode) = mode {
+            self.watch.mode = mode;
+            self.watch.query.clear();
+            self.watch.reset(&self.db, &self.cfg);
+        }
     }
 
     // ── drawing ──────────────────────────────────────────────────────────
 
     fn draw(&mut self, f: &mut Frame) {
-        let [header, body, footer] =
-            Layout::vertical([Constraint::Length(2), Constraint::Min(0), Constraint::Length(1)]).areas(f.area());
-        let body = body.inner(Margin { horizontal: 1, vertical: 0 });
-        self.draw_header(f, header);
-        match self.tab {
-            Tab::Watch => self.watch.draw(f, body, &self.status),
-            Tab::Record => self.draw_record(f, body),
-            Tab::Library => self.draw_library(f, body),
-            Tab::Status => self.draw_status(f, body),
+        f.render_widget(Block::new().style(Style::new().bg(BG).fg(FG)), f.area());
+        let [body, bar] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(f.area().inner(Margin { horizontal: 1, vertical: 0 }));
+        let wide = body.width >= 110;
+        let [side, list, detail] = Layout::horizontal([
+            Constraint::Length(24),
+            Constraint::Min(30),
+            Constraint::Percentage(if wide { 34 } else { 0 }),
+        ])
+        .spacing(1)
+        .areas(body);
+
+        self.draw_sidebar(f, side);
+        let list_focused = self.focus == Focus::List;
+        match self.section {
+            Section::Live | Section::Movies | Section::Series => {
+                self.watch.draw_list(f, list, list_focused);
+                if wide {
+                    self.watch.draw_detail(f, detail, &self.schedules);
+                }
+            }
+            Section::Record => self.draw_record(f, list, detail, wide),
+            Section::Library => self.draw_library(f, list, detail, wide),
+            Section::Status => self.draw_status(f, list, detail, wide),
         }
-        self.draw_footer(f, footer);
+        self.draw_bar(f, bar);
         if let Some(modal) = &mut self.modal {
             modal.draw(f, body);
         }
     }
 
-    fn draw_header(&self, f: &mut Frame, area: Rect) {
-        let mut spans = vec![Span::styled(" kd ", Style::new().fg(Color::Black).bg(ACCENT).bold()), Span::raw("   ")];
-        for (i, (tab, name)) in TABS.iter().enumerate() {
-            let style = if *tab == self.tab { Style::new().bold().underlined() } else { Style::new().fg(DIM) };
-            spans.push(Span::styled(format!("{} {name}", i + 1), style));
-            spans.push(Span::raw("   "));
-        }
-        let [left, right] = Layout::horizontal([Constraint::Min(0), Constraint::Length(24)]).areas(area);
-        f.render_widget(Line::from(spans), left);
-        let clock = chrono::Local::now().format("%a %H:%M").to_string();
-        f.render_widget(Line::from(format!("{}  ·  {clock} ", self.cfg.profile)).fg(DIM).right_aligned(), right);
-    }
-
-    fn draw_footer(&self, f: &mut Frame, area: Rect) {
-        let mut spans = vec![Span::raw(" ")];
-        for r in &self.status.recording {
-            spans.push(Span::styled(format!("● REC {}  ", short(&r.what)), Style::new().fg(BAD).bold()));
+    fn draw_bar(&mut self, f: &mut Frame, area: Rect) {
+        let mut spans: Vec<Span> = vec![];
+        let sep = || Span::styled("  │  ", Style::new().fg(BORDER));
+        match self.status.recording.first() {
+            Some(r) => {
+                spans.push(Span::styled(" REC ", Style::new().fg(BG).bg(BAD).bold()));
+                spans.push(Span::raw(format!(" {}", short(&r.what))));
+                if self.status.recording.len() > 1 {
+                    spans.push(dim(format!(" +{}", self.status.recording.len() - 1)));
+                }
+            }
+            None => match self.next_recording() {
+                Some(next) => spans.push(dim(format!(" next rec {next}"))),
+                None => spans.push(dim(" nothing recording")),
+            },
         }
         if self.status.restream.live {
-            let name = self.status.restream.channel_name.as_deref().unwrap_or("?");
-            spans.push(Span::styled(format!("● LIVE {}  ", short(name)), Style::new().fg(OK).bold()));
+            spans.push(sep());
+            spans.push(Span::styled(" LIVE ", Style::new().fg(BG).bg(OK).bold()));
+            spans.push(Span::raw(format!(" {}", short(self.status.restream.channel_name.as_deref().unwrap_or("?")))));
         }
         if let Some(job) = self.jobs.iter().find(|j| j.state == downloads::State::Downloading) {
-            spans.push(Span::styled(format!("↓ {} {}  ", short(&job.title), media::human_size(job.bytes)), Style::new().fg(ACCENT)));
+            spans.push(sep());
+            spans.push(Span::styled(format!("↓ {} · {}", short(&job.title), media::human_size(job.bytes)), Style::new().fg(ACCENT)));
         }
         if self.running > 0 {
-            spans.push(Span::styled("working…  ", Style::new().fg(DIM)));
+            spans.push(sep());
+            spans.push(dim("working…"));
         }
-        if let Some((text, color)) = &self.message {
-            spans.push(Span::styled(text.clone(), Style::new().fg(*color)));
+        if let Some((text, color, at)) = &self.message {
+            if at.elapsed() < Duration::from_secs(8) {
+                spans.push(sep());
+                spans.push(Span::styled(text.clone(), Style::new().fg(*color)));
+            } else {
+                self.message = None;
+            }
         }
-        let hints = self.hints();
-        let [left, right] =
-            Layout::horizontal([Constraint::Min(0), Constraint::Length(hints.chars().count() as u16)]).areas(area);
+        let hints = format!("{}  ? keys  q quit ", self.hints());
+        let [left, right] = Layout::horizontal([Constraint::Min(0), Constraint::Length(hints.chars().count() as u16)]).areas(area);
         f.render_widget(Line::from(spans), left);
         f.render_widget(Line::from(hints).fg(DIM), right);
     }
 
-    fn hints(&self) -> String {
+    /// "18:29 Occupation Double" for the next enabled schedule, if one is planned.
+    fn next_recording(&self) -> Option<String> {
+        self.schedules
+            .iter()
+            .filter(|s| s.enabled)
+            .filter_map(|s| {
+                // "Sun 2026-10-18 18:29:00 EDT": sort on the date and time part.
+                let when = s.next_run.as_deref()?;
+                let key = when.get(4..20)?.to_string();
+                let day = if when.get(4..14)? == chrono::Local::now().format("%Y-%m-%d").to_string() { "" } else { when.get(0..4)? };
+                let name = s.show_name.clone().unwrap_or_else(|| short(&s.channel_name));
+                Some((key, format!("{day}{} {name}", when.get(15..20)?)))
+            })
+            .min_by(|a, b| a.0.cmp(&b.0))
+            .map(|(_, text)| text)
+    }
+
+    fn hints(&self) -> &'static str {
         if self.modal.is_some() {
-            return "↵ ok  esc cancel ".into();
+            return "↵ ok  esc cancel";
         }
-        let keys = match self.tab {
-            Tab::Watch => self.watch.hints(),
-            Tab::Record => "x stop  space pause  d delete",
-            Tab::Library => "↵ play  x cancel",
-            Tab::Status => "ctrl+r refresh",
-        };
-        if self.tab == Tab::Watch && self.watch.typing {
-            format!("{keys} ")
-        } else {
-            format!("{keys}  1-4 tabs  q quit ")
+        if self.focus == Focus::Sidebar {
+            return "↑↓ section  → open  / search";
+        }
+        match self.section {
+            Section::Live | Section::Movies | Section::Series => self.watch.hints(),
+            Section::Record => "x stop  space pause  d delete  ← back",
+            Section::Library => "↵ play  x cancel  ← back",
+            Section::Status => "ctrl+r refresh  ← back",
         }
     }
 }
 
 // ── shared helpers ───────────────────────────────────────────────────────
 
-/// A list with section headings; only rows with a key can be selected.
+/// A list with headings; only rows with a key can be selected.
 struct Rows<K> {
     items: Vec<(Option<K>, Text<'static>)>,
 }
@@ -454,7 +549,7 @@ impl<K: Clone> Rows<K> {
         if !self.items.is_empty() {
             self.items.push((None, Text::raw("")));
         }
-        self.items.push((None, Text::from(section(title))));
+        self.items.push((None, Text::from(heading(title))));
     }
 
     fn note(&mut self, text: &str) {
@@ -475,14 +570,15 @@ impl<K: Clone> Rows<K> {
         let selected = state.selected().unwrap_or(0).min(count.saturating_sub(1));
         let item_index = self.items.iter().enumerate().filter(|(_, (k, _))| k.is_some()).nth(selected).map(|(i, _)| i);
         let items: Vec<ListItem> = self.items.into_iter().map(|(_, t)| ListItem::new(t)).collect();
-        let list = List::new(items)
-            .highlight_style(Style::new().fg(ACCENT).bold())
-            .highlight_symbol("▌ ")
-            .highlight_spacing(HighlightSpacing::Always);
+        let list = List::new(items).highlight_style(selected_style()).highlight_spacing(HighlightSpacing::Never);
         let mut view = ListState::default().with_offset(state.offset()).with_selected(item_index);
         f.render_stateful_widget(list, area, &mut view);
         *state = (*state).with_offset(view.offset()).with_selected(Some(selected));
     }
+}
+
+fn selected_style() -> Style {
+    Style::new().bg(SELECT_BG).fg(ACCENT).bold()
 }
 
 /// ↑/↓/j/k/PgUp/PgDn on a list of `count` selectable rows.
@@ -502,12 +598,8 @@ fn move_in(state: &mut ListState, key: KeyCode, count: usize) -> bool {
     true
 }
 
-fn section(title: &str) -> Line<'static> {
-    Line::from(title.to_string()).fg(DIM).add_modifier(Modifier::BOLD)
-}
-
-fn row(label: &str, value: String, color: Color) -> Line<'static> {
-    Line::from(vec![Span::styled(format!("{label:<11}"), Style::new().fg(DIM)), Span::styled(value, Style::new().fg(color))])
+fn label_value(label: &str, value: String, color: Color) -> Line<'static> {
+    Line::from(vec![Span::styled(format!("{label:<12}"), Style::new().fg(DIM)), Span::styled(value, Style::new().fg(color))])
 }
 
 fn hhmm(ts: i64) -> String {
@@ -515,8 +607,8 @@ fn hhmm(ts: i64) -> String {
     chrono::Local.timestamp_opt(ts, 0).single().map(|t| t.format("%H:%M").to_string()).unwrap_or_default()
 }
 
-/// The first part of a description ("NOOVO, every Sun…" → "NOOVO"), at most 28 characters.
+/// The first part of a description ("NOOVO, every Sun…" → "NOOVO"), at most 30 characters.
 fn short(what: &str) -> String {
-    let first = what.split(',').next().unwrap_or(what);
-    if first.chars().count() > 28 { format!("{}…", first.chars().take(27).collect::<String>()) } else { first.to_string() }
+    let first = what.split(',').next().unwrap_or(what).trim();
+    if first.chars().count() > 30 { format!("{}…", first.chars().take(29).collect::<String>()) } else { first.to_string() }
 }

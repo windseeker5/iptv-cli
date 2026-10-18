@@ -307,7 +307,7 @@ fn run(cli: Cli) -> Result<()> {
                 &record::Request { stream_id, channel_name: &channel.name, minutes, show_name: show.as_deref() },
             )?;
             print(json, &started, || {
-                println!("Recording {} for {minutes} min → {}", channel.name, started.output);
+                println!("Recording {} for {} min → {}", channel.name, started.minutes, started.output);
                 if let Some(w) = &started.warning {
                     println!("{}", dim(w));
                 }

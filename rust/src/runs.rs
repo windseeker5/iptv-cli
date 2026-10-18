@@ -56,6 +56,8 @@ pub fn recent(data_dir: &Path, limit: usize) -> Vec<Run> {
         .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
         .collect();
     files.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
+    // A run still marked running with no recording unit alive was stopped or crashed.
+    let recording_now = !crate::systemd::active_units(crate::record::UNIT_PATTERNS).is_empty();
     files
         .iter()
         .take(limit)
@@ -67,7 +69,11 @@ pub fn recent(data_dir: &Path, limit: usize) -> Vec<Run> {
             start_time: r.started_at,
             planned: format_seconds(r.planned_seconds),
             recorded: format_seconds(r.result.final_seconds.or(r.result.captured_seconds)),
-            status: r.status.unwrap_or_else(|| "?".into()),
+            status: match r.status.as_deref() {
+                Some("running") if !recording_now => "stopped".into(),
+                Some(s) => s.to_string(),
+                None => "?".into(),
+            },
             problems: r
                 .events
                 .into_iter()

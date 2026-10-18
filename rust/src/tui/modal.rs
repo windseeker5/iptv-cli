@@ -1,12 +1,13 @@
 //! Pop-ups over the current tab: a menu, a yes/no question, or a short form.
 
-use super::{hhmm, ACCENT, BAD, DIM};
+use super::hhmm;
+use super::theme::*;
 use crate::db::{Channel, Db, Episode, Movie, Program};
 use crate::library::Media;
 use crate::schedules;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
-use ratatui::style::{Style, Stylize};
+use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, ListState, Padding, Paragraph, Wrap};
 use ratatui::Frame;
@@ -37,6 +38,22 @@ pub enum Modal {
     Menu { title: String, items: Vec<(String, Action)>, state: ListState },
     Confirm { text: String, action: Action },
     Form(Form),
+    /// Something to read (an error, the keys); any key closes it.
+    Message { title: String, lines: Vec<Line<'static>>, color: Color },
+}
+
+/// A one-time schedule for a show in the guide (a few minutes of margin at the end).
+pub fn schedule_action(channel: &Channel, p: &Program) -> Action {
+    let start = chrono::DateTime::from_timestamp(p.start_ts, 0).map(|t| t.with_timezone(&chrono::Local)).unwrap_or_else(chrono::Local::now);
+    let minutes = ((p.end_ts - p.start_ts) / 60 + 3).clamp(crate::record::MIN_MINUTES, crate::record::MAX_MINUTES);
+    Action::Schedule {
+        channel: channel.clone(),
+        time: start.format("%H:%M").to_string(),
+        minutes,
+        days: vec![],
+        date: Some(start.format("%Y-%m-%d").to_string()),
+        show: None,
+    }
 }
 
 pub struct Form {
@@ -72,8 +89,41 @@ impl Modal {
         Modal::Confirm { text, action }
     }
 
+    pub fn message(title: &str, text: String, color: Color) -> Modal {
+        Modal::Message { title: title.into(), lines: vec![Line::from(Span::styled(text, Style::new().fg(color))), Line::raw(""), Line::from(dim("any key to close"))], color }
+    }
+
+    pub fn help() -> Modal {
+        let key = |k: &str, what: &str| Line::from(vec![Span::styled(format!("{k:<12}"), Style::new().fg(ACCENT).bold()), Span::raw(what.to_string())]);
+        let lines = vec![
+            heading("EVERYWHERE"),
+            key("1 … 6", "Live, Movies, Series, Record, Library, Status"),
+            key("/", "search (live channels, movies or series)"),
+            key("tab", "switch between the menu and the list"),
+            key("↑ ↓  → ←", "move · open · go back"),
+            key("q", "quit (recordings keep running)"),
+            Line::raw(""),
+            heading("LIVE"),
+            key("↵", "watch in mpv"),
+            key("r", "record: this show, the next ones, or a custom time"),
+            key("n", "schedule the next show on this channel"),
+            key("s", "restream for the family"),
+            Line::raw(""),
+            heading("MOVIES · SERIES"),
+            key("↵", "watch · open a series"),
+            key("d / D", "download this · download every episode"),
+            Line::raw(""),
+            heading("RECORD · LIBRARY"),
+            key("x", "stop a recording or restream · cancel a download"),
+            key("space / d", "pause or resume a schedule · delete it"),
+            Line::raw(""),
+            Line::from(dim("any key to close")),
+        ];
+        Modal::Message { title: "Keys".into(), lines, color: ACCENT }
+    }
+
     /// `r` on a live channel: this show, the next ones, or a custom time.
-    pub fn record_menu(channel: &Channel, guide: &[Program]) -> Modal {
+    pub fn record_menu(channel: &Channel, guide: &[Program], schedules: &[crate::schedules::Schedule]) -> Modal {
         let now = chrono::Utc::now().timestamp();
         let mut items = vec![];
         for p in guide.iter().take(4) {
@@ -84,21 +134,14 @@ impl Modal {
                     format!("Record “{title}” now, until {} ({minutes} min)", hhmm(p.end_ts)),
                     Action::RecordNow { channel: channel.clone(), minutes, show: None },
                 ));
+            } else if super::watch::will_record(schedules, channel.stream_id, p.start_ts) {
+                // Already scheduled: offering it again would only make a clashing copy.
+                continue;
             } else {
-                let start = chrono::DateTime::from_timestamp(p.start_ts, 0).map(|t| t.with_timezone(&chrono::Local));
-                if let Some(start) = start {
-                    items.push((
-                        format!("Schedule “{title}” {} {}–{}", start.format("%a"), hhmm(p.start_ts), hhmm(p.end_ts)),
-                        Action::Schedule {
-                            channel: channel.clone(),
-                            time: start.format("%H:%M").to_string(),
-                            minutes,
-                            days: vec![],
-                            date: Some(start.format("%Y-%m-%d").to_string()),
-                            show: None,
-                        },
-                    ));
-                }
+                let day = chrono::DateTime::from_timestamp(p.start_ts, 0)
+                    .map(|t| t.with_timezone(&chrono::Local).format("%a").to_string())
+                    .unwrap_or_default();
+                items.push((format!("Schedule “{title}” {day} {}–{}", hhmm(p.start_ts), hhmm(p.end_ts)), schedule_action(channel, p)));
             }
         }
         items.push(("Record now for… (choose how long)".into(), Action::RecordForm(channel.clone())));
@@ -140,6 +183,7 @@ impl Modal {
 
     pub fn on_key(self, key: KeyEvent) -> Outcome {
         match self {
+            Modal::Message { .. } => Outcome::Close,
             Modal::Confirm { text, action } => match key.code {
                 KeyCode::Enter | KeyCode::Char('y') => Outcome::Run(action, true),
                 KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('q') => Outcome::Close,
@@ -192,6 +236,10 @@ impl Modal {
     }
 
     pub fn draw(&mut self, f: &mut Frame, area: Rect) {
+        let border = match self {
+            Modal::Message { color, .. } => *color,
+            _ => ACCENT,
+        };
         type MenuParts<'m> = Option<(&'m Vec<(String, Action)>, &'m mut ListState)>;
         let (title, lines, list): (String, Vec<Line>, MenuParts) = match self {
             Modal::Confirm { text, .. } => (
@@ -201,25 +249,28 @@ impl Modal {
             ),
             Modal::Menu { title, items, state } => (title.clone(), vec![], Some((items, state))),
             Modal::Form(form) => (form.title.clone(), form.lines(), None),
+            Modal::Message { title, lines, .. } => (title.clone(), lines.clone(), None),
         };
+        let width = area.width.saturating_sub(4).min(80);
+        let text_rows: u16 = lines.iter().map(|l| (l.width() as u16 / width.saturating_sub(4).max(1)) + 1).sum();
         let height = match &list {
             Some((items, _)) => items.len() as u16 + 2,
-            None => lines.len() as u16 + 2,
+            None => text_rows + 2,
         };
-        let width = area.width.saturating_sub(4).min(76);
         let [v] = Layout::vertical([Constraint::Length(height.min(area.height))]).flex(Flex::Center).areas(area);
         let [rect] = Layout::horizontal([Constraint::Length(width)]).flex(Flex::Center).areas(v);
         f.render_widget(Clear, rect);
         let block = Block::bordered()
             .border_type(BorderType::Rounded)
-            .border_style(Style::new().fg(ACCENT))
+            .border_style(Style::new().fg(border))
+            .style(Style::new().bg(BG).fg(FG))
             .title(Line::from(format!(" {title} ")).bold())
             .padding(Padding::horizontal(1));
         match list {
             Some((items, state)) => {
                 let rows: Vec<ListItem> =
                     items.iter().enumerate().map(|(i, (label, _))| ListItem::new(format!("{}  {label}", i + 1))).collect();
-                let widget = List::new(rows).block(block).highlight_style(Style::new().fg(ACCENT).bold()).highlight_symbol("▌ ");
+                let widget = List::new(rows).block(block).highlight_style(Style::new().bg(SELECT_BG).fg(ACCENT).bold());
                 f.render_stateful_widget(widget, rect, state);
             }
             None => f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }), rect),

@@ -30,6 +30,7 @@ pub struct Request<'a> {
 #[derive(Serialize)]
 pub struct Started {
     pub unit: String,
+    pub minutes: i64,
     pub output: String,
     pub warning: Option<String>,
 }
@@ -38,11 +39,24 @@ pub fn record_now(cfg: &Config, req: &Request) -> Result<Started> {
     if !(MIN_MINUTES..=MAX_MINUTES).contains(&req.minutes) {
         bail!("duration must be between {MIN_MINUTES} and {MAX_MINUTES} minutes");
     }
-    let (dir, warning) = records_dir(cfg)?;
     let now = chrono::Local::now();
+    // One provider connection: end a minute before the next scheduled recording starts.
+    let mut minutes = req.minutes;
+    let mut notes = vec![];
+    if let Some((start, what)) = crate::schedules::next_start_within(&cfg.data_dir, now.naive_local(), minutes + 1) {
+        let room = (start - now.naive_local()).num_minutes() - 1;
+        if room < MIN_MINUTES {
+            bail!("“{what}” starts at {}; there is no room for another recording before it", start.format("%H:%M"));
+        }
+        minutes = room;
+        notes.push(format!("shortened to {minutes} min so it ends before “{}” at {}", what.split(',').next().unwrap_or(&what), start.format("%H:%M")));
+    }
+    let (dir, folder_warning) = records_dir(cfg)?;
+    notes.extend(folder_warning);
+    let warning = (!notes.is_empty()).then(|| notes.join("; "));
     let output = dir.join(format!("{}_{}.ts", sanitize_filename(req.channel_name), now.format("%Y-%m-%d_%H%M")));
     let unit = format!("kdcli-now-{}", now.format("%Y%m%d-%H%M%S"));
-    let seconds = req.minutes * 60;
+    let seconds = minutes * 60;
 
     let mut command = vec![
         cfg.python().display().to_string(),
@@ -69,7 +83,7 @@ pub fn record_now(cfg: &Config, req: &Request) -> Result<Started> {
 
     systemd::run(systemd::Run {
         unit: &unit,
-        description: &format!("KD CLI recording: {}, now, {} min", req.channel_name, req.minutes),
+        description: &format!("KD CLI recording: {}, now, {minutes} min", req.channel_name),
         working_dir: &cfg.cli_dir,
         max_seconds: Some(seconds as u64 + 300),
         command,
@@ -77,10 +91,10 @@ pub fn record_now(cfg: &Config, req: &Request) -> Result<Started> {
     crate::log::event(
         cfg,
         "record.now",
-        json!({ "unit": unit, "stream_id": req.stream_id, "channel": req.channel_name, "minutes": req.minutes,
+        json!({ "unit": unit, "stream_id": req.stream_id, "channel": req.channel_name, "minutes": minutes,
                 "show": req.show_name, "output": output, "warning": warning }),
     );
-    Ok(Started { unit: format!("{unit}.service"), output: output.display().to_string(), warning })
+    Ok(Started { unit: format!("{unit}.service"), minutes, output: output.display().to_string(), warning })
 }
 
 /// Stop a running recording. The file recorded so far is kept.

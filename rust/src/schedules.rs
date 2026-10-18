@@ -7,7 +7,7 @@
 use crate::config::Config;
 use crate::systemd::systemctl;
 use anyhow::{bail, Context, Result};
-use chrono::{Local, NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{Local, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::path::{Path, PathBuf};
@@ -44,6 +44,19 @@ fn yes() -> bool {
 impl ScheduleFile {
     fn once(&self) -> bool {
         self.days.is_empty()
+    }
+
+    /// A one-time schedule whose date has gone by.
+    fn is_past(&self) -> bool {
+        self.once() && self.date.as_deref().is_none_or(|d| d < Local::now().format("%Y-%m-%d").to_string().as_str())
+    }
+
+    fn fires_on(&self, day: NaiveDate) -> bool {
+        if self.once() {
+            self.date.as_deref() == Some(day.format("%Y-%m-%d").to_string().as_str())
+        } else {
+            self.days.contains(&day.format("%a").to_string())
+        }
     }
 
     fn on_calendar(&self) -> String {
@@ -97,16 +110,65 @@ pub struct New<'a> {
 // ── reading ──────────────────────────────────────────────────────────────
 
 pub fn list(data_dir: &Path) -> Vec<Schedule> {
+    files(data_dir).into_iter().map(to_schedule).collect()
+}
+
+fn files(data_dir: &Path) -> Vec<ScheduleFile> {
     let Ok(entries) = std::fs::read_dir(data_dir.join("schedules")) else {
         return vec![];
     };
-    let mut files: Vec<_> = entries
+    let mut paths: Vec<_> = entries
         .filter_map(Result::ok)
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|x| x == "json"))
         .collect();
-    files.sort();
-    files.iter().filter_map(|p| read(p)).map(to_schedule).collect()
+    paths.sort();
+    paths.iter().filter_map(|p| read(p)).collect()
+}
+
+/// The next time an enabled schedule starts within `minutes` from `from`, and what it is.
+/// Recording now must not run into it: the provider allows one connection.
+pub fn next_start_within(data_dir: &Path, from: NaiveDateTime, minutes: i64) -> Option<(NaiveDateTime, String)> {
+    let until = from + chrono::Duration::minutes(minutes);
+    files(data_dir)
+        .into_iter()
+        .filter(|s| s.enabled && !s.is_past())
+        .filter_map(|s| {
+            let time = NaiveTime::parse_from_str(&s.time, "%H:%M").ok()?;
+            // Today and tomorrow cover any recording up to the six-hour maximum.
+            (0..2)
+                .map(|d| from.date() + chrono::Duration::days(d))
+                .map(|day| day.and_time(time))
+                .find(|start| *start > from && *start < until && s.fires_on(start.date()))
+                .map(|start| (start, s.describe()))
+        })
+        .min_by_key(|(start, _)| *start)
+}
+
+/// When a schedule records, as minutes of the day on some days (or one date).
+struct Window {
+    days: Vec<String>,
+    date: Option<NaiveDate>,
+    start: i64,
+    length: i64,
+}
+
+impl Window {
+    fn of(days: &[String], date: Option<&str>, time: &str, length: i64) -> Window {
+        let start = NaiveTime::parse_from_str(time, "%H:%M").map(|t| (t.hour() * 60 + t.minute()) as i64).unwrap_or(0);
+        Window { days: days.to_vec(), date: date.and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok()), start, length }
+    }
+
+    fn overlaps(&self, other: &Window) -> bool {
+        let weekday = |d: NaiveDate| d.format("%a").to_string();
+        let same_day = match (self.date, other.date) {
+            (Some(a), Some(b)) => a == b,
+            (Some(a), None) => other.days.contains(&weekday(a)),
+            (None, Some(b)) => self.days.contains(&weekday(b)),
+            (None, None) => self.days.iter().any(|d| other.days.contains(d)),
+        };
+        same_day && self.start < other.start + other.length && other.start < self.start + self.length
+    }
 }
 
 fn to_schedule(s: ScheduleFile) -> Schedule {
@@ -197,6 +259,11 @@ pub fn create(cfg: &Config, new: New) -> Result<Schedule> {
     let errors = validate(&new);
     if !errors.is_empty() {
         bail!("{}", errors.join("; "));
+    }
+    let candidate = Window::of(&new.days, new.date.as_deref(), new.time, new.duration_min);
+    let existing = files(&cfg.data_dir);
+    if let Some(clash) = existing.iter().find(|s| s.enabled && !s.is_past() && Window::of(&s.days, s.date.as_deref(), &s.time, s.duration_min).overlaps(&candidate)) {
+        bail!("this overlaps “{}”; your provider allows one connection, so only one recording can run at a time", clash.describe());
     }
     let days: Vec<String> = DAY_NAMES.iter().filter(|d| new.days.iter().any(|x| x == *d)).map(|d| d.to_string()).collect();
     let time = NaiveTime::parse_from_str(new.time, "%H:%M").map(|t| t.format("%H:%M").to_string())?;
@@ -333,6 +400,19 @@ mod tests {
         };
         assert_eq!(s.describe(), "CA FR: NOOVO V-TELE HD, every Sun at 18:29, 152 min → Jellyfin “Occupation Double”");
         assert_eq!(s.on_calendar(), "Sun *-*-* 18:29:00");
+    }
+
+    #[test]
+    fn overlapping_recordings_are_spotted() {
+        let w = |days: &[&str], date: Option<&str>, time, len| Window::of(&days.iter().map(|d| d.to_string()).collect::<Vec<_>>(), date, time, len);
+        let sunday_od = w(&["Sun"], None, "18:29", 152);
+        // 2026-10-18 is a Sunday: tonight's extra one-time copy clashes.
+        assert!(w(&[], Some("2026-10-18"), "18:29", 156).overlaps(&sunday_od));
+        assert!(w(&[], Some("2026-10-18"), "20:00", 30).overlaps(&sunday_od));
+        assert!(!w(&[], Some("2026-10-18"), "21:01", 30).overlaps(&sunday_od));
+        assert!(!w(&[], Some("2026-10-19"), "18:29", 30).overlaps(&sunday_od));
+        assert!(w(&["Mon", "Sun"], None, "17:00", 90).overlaps(&sunday_od));
+        assert!(!w(&["Mon"], None, "18:29", 35).overlaps(&sunday_od));
     }
 
     #[test]

@@ -22,3 +22,11 @@ pub fn event(cfg: &Config, event: &str, fields: Value) {
         writeln!(file, "{text}")
     });
 }
+
+/// The last `n` events from today's log, oldest first (for the Status panel).
+pub fn recent(cfg: &Config, n: usize) -> Vec<Value> {
+    let path = cfg.data_dir.join("logs/kd").join(format!("kd-{}.jsonl", chrono::Local::now().format("%Y-%m-%d")));
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    let lines: Vec<&str> = text.lines().collect();
+    lines[lines.len().saturating_sub(n)..].iter().filter_map(|l| serde_json::from_str(l).ok()).collect()
+}
