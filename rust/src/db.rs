@@ -160,6 +160,260 @@ impl Db {
     }
 }
 
+#[derive(Serialize, Clone, Debug)]
+pub struct Category {
+    /// Movie categories have a numeric id; series categories are known by name only.
+    pub id: Option<i64>,
+    pub name: String,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct Movie {
+    pub stream_id: i64,
+    pub name: String,
+    pub year: Option<String>,
+    pub rating: Option<f64>,
+    pub genre: Option<String>,
+    #[serde(skip)]
+    extension: String,
+}
+
+impl Movie {
+    pub fn extension(&self) -> &str {
+        &self.extension
+    }
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct Series {
+    pub series_id: i64,
+    pub name: String,
+    pub plot: Option<String>,
+    pub cast: Option<String>,
+    pub genre: Option<String>,
+    pub rating: Option<f64>,
+    pub category: Option<String>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct Episode {
+    pub episode_id: String,
+    pub series_id: i64,
+    pub season: i64,
+    pub episode_num: i64,
+    pub title: String,
+    pub extension: String,
+    pub air_date: Option<String>,
+    pub duration: Option<String>,
+}
+
+const MOVIE_COLUMNS: &str = "stream_id, name, year, rating, genre, stream_url";
+const SERIES_COLUMNS: &str = "series_id, name, plot, \"cast\", genre, rating, category_name";
+const EPISODE_COLUMNS: &str = "episode_id, series_id, season_number, episode_num, title, container_extension, air_date, duration";
+
+impl Db {
+    /// Read-write, for the one thing kd caches itself: series episode lists.
+    pub fn open_rw(data_dir: &Path) -> Result<Db> {
+        let path = data_dir.join("iptv.db");
+        let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
+            .with_context(|| format!("opening {}", path.display()))?;
+        conn.busy_timeout(std::time::Duration::from_secs(10))?;
+        Ok(Db(conn))
+    }
+
+    fn search(&self, table: &str, columns: &str, query: &str, limit: usize) -> Result<(String, Vec<String>)> {
+        let words: Vec<String> = query.split_whitespace().map(|w| format!("%{w}%")).collect();
+        let conditions = vec!["name LIKE ?"; words.len().max(1)].join(" AND ");
+        Ok((format!("SELECT {columns} FROM {table} WHERE {conditions} ORDER BY name LIMIT {limit}"), words))
+    }
+
+    pub fn search_movies(&self, query: &str, limit: usize) -> Result<Vec<Movie>> {
+        if query.trim().is_empty() {
+            return Ok(vec![]);
+        }
+        let (sql, words) = self.search("vod_streams", MOVIE_COLUMNS, query, limit)?;
+        let mut stmt = self.0.prepare(&sql)?;
+        Ok(stmt.query_map(rusqlite::params_from_iter(words.iter()), movie_from_row)?.collect::<Result<_, _>>()?)
+    }
+
+    pub fn movie_categories(&self) -> Result<Vec<Category>> {
+        let mut stmt = self.0.prepare(
+            "SELECT c.category_id, c.category_name FROM vod_categories c
+             WHERE EXISTS (SELECT 1 FROM vod_streams v WHERE v.category_id = c.category_id) ORDER BY c.category_name",
+        )?;
+        Ok(stmt.query_map([], |r| Ok(Category { id: r.get(0)?, name: r.get::<_, Option<String>>(1)?.unwrap_or_default() }))?
+            .collect::<Result<_, _>>()?)
+    }
+
+    pub fn movies_in(&self, category_id: i64, limit: usize) -> Result<Vec<Movie>> {
+        let mut stmt = self.0.prepare(&format!(
+            "SELECT {MOVIE_COLUMNS} FROM vod_streams WHERE category_id = ? ORDER BY name LIMIT {limit}"
+        ))?;
+        Ok(stmt.query_map(params![category_id], movie_from_row)?.collect::<Result<_, _>>()?)
+    }
+
+    pub fn movie(&self, stream_id: i64) -> Result<Option<Movie>> {
+        Ok(self
+            .0
+            .query_row(&format!("SELECT {MOVIE_COLUMNS} FROM vod_streams WHERE stream_id = ?"), params![stream_id], movie_from_row)
+            .optional()?)
+    }
+
+    pub fn movie_url(&self, stream_id: i64) -> Result<Option<String>> {
+        Ok(self
+            .0
+            .query_row("SELECT stream_url FROM vod_streams WHERE stream_id = ?", params![stream_id], |r| r.get(0))
+            .optional()?)
+    }
+
+    pub fn search_series(&self, query: &str, limit: usize) -> Result<Vec<Series>> {
+        if query.trim().is_empty() {
+            return Ok(vec![]);
+        }
+        let (sql, words) = self.search("series_streams", SERIES_COLUMNS, query, limit)?;
+        let mut stmt = self.0.prepare(&sql)?;
+        Ok(stmt.query_map(rusqlite::params_from_iter(words.iter()), series_from_row)?.collect::<Result<_, _>>()?)
+    }
+
+    pub fn series_categories(&self) -> Result<Vec<Category>> {
+        let mut stmt = self.0.prepare(
+            "SELECT DISTINCT category_name FROM series_streams WHERE category_name IS NOT NULL ORDER BY category_name",
+        )?;
+        Ok(stmt.query_map([], |r| Ok(Category { id: None, name: r.get(0)? }))?.collect::<Result<_, _>>()?)
+    }
+
+    pub fn series_in(&self, category: &str, limit: usize) -> Result<Vec<Series>> {
+        let mut stmt = self.0.prepare(&format!(
+            "SELECT {SERIES_COLUMNS} FROM series_streams WHERE category_name = ? ORDER BY name LIMIT {limit}"
+        ))?;
+        Ok(stmt.query_map(params![category], series_from_row)?.collect::<Result<_, _>>()?)
+    }
+
+    pub fn series(&self, series_id: i64) -> Result<Option<Series>> {
+        Ok(self
+            .0
+            .query_row(&format!("SELECT {SERIES_COLUMNS} FROM series_streams WHERE series_id = ?"), params![series_id], series_from_row)
+            .optional()?)
+    }
+
+    /// Episodes already cached for a series (see `provider::fetch_episodes`).
+    pub fn episodes(&self, series_id: i64) -> Result<Vec<Episode>> {
+        let mut stmt = self.0.prepare(&format!(
+            "SELECT {EPISODE_COLUMNS} FROM series_episodes WHERE series_id = ? ORDER BY season_number, episode_num"
+        ))?;
+        Ok(stmt.query_map(params![series_id], episode_from_row)?.collect::<Result<_, _>>()?)
+    }
+
+    pub fn episode(&self, episode_id: &str) -> Result<Option<Episode>> {
+        Ok(self
+            .0
+            .query_row(&format!("SELECT {EPISODE_COLUMNS} FROM series_episodes WHERE episode_id = ?"), params![episode_id], episode_from_row)
+            .optional()?)
+    }
+
+    pub fn episode_url(&self, episode_id: &str) -> Result<Option<String>> {
+        Ok(self
+            .0
+            .query_row("SELECT stream_url FROM series_episodes WHERE episode_id = ?", params![episode_id], |r| r.get(0))
+            .optional()?)
+    }
+
+    /// Save a series' episodes, the same rows `iptv_provider.fetch_series_episodes` writes.
+    pub fn cache_episodes(&mut self, rows: &[EpisodeRow]) -> Result<()> {
+        let tx = self.0.transaction()?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT OR REPLACE INTO series_episodes
+                 (episode_id, series_id, season_number, season_name, episode_num, title, container_extension,
+                  stream_url, air_date, duration, duration_secs, rating, added, direct_source, last_cached_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            )?;
+            for r in rows {
+                stmt.execute(params![
+                    r.episode_id, r.series_id, r.season, r.season_name, r.episode_num, r.title, r.extension,
+                    r.stream_url, r.air_date, r.duration, r.duration_secs, r.rating, r.added, r.direct_source, r.cached_at
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+}
+
+pub struct EpisodeRow {
+    pub episode_id: String,
+    pub series_id: i64,
+    pub season: i64,
+    pub season_name: String,
+    pub episode_num: i64,
+    pub title: String,
+    pub extension: String,
+    pub stream_url: String,
+    pub air_date: String,
+    pub duration: String,
+    pub duration_secs: i64,
+    pub rating: Option<f64>,
+    pub added: String,
+    pub direct_source: String,
+    pub cached_at: i64,
+}
+
+fn movie_from_row(r: &rusqlite::Row) -> rusqlite::Result<Movie> {
+    let url: Option<String> = r.get(5)?;
+    let extension = url
+        .as_deref()
+        .and_then(|u| u.split('?').next())
+        .and_then(|u| u.rsplit_once('.'))
+        .map(|(_, ext)| ext.to_string())
+        .filter(|e| !e.is_empty() && e.len() <= 4 && !e.contains('/'))
+        .unwrap_or_else(|| "mp4".into());
+    Ok(Movie {
+        stream_id: r.get(0)?,
+        name: r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+        year: r.get::<_, Option<String>>(2)?.filter(|y| !y.is_empty()),
+        rating: r.get(3).ok().flatten(),
+        genre: r.get::<_, Option<String>>(4)?.filter(|g| !g.is_empty()),
+        extension,
+    })
+}
+
+fn series_from_row(r: &rusqlite::Row) -> rusqlite::Result<Series> {
+    let text = |i: usize| -> rusqlite::Result<Option<String>> { Ok(r.get::<_, Option<String>>(i)?.filter(|s| !s.is_empty())) };
+    Ok(Series {
+        series_id: r.get(0)?,
+        name: text(1)?.unwrap_or_default(),
+        plot: text(2)?,
+        cast: text(3)?,
+        genre: text(4)?,
+        rating: r.get(5).ok().flatten(),
+        category: text(6)?,
+    })
+}
+
+fn episode_from_row(r: &rusqlite::Row) -> rusqlite::Result<Episode> {
+    Ok(Episode {
+        episode_id: r.get(0)?,
+        series_id: r.get(1)?,
+        season: loose_int(r, 2),
+        episode_num: loose_int(r, 3),
+        title: r.get::<_, Option<String>>(4)?.unwrap_or_default(),
+        extension: r.get::<_, Option<String>>(5)?.filter(|e| !e.is_empty()).unwrap_or_else(|| "mp4".into()),
+        air_date: r.get::<_, Option<String>>(6)?.filter(|s| !s.is_empty()),
+        duration: r.get::<_, Option<String>>(7)?.filter(|s| !s.is_empty()),
+    })
+}
+
+/// Provider numbers arrive as 3 or "3"; both end up in SQLite.
+fn loose_int(r: &rusqlite::Row, i: usize) -> i64 {
+    use rusqlite::types::ValueRef;
+    match r.get_ref(i) {
+        Ok(ValueRef::Integer(n)) => n,
+        Ok(ValueRef::Real(f)) => f as i64,
+        Ok(ValueRef::Text(t)) => std::str::from_utf8(t).ok().and_then(|t| t.trim().parse().ok()).unwrap_or(0),
+        _ => 0,
+    }
+}
+
 fn channel_from_row(r: &rusqlite::Row) -> rusqlite::Result<Channel> {
     Ok(Channel { stream_id: r.get(0)?, name: r.get::<_, Option<String>>(1)?.unwrap_or_default(), category: r.get(2)? })
 }

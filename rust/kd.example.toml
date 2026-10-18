@@ -1,6 +1,12 @@
-# Copy to ~/.config/kd/kd.toml (or ./kd.toml). Paths are relative to this file.
-profile = "home"            # "travel" on the laptop
-data_dir = "data"
-env_file = ".env"
-# Containers shown on the Status tab
-containers = ["iptv-nginx-rtmp", "iptv-jellyfin", "caddy", "omt"]
+# Copy to ~/.config/kd/kd.toml (or ./kd.toml). Paths are relative to this file; ~ works.
+profile = "home"                 # shown in the header; "travel" on the laptop
+
+# The Python CLI: scripts/ (the recorder), venv/, data/ and .env live here.
+cli_dir = "~/Documents/DEV/kdtv/cli"
+
+# Optional overrides
+# records_dir   = "~/Videos/kd"          # default: USB_RECORDS_PATH from .env
+# downloads_dir = "~/Videos/kd/downloads" # default: <cli_dir>/data/downloads
+# compose_dir   = "~/Documents/DEV"       # where docker-compose.yml is (default: two folders up)
+# watch_url     = "https://live.dresdell.com/"
+# containers    = ["iptv-nginx-rtmp", "iptv-jellyfin", "caddy", "omt"]
