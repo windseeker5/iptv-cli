@@ -482,7 +482,7 @@ pub fn episodes(cfg: &config::Config, series_id: i64) -> Result<Vec<db::Episode>
 /// Minutes left in the show on now, plus a little margin for late endings.
 pub fn minutes_until_show_ends(db: &db::Db, stream_id: i64, now: i64) -> Option<i64> {
     let show = db.guide(stream_id, now, 1).ok()?.into_iter().next().filter(|p| p.start_ts <= now)?;
-    Some(((show.end_ts - now) / 60 + 3).clamp(1, record::MAX_MINUTES))
+    Some(((show.end_ts - now) / 60 + 3).clamp(record::MIN_MINUTES, record::MAX_MINUTES))
 }
 
 /// Today if that time is still ahead, else tomorrow (YYYY-MM-DD).

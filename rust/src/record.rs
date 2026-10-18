@@ -16,6 +16,8 @@ pub const UNIT_PATTERNS: &[&str] =
     &["kdcli-rec-*.service", "kdcli-now-*.service", "iptv-noovo-record*.service", "iptv-record-*.service"];
 
 pub const MAX_MINUTES: i64 = 6 * 60;
+/// The recorder gives up when less than a minute of the window is left at start.
+pub const MIN_MINUTES: i64 = 2;
 
 pub struct Request<'a> {
     pub stream_id: i64,
@@ -33,8 +35,8 @@ pub struct Started {
 }
 
 pub fn record_now(cfg: &Config, req: &Request) -> Result<Started> {
-    if !(1..=MAX_MINUTES).contains(&req.minutes) {
-        bail!("duration must be between 1 and {MAX_MINUTES} minutes");
+    if !(MIN_MINUTES..=MAX_MINUTES).contains(&req.minutes) {
+        bail!("duration must be between {MIN_MINUTES} and {MAX_MINUTES} minutes");
     }
     let (dir, warning) = records_dir(cfg)?;
     let now = chrono::Local::now();

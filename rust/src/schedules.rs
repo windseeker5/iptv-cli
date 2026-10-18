@@ -171,8 +171,8 @@ pub fn validate(new: &New) -> Vec<String> {
     if time.is_none() {
         errors.push("time must look like 18:29".into());
     }
-    if !(1..=crate::record::MAX_MINUTES).contains(&new.duration_min) {
-        errors.push(format!("duration must be between 1 and {} minutes", crate::record::MAX_MINUTES));
+    if !(crate::record::MIN_MINUTES..=crate::record::MAX_MINUTES).contains(&new.duration_min) {
+        errors.push(format!("duration must be between {} and {} minutes", crate::record::MIN_MINUTES, crate::record::MAX_MINUTES));
     }
     if new.days.iter().any(|d| !DAY_NAMES.contains(&d.as_str())) {
         errors.push(format!("days must be among {}", DAY_NAMES.join(", ")));

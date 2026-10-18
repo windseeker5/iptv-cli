@@ -78,7 +78,7 @@ impl Modal {
         let mut items = vec![];
         for p in guide.iter().take(4) {
             let title = p.title.clone().unwrap_or_else(|| "this show".into());
-            let minutes = ((p.end_ts - p.start_ts.max(now)) / 60 + 3).clamp(1, crate::record::MAX_MINUTES);
+            let minutes = ((p.end_ts - p.start_ts.max(now)) / 60 + 3).clamp(crate::record::MIN_MINUTES, crate::record::MAX_MINUTES);
             if p.start_ts <= now {
                 items.push((
                     format!("Record “{title}” now, until {} ({minutes} min)", hhmm(p.end_ts)),
@@ -255,8 +255,8 @@ impl Form {
         let minutes: i64 = self.value("Minutes").parse().map_err(|_| "Minutes must be a number".to_string())?;
         let show = Some(self.value("Jellyfin show")).filter(|s| !s.is_empty());
         if self.kind == FormKind::RecordNow {
-            if !(1..=crate::record::MAX_MINUTES).contains(&minutes) {
-                return Err(format!("Minutes must be between 1 and {}", crate::record::MAX_MINUTES));
+            if !(crate::record::MIN_MINUTES..=crate::record::MAX_MINUTES).contains(&minutes) {
+                return Err(format!("Minutes must be between {} and {}", crate::record::MIN_MINUTES, crate::record::MAX_MINUTES));
             }
             return Ok(Action::RecordNow { channel: self.channel.clone(), minutes, show });
         }

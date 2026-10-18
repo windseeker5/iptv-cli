@@ -100,6 +100,7 @@ fn active_recordings(data_dir: &Path) -> Vec<Recording> {
             let id = unit.strip_prefix("kdcli-rec-").and_then(|u| u.strip_suffix(".service"));
             let what = id
                 .and_then(|id| crate::schedules::describe_id(data_dir, id))
+                .or_else(|| unit_description(&unit))
                 .unwrap_or_else(|| unit.trim_end_matches(".service").to_string());
             Recording { unit, what }
         })
@@ -119,4 +120,12 @@ fn refresh_ages(data_dir: &Path) -> HashMap<String, i64> {
 pub fn list_age_minutes(data_dir: &Path) -> (Option<i64>, Option<i64>) {
     let ages = refresh_ages(data_dir);
     (ages.get("channels").copied(), ages.get("guide").copied())
+}
+
+/// "KD CLI recording: CA FR: NOOVO V-TELE HD, now, 3 min" → "CA FR: NOOVO V-TELE HD, now, 3 min"
+fn unit_description(unit: &str) -> Option<String> {
+    let out = crate::systemd::systemctl(&["show", unit, "--property=Description", "--value"]).ok()?;
+    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let text = text.strip_prefix("KD CLI recording: ").unwrap_or(&text).to_string();
+    (!text.is_empty()).then_some(text)
 }
