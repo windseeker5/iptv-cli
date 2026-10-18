@@ -1,12 +1,6 @@
-# IPTV CLI Requirements - Menu Navigation
-# Install with: pip install -r requirements.txt
-
-# Core terminal formatting
-rich
-pyfiglet
-
-# Modern TUI framework
-textual
+# KD CLI Python side: the recorder, JP's toolbox, timers and refresh jobs.
+# The interface is the Rust program kdtv (rust/). Install with:
+#   pip install -r requirements.txt
 
 # Database and HTTP requests
 requests

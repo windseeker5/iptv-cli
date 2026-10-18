@@ -5,8 +5,8 @@ Operational guidance for coding agents working in `/home/kdresdell/Documents/DEV
 ## Project Snapshot
 
 - Python CLI/TUI app for IPTV browsing, restreaming, downloads, and container control.
-- `iptv.py` is the new Textual-based TUI entrypoint (replaced the legacy monolithic app).
-- `iptv_tui/` contains the modular app: `domain/` for business logic, `screens/` for Textual UI.
+- `kdtv` (Rust, `rust/`) is the interface; the old Textual TUI (`iptv.py`) has been removed.
+- `iptv_tui/domain/` holds the Python engine (provider, recording, schedules, JP's toolbox) used by `scripts/` and JP.
 - `scripts/record_scheduled.py` is a standalone recorder entrypoint (automation/systemd style).
 - `util.py` contains image/logo helper workflows.
 - Docker lives in the DEV folder, two levels up: `../../docker-compose.yml` manages `caddy`, `kdtv`, `jellyfin`, `nginx-rtmp`, `samba`, `tv-counter`, and `ollama` (off by default). This folder only holds their data (`jellyfin/`, `nginx/`, `data/`).
@@ -45,12 +45,12 @@ Common external dependencies:
 There is no separate build system; execution is script + Docker driven.
 
 ```bash
-python3 iptv.py
+rust/target/release/kdtv
 python3 scripts/record_scheduled.py --stream-id 12345 --duration 3600 --output /tmp/test.ts
 python3 util.py
 ```
 
-`iptv.py` auto-detects and activates `venv/` if present and changes the working directory to the script's directory before running.
+`kdtv` reads `kdtv.toml` (see `rust/kdtv.example.toml`) to find this folder, its `.env` and `venv/`.
 `scripts/record_wrapper.sh` is the Bash wrapper for scheduled recordings (activates `venv` then runs `record_scheduled.py`).
 
 ## Docker Commands
@@ -80,7 +80,7 @@ No `pyproject.toml`, `setup.cfg`, `pytest.ini`, or `Makefile` is checked in.
 Use Python syntax compilation as the safest default validation:
 
 ```bash
-python3 -m py_compile iptv.py scripts/record_scheduled.py util.py
+python3 -m py_compile scripts/record_scheduled.py util.py
 python3 -m compileall iptv_tui
 ```
 
@@ -93,7 +93,7 @@ docker-compose config -q
 ## Test Commands
 
 ```bash
-python3 -m unittest iptv_tui.test_domain_smoke iptv_tui.test_integration iptv_tui.test_app_smoke -v
+python3 -m unittest iptv_tui.test_domain_smoke -v
 python3 -m py_compile scripts/record_scheduled.py
 ```
 
@@ -108,7 +108,7 @@ pytest -k "specific_behavior"
 ## Code Style And Change Scope
 
 - Prefer the smallest correct change; do not refactor broadly unless requested.
-- `iptv.py` is a Textual TUI; screens and reactive widgets live in `iptv_tui/screens/` and domain logic in `iptv_tui/domain/`.
+- The interface is `kdtv` (Rust, `rust/src/tui/`); domain logic stays in `iptv_tui/domain/`.
 - Keep 4-space indentation and readable formatting.
 - Follow surrounding style over introducing new patterns.
 - Add docstrings for new non-trivial helpers and entrypoint-facing functions.
@@ -126,7 +126,7 @@ pytest -k "specific_behavior"
 - Codebase is mostly dynamic; avoid forced large typing retrofits.
 - Add light type hints for new helper functions where they improve clarity.
 - Keep annotations simple (`str`, `int`, `list`, `dict`) unless stronger typing is useful.
-- Match local file conventions (`scripts/record_scheduled.py` is more typed than `iptv.py`).
+- Match local file conventions (`scripts/record_scheduled.py` is the most typed Python file).
 
 ## Naming Conventions
 
@@ -145,7 +145,7 @@ pytest -k "specific_behavior"
 
 ## Logging And User Output
 
-- In `iptv.py` and `iptv_tui/screens/`, prefer Textual widgets and status-bar messages for user feedback.
+- In `kdtv`, user feedback goes in the status bar or a pop-up; see `rust/src/tui/`.
 - In standalone scripts, prefer the `logging` module.
 - Keep messages concise, actionable, and user-focused.
 - When subprocess work fails, surface the relevant stderr/context.

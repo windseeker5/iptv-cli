@@ -6,7 +6,7 @@ A terminal UI for browsing, searching, playing, downloading, and recording IPTV 
 
 | Layer | Technology |
 |---|---|
-| UI | [Textual](https://textual.textualize.io/) (Python TUI framework) |
+| UI | `kdtv`, a Rust TUI (ratatui) and command line — see `rust/README.md` |
 | Language | Python 3 |
 | Local storage | SQLite (WAL mode) for the provider catalog + job/recording history |
 | Playback | [mpv](https://mpv.io/) |
@@ -15,7 +15,7 @@ A terminal UI for browsing, searching, playing, downloading, and recording IPTV 
 | Video processing | `ffmpeg` / `ffprobe` — live recording, restream transcoding |
 | Scheduled recordings | systemd user timers (`systemd-run`) |
 | Self-hosted stack | One Docker Compose file in the DEV folder two levels up (`../../docker-compose.yml`): Caddy, KDTV, Jellyfin, NGINX-RTMP, Samba, tv-counter, Ollama (off by default) |
-| Tests | `unittest` — domain smoke tests + Textual headless integration tests |
+| Tests | `cargo test` for `kdtv`; `unittest` domain smoke tests for the Python engine |
 
 ## Features
 
@@ -43,14 +43,13 @@ A terminal UI for browsing, searching, playing, downloading, and recording IPTV 
 ## Project layout
 
 ```
-iptv.py                    entrypoint — launches the Textual app (iptv_tui/app.py)
+rust/                      kdtv — the interface (TUI + commands)
 scripts/
 ├── record_scheduled.py     standalone recorder invoked by scheduled systemd timers
 └── record_wrapper.sh       bash wrapper (activates venv) used by systemd-run
 
 iptv_tui/
-├── app.py                  Textual App, screen registry, theme
-├── domain/                 business logic — no UI dependencies
+├── domain/                 the Python engine (used by scripts/ and JP) — no UI
 │   ├── iptv_provider.py    provider API client, catalog cache/sync
 │   ├── downloads.py        VOD/series downloads
 │   ├── recordings.py       immediate/scheduled recordings + systemd timers
@@ -60,9 +59,8 @@ iptv_tui/
 │   ├── jobs.py             unified, disk-persisted job/history registry
 │   ├── reset.py            "Clear All" — wipe files + history
 │   ├── docker_ctl.py       docker-compose control
-│   ├── favorites.py, db.py, config.py, actions.py
-├── screens/                Textual screens, including Library and log viewer
-└── widgets/                shared widgets (header, status bar)
+│   └── favorites.py, db.py, config.py, actions.py
+└── test_domain_smoke.py
 
 data/                       all runtime state (gitignored)
 ├── iptv.db                 SQLite catalog + job/recording history
@@ -88,10 +86,10 @@ pip install -r requirements.txt
 cp .env.example .env
 # edit .env with your IPTV provider credentials
 
-python3 iptv.py
+rust/target/release/kdtv
 ```
 
-`iptv.py` auto-detects and activates `venv/` and switches to the script's own directory, so it can be run from anywhere.
+`kdtv` finds this folder through `kdtv.toml` (see `rust/kdtv.example.toml`), so it can be run from anywhere.
 
 External tools expected on `PATH`: `ffmpeg`/`ffprobe`, `mpv`, and `wget` or `curl` (optional — falls back to Python `requests`). `docker` + `docker-compose` are only needed if you use the self-hosted stack; scheduled recordings need `systemd` (Linux).
 
@@ -123,9 +121,10 @@ Container status, start/stop, and logs are also available from the TUI's **Setti
 ## Testing
 
 ```bash
-python3 -m unittest iptv_tui.test_domain_smoke iptv_tui.test_integration iptv_tui.test_app_smoke -v
+python3 -m unittest iptv_tui.test_domain_smoke -v
+cd rust && cargo test
 ```
 
 ## Status
 
-`iptv.py` is the Textual TUI (`iptv_tui/`) — this is the application. The previous `simple-term-menu` CLI it replaced has been removed; see git history if you ever need it back.
+`kdtv` (`rust/`) is the application. The Textual TUI (`iptv.py`) it replaced has been removed; see git history if you ever need it back.
