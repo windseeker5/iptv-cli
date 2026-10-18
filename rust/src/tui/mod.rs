@@ -334,9 +334,16 @@ impl App {
                 let job = dl::cancel(cfg, &id)?;
                 Ok(Done::Message(format!("Cancelled {}", job.title)))
             }),
-            Action::Refresh { guide } => {
-                self.say(if guide { "Updating the channel list and TV guide (about 30 s)…" } else { "Updating the channel list (a few seconds)…" }, DIM);
-                self.spawn(move |cfg| Ok(Done::Message(crate::refresh::run(cfg, guide)?)));
+            Action::Refresh { guide, everything } => {
+                self.say(
+                    match (guide, everything) {
+                        (_, true) => "Updating everything: channels, guide, movies and series (about a minute)…",
+                        (true, _) => "Updating the channel list and TV guide (about 30 s)…",
+                        _ => "Updating the channel list (a few seconds)…",
+                    },
+                    DIM,
+                );
+                self.spawn(move |cfg| Ok(Done::Message(crate::refresh::run(cfg, crate::refresh::What { guide: guide || everything, everything })?)));
             }
         }
     }
@@ -622,7 +629,7 @@ impl App {
             Section::Recordings => "x stop  space pause  d delete  ← menu",
             Section::Downloads => "x cancel  ← menu",
             Section::Library => "↵ play  ← menu",
-            Section::Account => "u update list  g update guide  p password  e edit  ← menu",
+            Section::Account => "u list  g guide  m everything  p password  e edit  ← menu",
             Section::Status => "ctrl+r refresh  ← menu",
         }
     }

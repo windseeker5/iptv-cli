@@ -66,6 +66,7 @@ impl App {
         if let Some(c) = counts {
             lines.push(label_value("Movies, series", format!("{} · {}", thousands(c.vod), thousands(c.series)), FG));
         }
+        lines.push(button("m", "update everything: also movies and series (about a minute)"));
         lines.push(Line::from(dim("They also update by themselves: channels every hour, the guide twice a day.")));
 
         lines.push(Line::raw(""));
@@ -99,8 +100,9 @@ impl App {
 
     pub(super) fn account_key(&mut self, key: KeyEvent) -> Option<Action> {
         match key.code {
-            KeyCode::Char('u') => Some(Action::Refresh { guide: false }),
-            KeyCode::Char('g') => Some(Action::Refresh { guide: true }),
+            KeyCode::Char('u') => Some(Action::Refresh { guide: false, everything: false }),
+            KeyCode::Char('g') => Some(Action::Refresh { guide: true, everything: false }),
+            KeyCode::Char('m') => Some(Action::Refresh { guide: true, everything: true }),
             KeyCode::Char('p') => {
                 self.show_password = !self.show_password;
                 None

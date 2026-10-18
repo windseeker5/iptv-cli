@@ -125,10 +125,14 @@ enum Cmd {
         #[arg(long, default_value_t = 15)]
         limit: usize,
     },
-    /// Download the provider's channel list now (add --guide for the full TV guide)
+    /// Download the provider's channel list now
     Refresh {
+        /// Also the full TV guide (about 30 seconds)
         #[arg(long)]
         guide: bool,
+        /// Also the account, movies and series (a new machine)
+        #[arg(long)]
+        everything: bool,
     },
     /// Recordings and downloads on disk
     Library {
@@ -489,8 +493,8 @@ fn run(cli: Cli) -> Result<()> {
             })
         }
 
-        Cmd::Refresh { guide } => {
-            let message = refresh::run(&cfg, guide)?;
+        Cmd::Refresh { guide, everything } => {
+            let message = refresh::run(&cfg, refresh::What { guide: guide || everything, everything })?;
             print(json, &json!({ "ok": true, "message": message }), || println!("{message}"))
         }
 

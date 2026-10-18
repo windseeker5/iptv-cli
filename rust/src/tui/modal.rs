@@ -36,7 +36,7 @@ pub enum Action {
     DownloadEpisodes { series: String, episodes: Vec<Episode>, what: String },
     DownloadYouTube { video: Video, audio: bool },
     CancelDownload(String),
-    Refresh { guide: bool },
+    Refresh { guide: bool, everything: bool },
 }
 
 pub enum Modal {
