@@ -4,8 +4,11 @@ Repository guidance for the IPTV project.
 
 ## Current application
 
-`iptv.py` launches a modular Textual terminal interface. The old
-`simple-term-menu` application has been removed.
+`kdtv` (the Rust program in `rust/`, "KDTV CLI") is the interface: a
+full-screen TUI plus scriptable commands (`--json`). The Python package
+`iptv_tui/domain/` and `scripts/` are the engine behind it and behind JP: the
+recorder, schedules, refresh jobs and JP's toolbox. The old Textual TUI
+(`iptv.py`) has been removed.
 
 The primary user workflows are:
 
@@ -19,15 +22,15 @@ The primary user workflows are:
 
 ## Architecture
 
-- `iptv_tui/screens/`: Textual screens and user interaction.
-- `iptv_tui/domain/`: UI-independent provider, media, recording, job, and
-  infrastructure logic.
+- `rust/`: `kdtv`, the interface (see `rust/README.md`).
+- `iptv_tui/domain/`: provider, media, recording, job, and infrastructure
+  logic used by the scripts and JP.
 - `scripts/record_scheduled.py`: FFmpeg recorder launched by systemd.
 - `scripts/record_wrapper.sh`: activates the virtual environment for timers.
 - `scripts/remux_downloads_for_tv.py`: optional on-demand MP4 remux tool.
 - `data/`: runtime database, cache, logs, downloads, and fallback recordings.
 - `nginx/html/`: web dashboard and HLS player used by the restream service.
-- Docker: the shared `../../docker-compose.yml` (the DEV folder, two levels up) runs Caddy, KDTV, Jellyfin, NGINX-RTMP, Samba, tv-counter and Ollama; this folder holds their data.
+- Docker: the shared `../../docker-compose.yml` (the DEV folder, two levels up) runs Caddy, KDTV, Jellyfin, NGINX-RTMP, tv-counter and Ollama (Samba was removed 2026-10-18); this folder holds their data.
 
 ## Important behavior
 
@@ -48,15 +51,16 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-python3 iptv.py
+cd rust && cargo build --release && target/release/kdtv
 ```
 
 Validate Python changes with:
 
 ```bash
-python3 -m unittest iptv_tui.test_domain_smoke iptv_tui.test_integration iptv_tui.test_app_smoke -v
+python3 -m unittest iptv_tui.test_domain_smoke -v
 python3 -m compileall iptv_tui
-python3 -m py_compile iptv.py scripts/*.py util.py
+python3 -m py_compile scripts/*.py util.py
+cd rust && cargo clippy --all-targets -- -D warnings && cargo test
 ```
 
 Validate infrastructure changes with (run from the DEV folder, two levels up: `cd ../..`):

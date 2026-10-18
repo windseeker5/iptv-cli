@@ -12,6 +12,8 @@
 //! records_dir = "~/Videos/kd" # where recordings go (default: USB_RECORDS_PATH from .env)
 //! containers = ["iptv-nginx-rtmp", "iptv-jellyfin", "caddy", "omt"]
 //! icons = true                # Nerd Font icons; false on a terminal without one
+//! restream_via = "nginx"      # or "kdtv": FFmpeg writes HLS and kdtv serves it
+//! web_port = 8080             # where kdtv serves the restream (restream_via = "kdtv")
 //! ```
 
 use anyhow::{Context, Result};
@@ -33,6 +35,21 @@ struct ConfigFile {
     watch_url: Option<String>,
     containers: Option<Vec<String>>,
     icons: Option<bool>,
+    restream_via: Option<String>,
+    web_port: Option<u16>,
+    web_bind: Option<String>,
+    hls_dir: Option<PathBuf>,
+    html_dir: Option<PathBuf>,
+    access_log: Option<PathBuf>,
+}
+
+/// Who receives the restream and serves it to viewers.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum RestreamVia {
+    /// FFmpeg pushes RTMP to the NGINX-RTMP container, which serves HLS.
+    Nginx,
+    /// FFmpeg writes HLS files and kdtv's own web server serves them.
+    Kdtv,
 }
 
 #[derive(Clone)]
@@ -51,6 +68,12 @@ pub struct Config {
     pub containers: Vec<String>,
     /// Nerd Font icons in the TUI.
     pub icons: bool,
+    pub restream_via: RestreamVia,
+    pub web_port: u16,
+    pub web_bind: String,
+    hls_dir: Option<PathBuf>,
+    html_dir: Option<PathBuf>,
+    access_log: Option<PathBuf>,
     /// Where the provider login comes from (the CLI's .env).
     pub env_file: PathBuf,
     pub provider: Provider,
@@ -117,6 +140,12 @@ impl Config {
                 .containers
                 .unwrap_or_else(|| DEFAULT_CONTAINERS.iter().map(|s| s.to_string()).collect()),
             icons: file.icons.unwrap_or(true),
+            restream_via: if file.restream_via.as_deref() == Some("kdtv") { RestreamVia::Kdtv } else { RestreamVia::Nginx },
+            web_port: file.web_port.unwrap_or(8080),
+            web_bind: file.web_bind.unwrap_or_else(|| "0.0.0.0".into()),
+            hls_dir: file.hls_dir.map(at),
+            html_dir: file.html_dir.map(at),
+            access_log: file.access_log.map(at),
             env_file,
             cli_dir,
             data_dir,
@@ -150,6 +179,21 @@ impl Config {
 
     pub fn downloads_dir(&self) -> PathBuf {
         self.downloads_dir.clone().unwrap_or_else(|| self.data_dir.join("downloads"))
+    }
+
+    /// Where FFmpeg writes the restream's HLS files (restream_via = "kdtv").
+    pub fn hls_dir(&self) -> PathBuf {
+        self.hls_dir.clone().unwrap_or_else(|| self.data_dir.join("hls"))
+    }
+
+    /// The pages NGINX used to serve (/live, /iptv.m3u…); missing on the road.
+    pub fn html_dir(&self) -> PathBuf {
+        self.html_dir.clone().unwrap_or_else(|| self.cli_dir.join("nginx/html"))
+    }
+
+    /// The viewer log OMT and tv-counter read to count who is watching.
+    pub fn access_log(&self) -> PathBuf {
+        self.access_log.clone().unwrap_or_else(|| self.cli_dir.join("nginx/logs/hls_access.log"))
     }
 
     /// Folder with one sub-folder per TV show in Jellyfin.

@@ -15,9 +15,11 @@ pub fn is_active(unit: &str) -> bool {
     systemctl(&["is-active", "--quiet", unit]).is_ok_and(|o| o.status.success())
 }
 
-/// Active units matching the patterns, e.g. `kdcli-rec-*.service`.
+/// Running units matching the patterns, e.g. `kdcli-rec-*.service`. A oneshot
+/// service (the scheduled recordings) stays "activating" for its whole run, so
+/// that counts as running too.
 pub fn active_units(patterns: &[&str]) -> Vec<String> {
-    let mut args = vec!["list-units", "--state=active", "--plain", "--no-legend"];
+    let mut args = vec!["list-units", "--state=active,activating", "--plain", "--no-legend"];
     args.extend_from_slice(patterns);
     systemctl(&args)
         .map(|o| {

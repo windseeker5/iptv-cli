@@ -1,0 +1,16 @@
+# KDTV web server: serves the restream (/hls), the /live pages and the viewer
+# log on port 8080, in place of the NGINX-RTMP container. Install when NGINX is
+# retired (see rust/README.md, "Retiring the NGINX container"):
+#   cp systemd/kdtv-web.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now kdtv-web
+[Unit]
+Description=KDTV web: restream and /live pages (replaces the NGINX container)
+After=network-online.target
+
+[Service]
+ExecStart=%h/Documents/DEV/kdtv/cli/rust/target/release/kdtv web
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

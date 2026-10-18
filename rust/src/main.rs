@@ -5,6 +5,7 @@
 //! for the recording itself. Long-running work (recordings, the restream, the
 //! download queue) runs as systemd user units, so it outlives kdtv.
 
+mod check;
 mod config;
 mod db;
 mod downloads;
@@ -21,6 +22,7 @@ mod schedules;
 mod status;
 mod systemd;
 mod tui;
+mod web;
 mod youtube;
 
 use anyhow::{bail, Context, Result};
@@ -141,6 +143,10 @@ enum Cmd {
     },
     /// Services, active recordings and restream, data freshness
     Status,
+    /// Serve the restream and the /live pages (replaces the NGINX container)
+    Web,
+    /// Check that this machine has everything kdtv needs
+    Check,
     #[command(hide = true)]
     RestreamWorker { stream_id: i64 },
     #[command(hide = true)]
@@ -514,6 +520,13 @@ fn run(cli: Cli) -> Result<()> {
             print(json, &s, || print_status(&s))
         }
 
+        Cmd::Web => {
+            for url in web::lan_urls(&cfg) {
+                eprintln!("Serving on {url}");
+            }
+            web::serve(&cfg)
+        }
+        Cmd::Check => check::run(&cfg, json),
         Cmd::RestreamWorker { stream_id } => restream::worker(&cfg, stream_id),
         Cmd::DownloadWorker => downloads::worker(&cfg),
     }

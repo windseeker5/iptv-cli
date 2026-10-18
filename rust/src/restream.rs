@@ -1,11 +1,17 @@
-//! Restream one live channel to the NGINX-RTMP container (HLS for the family).
+//! Restream one live channel as HLS for the family.
 //!
-//! The restream runs as the systemd user unit `kd-restream`, so it survives kd
-//! closing. That unit is kd itself (`kd restream-worker <id>`): it starts FFmpeg,
-//! writes `data/.restream_active.json` (read by OMT, JP and the old TUI) and keeps
-//! a redacted FFmpeg log in `data/logs/restream_*.log`.
+//! Two ways, set by `restream_via` in kdtv.toml:
+//! - "nginx": FFmpeg pushes RTMP to the NGINX-RTMP container, which writes and
+//!   serves the HLS files (home, today);
+//! - "kdtv": FFmpeg writes the HLS files itself and kdtv's web server (`web.rs`)
+//!   serves them, same URLs, same viewer log (travel, a Pi, and home once NGINX goes).
+//!
+//! The restream runs as the systemd user unit `kd-restream`, so it survives kdtv
+//! closing. That unit is kdtv itself (`kdtv restream-worker <id>`): it starts FFmpeg,
+//! writes `data/.restream_active.json` (read by OMT and JP) and keeps a redacted
+//! FFmpeg log in `data/logs/restream_*.log`.
 
-use crate::config::Config;
+use crate::config::{Config, RestreamVia};
 use crate::db::{Channel, Db};
 use crate::systemd;
 use anyhow::{bail, Context, Result};
@@ -54,7 +60,9 @@ pub fn start(cfg: &Config, channel: &Channel, replace: bool) -> Result<Started> 
     {
         bail!("already restreaming {}; replace it to switch channels", a.channel_name);
     }
-    ensure_nginx(cfg)?;
+    if cfg.restream_via == RestreamVia::Nginx {
+        ensure_nginx(cfg)?;
+    }
     let replaced = current.map(|a| a.channel_name);
     if replaced.is_some() || systemd::is_active(UNIT) {
         stop(cfg)?;
@@ -84,13 +92,13 @@ pub fn start(cfg: &Config, channel: &Channel, replace: bool) -> Result<Started> 
         bail!("the restream stopped right away; see the latest data/logs/restream_*.log");
     }
     crate::log::event(cfg, "restream.start", json!({ "stream_id": channel.stream_id, "channel": channel.name, "replaced": replaced }));
-    let port = cfg.env("NGINX_HTTP_PORT").unwrap_or_else(|| "8080".into());
-    Ok(Started {
-        channel_name: channel.name.clone(),
-        hls_url: format!("http://localhost:{port}/hls/{}.m3u8", stream_key(&channel.name)),
-        watch_url: cfg.watch_url.clone(),
-        replaced,
-    })
+    let port = match cfg.restream_via {
+        RestreamVia::Nginx => cfg.env("NGINX_HTTP_PORT").unwrap_or_else(|| "8080".into()),
+        RestreamVia::Kdtv => cfg.web_port.to_string(),
+    };
+    // No public page configured (on the road): point at this machine on the Wi-Fi.
+    let watch_url = if cfg.watch_url.is_empty() { crate::web::lan_urls(cfg).into_iter().next().unwrap_or_default() } else { cfg.watch_url.clone() };
+    Ok(Started { channel_name: channel.name.clone(), hls_url: format!("http://localhost:{port}/hls/{}.m3u8", stream_key(&channel.name)), watch_url, replaced })
 }
 
 /// Stop the restream, whether kd or the old Python side started it.
@@ -103,6 +111,11 @@ pub fn stop(cfg: &Config) -> Result<Option<String>> {
         && Path::new(&format!("/proc/{}", a.pid)).exists()
     {
         let _ = Command::new("kill").arg(a.pid.to_string()).status();
+    }
+    if let Some(a) = &current
+        && cfg.restream_via == RestreamVia::Kdtv
+    {
+        clear_hls(cfg, &a.stream_key);
     }
     let _ = std::fs::remove_file(meta_file(&cfg.data_dir));
     let name = current.map(|a| a.channel_name);
@@ -141,12 +154,35 @@ pub fn worker(cfg: &Config, stream_id: i64) -> Result<()> {
     std::fs::create_dir_all(&logs)?;
     let log_path = logs.join(format!("restream_{}.log", chrono::Local::now().format("%Y%m%d_%H%M%S")));
 
-    let mut child = Command::new("ffmpeg")
+    let mut ffmpeg = Command::new("ffmpeg");
+    ffmpeg
         .args(["-nostdin", "-reconnect", "1", "-reconnect_at_eof", "1", "-reconnect_streamed", "1"])
         .args(["-reconnect_delay_max", "30", "-fflags", "+genpts+discardcorrupt", "-rtbufsize", "15M"])
         .args(["-analyzeduration", "10M", "-probesize", "10M", "-i", &source])
-        .args(["-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-max_muxing_queue_size", "9999"])
-        .args(["-f", "flv", &format!("rtmp://localhost:{rtmp_port}/live/{key}")])
+        .args(["-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-max_muxing_queue_size", "9999"]);
+    match cfg.restream_via {
+        RestreamVia::Nginx => {
+            ffmpeg.args(["-f", "flv", &format!("rtmp://localhost:{rtmp_port}/live/{key}")]);
+        }
+        RestreamVia::Kdtv => {
+            // The same 3 s pieces and one-minute playlist NGINX made.
+            let dir = cfg.hls_dir();
+            std::fs::create_dir_all(&dir)?;
+            clear_hls(cfg, &key);
+            ffmpeg
+                .args(["-f", "hls", "-hls_time", "3", "-hls_list_size", "20", "-hls_flags", "delete_segments+independent_segments"])
+                .arg("-hls_segment_filename")
+                .arg(dir.join(format!("{key}-%d.ts")))
+                .arg(dir.join(format!("{key}.m3u8")));
+            // Serve it, unless `kdtv web` (or something else) already answers on the port.
+            if !crate::web::port_in_use(cfg) {
+                let listener = crate::web::bind(cfg)?;
+                let web_cfg = cfg.clone();
+                std::thread::spawn(move || crate::web::serve_on(&web_cfg, listener));
+            }
+        }
+    }
+    let mut child = ffmpeg
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -171,12 +207,26 @@ pub fn worker(cfg: &Config, stream_id: i64) -> Result<()> {
     let status = child.wait()?;
     if active(&cfg.data_dir).is_none_or(|a| a.pid == meta.pid) {
         let _ = std::fs::remove_file(meta_file(&cfg.data_dir));
+        if cfg.restream_via == RestreamVia::Kdtv {
+            clear_hls(cfg, &meta.stream_key);
+        }
     }
     crate::log::event(cfg, "restream.ended", json!({ "channel": channel.name, "code": status.code() }));
     if !status.success() {
         bail!("ffmpeg ended with {status}");
     }
     Ok(())
+}
+
+/// Remove a stream's playlist and pieces, so players don't loop an old one.
+fn clear_hls(cfg: &Config, key: &str) {
+    let Ok(entries) = std::fs::read_dir(cfg.hls_dir()) else { return };
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if name == format!("{key}.m3u8") || (name.starts_with(&format!("{key}-")) && name.ends_with(".ts")) {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
 }
 
 /// "CA FR: TVA SPORTS HD" → "ca_fr_tva_sports_hd", like `restream.generate_stream_key`.
