@@ -86,9 +86,9 @@ impl Config {
             }
             None => (ConfigFile::default(), absolute(Path::new("."))),
         };
-        let at = |p: PathBuf| base.join(expand_home(&p));
+        let at = |p: PathBuf| normalize(&base.join(expand_home(&p)));
 
-        let cli_dir = file.cli_dir.map(at).unwrap_or_else(|| base.clone());
+        let cli_dir = file.cli_dir.map(at).unwrap_or_else(|| normalize(&base));
         let data_dir = file.data_dir.map(at).unwrap_or_else(|| cli_dir.join("data"));
         let env_file = file.env_file.map(at).unwrap_or_else(|| cli_dir.join(".env"));
         let env = read_env(&env_file);
@@ -102,7 +102,7 @@ impl Config {
         Ok(Config {
             file: path.map(|p| absolute(&p)),
             profile: file.profile.unwrap_or_else(|| "home".into()),
-            compose_dir: file.compose_dir.map(at).unwrap_or_else(|| cli_dir.join("../..")),
+            compose_dir: file.compose_dir.map(at).unwrap_or_else(|| normalize(&cli_dir.join("../.."))),
             records_dir: file.records_dir.map(at),
             downloads_dir: file.downloads_dir.map(at),
             watch_url: file.watch_url.unwrap_or_else(|| "https://live.dresdell.com/".into()),
@@ -124,7 +124,7 @@ impl Config {
     /// A path from the CLI's .env; relative ones are relative to the CLI folder,
     /// which is where the Python side runs from.
     fn env_path(&self, key: &str) -> Option<PathBuf> {
-        self.env(key).map(|v| self.cli_dir.join(expand_home(Path::new(&v))))
+        self.env(key).map(|v| normalize(&self.cli_dir.join(expand_home(Path::new(&v)))))
     }
 
     pub fn python(&self) -> PathBuf {
@@ -174,6 +174,24 @@ fn absolute(p: &Path) -> PathBuf {
     std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf())
 }
 
+/// "/a/cli-rust/../cli" → "/a/cli". systemd refuses paths with `..` in them.
+fn normalize(p: &Path) -> PathBuf {
+    if let Ok(real) = p.canonicalize() {
+        return real;
+    }
+    let mut out = PathBuf::new();
+    for part in p.components() {
+        match part {
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 fn expand_home(p: &Path) -> PathBuf {
     match (p.strip_prefix("~"), std::env::var("HOME")) {
         (Ok(rest), Ok(home)) => Path::new(&home).join(rest),
@@ -209,7 +227,13 @@ fn parse_env(text: &str) -> HashMap<String, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_env;
+    use super::{normalize, parse_env};
+    use std::path::Path;
+
+    #[test]
+    fn paths_have_no_dot_dot_for_systemd() {
+        assert_eq!(normalize(Path::new("/no/such/kd-rust/../cli/./x")), Path::new("/no/such/cli/x"));
+    }
 
     #[test]
     fn reads_env_files_like_python_dotenv() {
