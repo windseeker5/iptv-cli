@@ -1,8 +1,9 @@
 //! Where kd finds the CLI, its data and the provider login.
 //!
-//! kd reads one small file, `kd.toml`, looked up in this order: `--config`,
-//! `$KD_CONFIG`, `./kd.toml`, `~/.config/kd/kd.toml`. Paths inside it are
-//! relative to the file itself. Without a file, kd uses the current folder.
+//! kdtv reads one small file, `kdtv.toml`, looked up in this order: `--config`,
+//! `$KDTV_CONFIG`, `./kdtv.toml`, `~/.config/kdtv/kdtv.toml` (the older `kd.toml`
+//! names still work). Paths inside it are relative to the file itself. Without a
+//! file, kdtv uses the current folder.
 //!
 //! ```toml
 //! profile = "home"            # or "travel"
@@ -10,6 +11,7 @@
 //! # Optional overrides
 //! records_dir = "~/Videos/kd" # where recordings go (default: USB_RECORDS_PATH from .env)
 //! containers = ["iptv-nginx-rtmp", "iptv-jellyfin", "caddy", "omt"]
+//! icons = true                # Nerd Font icons; false on a terminal without one
 //! ```
 
 use anyhow::{Context, Result};
@@ -30,6 +32,7 @@ struct ConfigFile {
     compose_dir: Option<PathBuf>,
     watch_url: Option<String>,
     containers: Option<Vec<String>>,
+    icons: Option<bool>,
 }
 
 #[derive(Clone)]
@@ -46,6 +49,10 @@ pub struct Config {
     pub compose_dir: PathBuf,
     pub watch_url: String,
     pub containers: Vec<String>,
+    /// Nerd Font icons in the TUI.
+    pub icons: bool,
+    /// Where the provider login comes from (the CLI's .env).
+    pub env_file: PathBuf,
     pub provider: Provider,
     env: HashMap<String, String>,
 }
@@ -109,6 +116,8 @@ impl Config {
             containers: file
                 .containers
                 .unwrap_or_else(|| DEFAULT_CONTAINERS.iter().map(|s| s.to_string()).collect()),
+            icons: file.icons.unwrap_or(true),
+            env_file,
             cli_dir,
             data_dir,
             provider,
@@ -160,11 +169,14 @@ impl Config {
 
 fn find_config_file() -> Option<PathBuf> {
     let mut candidates = vec![];
-    if let Ok(p) = std::env::var("KD_CONFIG") {
-        candidates.push(PathBuf::from(p));
+    for var in ["KDTV_CONFIG", "KD_CONFIG"] {
+        if let Ok(p) = std::env::var(var) {
+            candidates.push(PathBuf::from(p));
+        }
     }
-    candidates.push(PathBuf::from("kd.toml"));
+    candidates.extend([PathBuf::from("kdtv.toml"), PathBuf::from("kd.toml")]);
     if let Ok(home) = std::env::var("HOME") {
+        candidates.push(Path::new(&home).join(".config/kdtv/kdtv.toml"));
         candidates.push(Path::new(&home).join(".config/kd/kd.toml"));
     }
     candidates.into_iter().find(|p| p.is_file())

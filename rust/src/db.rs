@@ -418,6 +418,56 @@ fn channel_from_row(r: &rusqlite::Row) -> rusqlite::Result<Channel> {
     Ok(Channel { stream_id: r.get(0)?, name: r.get::<_, Option<String>>(1)?.unwrap_or_default(), category: r.get(2)? })
 }
 
+/// A game or event channel, read from its name.
+#[derive(Debug, PartialEq)]
+pub struct Event {
+    /// "FLSP 160", "ESPN+ 266"
+    pub channel: String,
+    pub sport: Option<String>,
+    /// "Chicoutimi Sagueneens vs Rimouski Oceanic"
+    pub title: String,
+    /// "home" or "away"
+    pub feed: Option<String>,
+    pub start: Option<chrono::NaiveDateTime>,
+}
+
+/// Event channels carry their game in the name, since they have no TV guide:
+/// "(FLSP 160) | hockey:  A vs B (Away) (2026-10-18 15:00:05)",
+/// "US (ESPN+ 266) | Northeastern vs. #19 Massachusetts Oct 17 5:30PM ET".
+pub fn event_info(name: &str) -> Option<Event> {
+    let (left, right) = name.split_once(" | ")?;
+    let channel = match (left.find('('), left.rfind(')')) {
+        (Some(a), Some(b)) if b > a => left[a + 1..b].trim().to_string(),
+        _ => left.trim().to_string(),
+    };
+    let mut rest = right.trim().to_string();
+    let mut sport = None;
+    if let Some((before, after)) = rest.split_once(':')
+        && before.len() <= 20
+        && before.chars().all(|c| c.is_alphabetic() || c == ' ')
+    {
+        sport = Some(before.trim().to_lowercase());
+        rest = after.trim().to_string();
+    }
+    let mut start = None;
+    if rest.ends_with(')')
+        && let Some(open) = rest.rfind('(')
+        && let Ok(t) = chrono::NaiveDateTime::parse_from_str(&rest[open + 1..rest.len() - 1], "%Y-%m-%d %H:%M:%S")
+    {
+        start = Some(t);
+        rest = rest[..open].trim().to_string();
+    }
+    let mut feed = None;
+    for word in ["Home", "Away"] {
+        if let Some(stripped) = rest.strip_suffix(&format!("({word})")) {
+            feed = Some(word.to_lowercase());
+            rest = stripped.trim().to_string();
+        }
+    }
+    let title = rest.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!title.is_empty()).then_some(Event { channel, sport, title, feed, start })
+}
+
 fn truncate(text: &str, max: usize) -> String {
     if text.chars().count() <= max {
         return text.to_string();
@@ -450,6 +500,20 @@ mod tests {
 
     fn titles(db: &Db, now: i64) -> Vec<(i64, i64, String)> {
         db.guide(1, now, 4).unwrap().into_iter().map(|p| (p.start_ts, p.end_ts, p.title.unwrap())).collect()
+    }
+
+    #[test]
+    fn game_channels_read_from_their_name() {
+        let e = event_info("(FLSP 160) | hockey:  Chicoutimi Sagueneens vs Rimouski Oceanic (Away) (2026-10-18 15:00:05)").unwrap();
+        assert_eq!(e.channel, "FLSP 160");
+        assert_eq!(e.sport.as_deref(), Some("hockey"));
+        assert_eq!(e.title, "Chicoutimi Sagueneens vs Rimouski Oceanic");
+        assert_eq!(e.feed.as_deref(), Some("away"));
+        assert_eq!(e.start.unwrap().format("%H:%M").to_string(), "15:00");
+        let e = event_info("US (ESPN+ 266) | Northeastern vs. #19 Massachusetts Oct 17 5:30PM ET").unwrap();
+        assert_eq!(e.channel, "ESPN+ 266");
+        assert_eq!(e.title, "Northeastern vs. #19 Massachusetts Oct 17 5:30PM ET");
+        assert!(event_info("CA FR: NOOVO V-TELE HD").is_none());
     }
 
     #[test]

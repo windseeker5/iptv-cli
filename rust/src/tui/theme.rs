@@ -18,6 +18,20 @@ pub const OK: Color = Color::Rgb(63, 185, 80);
 pub const WARN: Color = Color::Rgb(255, 166, 87);
 pub const BAD: Color = Color::Rgb(255, 123, 114);
 
+/// Nerd Font icons (Font Awesome set, present in every Nerd Font).
+pub mod icon {
+    pub const TV: &str = "\u{f26c}";
+    pub const SEARCH: &str = "\u{f002}";
+    pub const FILM: &str = "\u{f008}";
+    pub const SERIES: &str = "\u{f24d}";
+    pub const YOUTUBE: &str = "\u{f16a}";
+    pub const RECORD: &str = "\u{f192}";
+    pub const DOWNLOAD: &str = "\u{f019}";
+    pub const FOLDER: &str = "\u{f07c}";
+    pub const USER: &str = "\u{f007}";
+    pub const PULSE: &str = "\u{f21e}";
+}
+
 /// A rounded panel; the focused one has the accent border.
 pub fn panel(title: &str, focused: bool) -> Block<'static> {
     let block = Block::bordered()
@@ -76,7 +90,7 @@ pub fn left(seconds: i64) -> String {
 }
 
 /// The action buttons at the bottom of a detail panel: two per row, boxed.
-pub fn chips(f: &mut Frame, area: Rect, chips: &[(&str, &str)]) -> u16 {
+pub fn chips(f: &mut Frame, area: Rect, chips: &[(&str, String)]) -> u16 {
     let rows = chips.len().div_ceil(2) as u16;
     let height = rows * 3;
     if area.height < height || chips.is_empty() {

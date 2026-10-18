@@ -1,4 +1,4 @@
-//! Record: what's recording or restreaming now, the schedules, the latest recordings.
+//! Recordings: what's recording or restreaming now, the schedules, the latest recordings.
 
 use super::modal::Action;
 use super::theme::*;
@@ -19,7 +19,7 @@ enum Key {
 }
 
 impl App {
-    fn record_rows(&self, w: usize) -> Rows<Key> {
+    fn recordings_rows(&self, w: usize) -> Rows<Key> {
         let mut rows = Rows::new();
         rows.header("NOW");
         for (i, r) in self.status.recording.iter().enumerate() {
@@ -74,25 +74,25 @@ impl App {
         rows
     }
 
-    pub(super) fn draw_record(&mut self, f: &mut Frame, list: Rect, detail: Rect, wide: bool) {
-        let block = panel("Record", self.focus == Focus::List);
+    pub(super) fn draw_recordings(&mut self, f: &mut Frame, list: Rect, detail: Rect, wide: bool) {
+        let block = panel("Recordings", self.focus == Focus::List);
         let inner = block.inner(list);
         f.render_widget(block, list);
-        let rows = self.record_rows(inner.width as usize);
+        let rows = self.recordings_rows(inner.width as usize);
         let keys = rows.keys();
-        rows.render(f, inner, &mut self.record_list);
+        rows.render(f, inner, &mut self.recordings_list);
         if !wide {
             return;
         }
         let block = panel("", false);
         let area = block.inner(detail);
         f.render_widget(block, detail);
-        let selected = keys.get(self.record_list.selected().unwrap_or(0)).cloned();
-        let (lines, actions): (Vec<Line>, Vec<(&str, &str)>) = match selected {
+        let selected = keys.get(self.recordings_list.selected().unwrap_or(0)).cloned();
+        let (lines, actions): (Vec<Line>, Vec<(&str, String)>) = match selected {
             Some(Key::Recording(i)) => match self.status.recording.get(i) {
                 Some(r) => (
                     vec![Line::from(dim("RECORDING NOW")), Line::from(r.what.clone()).bold(), Line::raw(""), Line::from(dim(r.unit.clone()))],
-                    vec![("x", "stop")],
+                    vec![("x", "stop".to_string())],
                 ),
                 None => (vec![], vec![]),
             },
@@ -104,7 +104,7 @@ impl App {
                     Line::raw(""),
                     label_value("Watch at", self.cfg.watch_url.clone(), ACCENT),
                 ],
-                vec![("x", "stop restream")],
+                vec![("x", "stop restream".to_string())],
             ),
             Some(Key::Schedule(i)) => match self.schedules.get(i) {
                 Some(s) => (
@@ -119,7 +119,7 @@ impl App {
                         label_value("Goes to", s.show_name.as_ref().map(|n| format!("Jellyfin “{n}”")).unwrap_or_else(|| "recordings folder".into()), FG),
                         label_value("Made by", s.created_by.clone().unwrap_or_default(), DIM),
                     ],
-                    vec![("space", if s.enabled { "pause" } else { "resume" }), ("d", "delete")],
+                    vec![("space", (if s.enabled { "pause" } else { "resume" }).to_string()), ("d", "delete".to_string())],
                 ),
                 None => (vec![], vec![]),
             },
@@ -153,12 +153,12 @@ impl App {
         f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), Rect { height: area.height.saturating_sub(used), ..area });
     }
 
-    pub(super) fn record_key(&mut self, key: KeyEvent) -> Option<Action> {
-        let keys = self.record_rows(80).keys();
-        if move_in(&mut self.record_list, key.code, keys.len()) {
+    pub(super) fn recordings_key(&mut self, key: KeyEvent) -> Option<Action> {
+        let keys = self.recordings_rows(80).keys();
+        if move_in(&mut self.recordings_list, key.code, keys.len()) {
             return None;
         }
-        match (key.code, keys.get(self.record_list.selected().unwrap_or(0))?.clone()) {
+        match (key.code, keys.get(self.recordings_list.selected().unwrap_or(0))?.clone()) {
             (KeyCode::Char('x'), Key::Recording(i)) => self.status.recording.get(i).map(|r| Action::StopRecording(r.unit.clone())),
             (KeyCode::Char('x'), Key::Restream) => Some(Action::RestreamStop),
             (KeyCode::Char(' '), Key::Schedule(i)) => self.schedules.get(i).map(|s| Action::PauseSchedule { id: s.id.clone(), enabled: !s.enabled }),

@@ -4,6 +4,7 @@ use super::hhmm;
 use super::theme::*;
 use crate::db::{Channel, Db, Episode, Movie, Program};
 use crate::library::Media;
+use crate::youtube::Video;
 use crate::schedules;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
@@ -19,6 +20,7 @@ pub enum Action {
     PlayMovie(Movie),
     PlayEpisode { series: String, episode: Episode },
     PlayFile(Media),
+    PlayYouTube(Video),
     RecordMenu(Channel),
     RecordForm(Channel),
     ScheduleForm(Channel),
@@ -30,8 +32,11 @@ pub enum Action {
     RestreamStart { channel: Channel, replace: bool },
     RestreamStop,
     DownloadMovie(Movie),
-    DownloadEpisodes { series: String, episodes: Vec<Episode> },
+    /// `what` names the batch for the question: "season 3", "all 12 seasons".
+    DownloadEpisodes { series: String, episodes: Vec<Episode>, what: String },
+    DownloadYouTube { video: Video, audio: bool },
     CancelDownload(String),
+    Refresh { guide: bool },
 }
 
 pub enum Modal {
@@ -97,25 +102,26 @@ impl Modal {
         let key = |k: &str, what: &str| Line::from(vec![Span::styled(format!("{k:<12}"), Style::new().fg(ACCENT).bold()), Span::raw(what.to_string())]);
         let lines = vec![
             heading("EVERYWHERE"),
-            key("1 … 6", "Live, Movies, Series, Record, Library, Status"),
-            key("/", "search (live channels, movies or series)"),
+            key("1 … 9, 0", "jump to a section (Search is 1, Status is 0)"),
+            key("/", "search"),
             key("tab", "switch between the menu and the list"),
             key("↑ ↓  → ←", "move · open · go back"),
-            key("q", "quit (recordings keep running)"),
+            key("q", "quit (recordings, restream and downloads keep going)"),
             Line::raw(""),
             heading("LIVE"),
-            key("↵", "watch in mpv"),
-            key("r", "record: this show, the next ones, or a custom time"),
-            key("n", "schedule the next show on this channel"),
-            key("s", "restream for the family"),
+            key("↵  r  n", "watch · record · schedule the next show"),
+            key("s  x", "restream for the family · stop the restream"),
             Line::raw(""),
-            heading("MOVIES · SERIES"),
-            key("↵", "watch · open a series"),
-            key("d / D", "download this · download every episode"),
+            heading("MOVIES · SERIES · YOUTUBE"),
+            key("↵  d", "watch · download"),
+            key("[  ]", "previous / next season"),
+            key("s  D", "download this season · every season"),
+            key("a", "YouTube: download the audio only (mp3)"),
             Line::raw(""),
-            heading("RECORD · LIBRARY"),
-            key("x", "stop a recording or restream · cancel a download"),
-            key("space / d", "pause or resume a schedule · delete it"),
+            heading("RECORDINGS · DOWNLOADS · ACCOUNT"),
+            key("x", "stop a recording · cancel a download"),
+            key("space  d", "pause or resume a schedule · delete it"),
+            key("u  g", "update the channel list · the TV guide"),
             Line::raw(""),
             Line::from(dim("any key to close")),
         ];

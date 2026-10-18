@@ -1,29 +1,34 @@
-//! The full-screen interface, laid out like design option B:
+//! The full-screen interface, laid out like design B2:
 //!
 //! ```text
-//! ╭ sidebar ╮╭ list ─────────────────╮╭ details ───────╮
-//! │ Live    ││ what's in the section ││ the selection  │
-//! │ Movies  ││                       ││ and its        │
-//! │ …       ││                       ││ actions        │
-//! ╰─────────╯╰───────────────────────╯╰────────────────╯
-//!  REC …  │  ↓ download  │  message            keys
+//! ╭ menu ───────╮╭ list ─────────────────╮╭ details ───────╮
+//! │ Search      ││ what's in the section ││ the selection  │
+//! │ Live …      ││                       ││ and its        │
+//! │ Account …   ││                       ││ actions        │
+//! ╰─────────────╯╰───────────────────────╯╰────────────────╯
+//!  REC … │ RESTREAMING … │ ↓ download │ message        keys
 //! ```
 //!
 //! ↑↓ move, → or ↵ go into the list, ← or esc go back, Tab switches panel,
-//! 1-6 jump to a section, `/` search, `?` all keys, q quit. Slow work runs on a
-//! background thread so the screen never freezes.
+//! 1-9 and 0 jump to a section, `/` searches, `?` shows every key. Slow work runs
+//! on a background thread so the screen never freezes.
 
+mod account;
+mod downloads;
 mod library;
 mod modal;
-mod record;
+mod recordings;
+mod search;
 mod sidebar;
 mod status;
 mod theme;
 mod watch;
+mod youtube;
 
 use crate::config::Config;
 use crate::db::{Db, Episode};
-use crate::{downloads, library as media, play, record as rec, restream, runs, schedules, status as st};
+use crate::youtube::Video;
+use crate::{downloads as dl, library as media, play, record as rec, restream, runs, schedules, status as st};
 use anyhow::Result;
 use modal::{Action, Modal};
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -41,15 +46,30 @@ const REFRESH_EVERY: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Section {
+    Search,
     Live,
     Movies,
     Series,
-    Record,
+    YouTube,
+    Recordings,
+    Downloads,
     Library,
+    Account,
     Status,
 }
 
-const SECTIONS: [Section; 6] = [Section::Live, Section::Movies, Section::Series, Section::Record, Section::Library, Section::Status];
+const SECTIONS: [Section; 10] = [
+    Section::Search,
+    Section::Live,
+    Section::Movies,
+    Section::Series,
+    Section::YouTube,
+    Section::Recordings,
+    Section::Downloads,
+    Section::Library,
+    Section::Account,
+    Section::Status,
+];
 
 #[derive(Clone, Copy, PartialEq)]
 enum Focus {
@@ -63,6 +83,7 @@ type TaskResult = Result<Done, String>;
 enum Done {
     Message(String),
     Episodes { series_id: i64, episodes: Vec<Episode> },
+    YouTube { query: String, videos: Vec<Video>, for_search: bool },
 }
 
 struct App {
@@ -70,13 +91,17 @@ struct App {
     db: Db,
     section: Section,
     focus: Focus,
+    search: search::Search,
     watch: watch::Watch,
-    record_list: ListState,
+    youtube: youtube::YouTube,
+    recordings_list: ListState,
+    downloads_list: ListState,
     library_list: ListState,
+    show_password: bool,
     status: st::Status,
     schedules: Vec<schedules::Schedule>,
     runs: Vec<runs::Run>,
-    jobs: Vec<downloads::Job>,
+    jobs: Vec<dl::Job>,
     media: Vec<media::Media>,
     favorites: usize,
     refreshed: Instant,
@@ -84,6 +109,8 @@ struct App {
     modal: Option<Modal>,
     tasks: (Sender<TaskResult>, Receiver<TaskResult>),
     running: usize,
+    /// Set by `e` in Account: leave the screen, open the .env in an editor, come back.
+    edit_env: bool,
     quit: bool,
 }
 
@@ -102,21 +129,26 @@ impl App {
             status: st::collect(&cfg, Some(&db)),
             schedules: schedules::list(&cfg.data_dir),
             runs: runs::recent(&cfg.data_dir, 12),
-            jobs: downloads::list(&cfg),
+            jobs: dl::list(&cfg),
             media: media::list(&cfg),
             favorites: crate::favorites::live(&cfg.data_dir).len(),
+            search: search::Search::default(),
             watch: watch::Watch::default(),
+            youtube: youtube::YouTube::default(),
             cfg,
             db,
             section: Section::Live,
             focus: Focus::List,
-            record_list: ListState::default().with_selected(Some(0)),
+            recordings_list: ListState::default().with_selected(Some(0)),
+            downloads_list: ListState::default().with_selected(Some(0)),
             library_list: ListState::default().with_selected(Some(0)),
+            show_password: false,
             refreshed: Instant::now(),
             message: None,
             modal: None,
             tasks: channel(),
             running: 0,
+            edit_env: false,
             quit: false,
         };
         app.watch.reset(&app.db, &app.cfg);
@@ -125,8 +157,9 @@ impl App {
 
     fn event_loop(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         while !self.quit {
+            self.watch.mark_episodes(&self.cfg, &self.jobs);
             terminal.draw(|f| self.draw(f))?;
-            let busy = self.running > 0 || self.jobs.iter().any(|j| j.state == downloads::State::Downloading);
+            let busy = self.running > 0 || self.jobs.iter().any(|j| j.state == dl::State::Downloading);
             let wait = if busy { Duration::from_millis(250) } else { REFRESH_EVERY.saturating_sub(self.refreshed.elapsed()).min(Duration::from_secs(5)) };
             if event::poll(wait)? {
                 if let Event::Key(key) = event::read()?
@@ -137,9 +170,20 @@ impl App {
             } else if self.refreshed.elapsed() >= REFRESH_EVERY {
                 self.refresh();
             } else if busy {
-                self.jobs = downloads::list(&self.cfg);
+                self.jobs = dl::list(&self.cfg);
             }
             self.collect_tasks();
+            if self.edit_env {
+                self.edit_env = false;
+                ratatui::restore();
+                let editor = std::env::var("EDITOR").unwrap_or_else(|_| "nano".into());
+                let _ = std::process::Command::new(editor).arg(&self.cfg.env_file).status();
+                *terminal = ratatui::init();
+                if let Ok(cfg) = Config::load(self.cfg.file.as_deref()) {
+                    self.cfg = cfg;
+                }
+                self.say("Login file saved and reloaded", OK);
+            }
         }
         Ok(())
     }
@@ -148,7 +192,7 @@ impl App {
         self.status = st::collect(&self.cfg, Some(&self.db));
         self.schedules = schedules::list(&self.cfg.data_dir);
         self.runs = runs::recent(&self.cfg.data_dir, 12);
-        self.jobs = downloads::list(&self.cfg);
+        self.jobs = dl::list(&self.cfg);
         self.media = media::list(&self.cfg);
         self.refreshed = Instant::now();
         self.watch.refresh_now(&self.db);
@@ -182,8 +226,17 @@ impl App {
             match result {
                 Ok(Done::Message(text)) => self.say(text, OK),
                 Ok(Done::Episodes { series_id, episodes }) => self.watch.episodes_loaded(series_id, episodes),
+                Ok(Done::YouTube { query, videos, for_search }) => {
+                    if for_search {
+                        self.search.youtube_loaded(&query, videos);
+                    } else {
+                        self.youtube.loaded(&query, videos);
+                    }
+                }
                 Err(e) => {
                     self.watch.episodes_failed();
+                    self.youtube.failed();
+                    self.search.youtube_failed();
                     self.fail(e);
                 }
             }
@@ -211,37 +264,29 @@ impl App {
             },
             Action::PlayEpisode { series, episode } => match self.db.episode_url(&episode.episode_id) {
                 Ok(Some(url)) => {
-                    let title = format!("{series} S{:02}E{:02} {}", episode.season, episode.episode_num, episode.title);
+                    let title = format!("{series} S{:02}E{:02}", episode.season, episode.episode_num);
                     self.play(&title, play::Target::Url(&url))
                 }
                 _ => self.fail("The provider no longer lists this episode."),
             },
             Action::PlayFile(m) => self.play(&m.name, play::Target::File(&m.path)),
+            Action::PlayYouTube(v) => self.play(&v.title, play::Target::Url(&v.url)),
             Action::RecordMenu(c) => self.modal = Some(Modal::record_menu(&c, &self.watch.guide, &self.schedules)),
             Action::RecordForm(c) => self.modal = Some(Modal::record_form(c, &self.db)),
             Action::ScheduleForm(c) => self.modal = Some(Modal::schedule_form(c)),
             Action::RecordNow { channel, minutes, show } => {
-                self.say(format!("Starting the recording of {}…", channel.name), DIM);
+                self.say(format!("Starting the recording of {}…", short(&channel.name)), DIM);
                 self.spawn(move |cfg| {
                     let req = rec::Request { stream_id: channel.stream_id, channel_name: &channel.name, minutes, show_name: show.as_deref() };
                     let started = rec::record_now(cfg, &req)?;
                     let extra = started.warning.map(|w| format!(" ({w})")).unwrap_or_default();
-                    Ok(Done::Message(format!("Recording {} for {} min{extra}", channel.name, started.minutes)))
+                    Ok(Done::Message(format!("Recording {} for {} min{extra}", short(&channel.name), started.minutes)))
                 });
             }
             Action::Schedule { channel, time, minutes, days, date, show } => self.spawn(move |cfg| {
                 let s = schedules::create(
                     cfg,
-                    schedules::New {
-                        stream_id: channel.stream_id,
-                        channel_name: &channel.name,
-                        time: &time,
-                        duration_min: minutes,
-                        days,
-                        date,
-                        show_name: show.as_deref(),
-                        created_by: "kd",
-                    },
+                    schedules::New { stream_id: channel.stream_id, channel_name: &channel.name, time: &time, duration_min: minutes, days, date, show_name: show.as_deref(), created_by: "kdtv" },
                 )?;
                 Ok(Done::Message(format!("Scheduled: {}", s.what)))
             }),
@@ -260,31 +305,39 @@ impl App {
             Action::RestreamStart { channel, replace } => {
                 // A yes to "switch the restream?" is the go-ahead to replace it.
                 let replace = replace || confirmed;
-                self.say(format!("Starting the restream of {}…", channel.name), DIM);
+                self.say(format!("Starting the restream of {}…", short(&channel.name)), DIM);
                 self.spawn(move |cfg| {
                     let s = restream::start(cfg, &channel, replace)?;
-                    Ok(Done::Message(format!("Restreaming {} → {}", s.channel_name, s.watch_url)))
+                    Ok(Done::Message(format!("Restreaming {} → {}", short(&s.channel_name), s.watch_url)))
                 });
             }
             Action::RestreamStop => self.spawn(|cfg| {
                 let name = restream::stop(cfg)?;
                 Ok(Done::Message(match name {
-                    Some(n) => format!("Stopped the restream of {n}."),
+                    Some(n) => format!("Stopped the restream of {}.", short(&n)),
                     None => "No restream was running.".into(),
                 }))
             }),
             Action::DownloadMovie(m) => self.spawn(move |cfg| {
-                downloads::add_movie(cfg, &m)?;
-                Ok(Done::Message(format!("Queued {} — see Library", m.name)))
+                dl::add_movie(cfg, &m)?;
+                Ok(Done::Message(format!("Queued {} (see Downloads)", m.name)))
             }),
-            Action::DownloadEpisodes { series, episodes } => self.spawn(move |cfg| {
-                let jobs = downloads::add_episodes(cfg, &series, &episodes)?;
-                Ok(Done::Message(format!("Queued {} episode(s) of {series} — see Library", jobs.len())))
+            Action::DownloadEpisodes { series, episodes, .. } => self.spawn(move |cfg| {
+                let jobs = dl::add_episodes(cfg, &series, &episodes)?;
+                Ok(Done::Message(format!("Queued {} episode(s) of {series} (see Downloads)", jobs.len())))
+            }),
+            Action::DownloadYouTube { video, audio } => self.spawn(move |cfg| {
+                dl::add_youtube(cfg, &video, audio)?;
+                Ok(Done::Message(format!("Queued {} (see Downloads)", video.title)))
             }),
             Action::CancelDownload(id) => self.spawn(move |cfg| {
-                let job = downloads::cancel(cfg, &id)?;
+                let job = dl::cancel(cfg, &id)?;
                 Ok(Done::Message(format!("Cancelled {}", job.title)))
             }),
+            Action::Refresh { guide } => {
+                self.say(if guide { "Updating the channel list and TV guide (about 30 s)…" } else { "Updating the channel list (a few seconds)…" }, DIM);
+                self.spawn(move |cfg| Ok(Done::Message(crate::refresh::run(cfg, guide)?)));
+            }
         }
     }
 
@@ -299,20 +352,23 @@ impl App {
             Action::RecordNow { .. } if busy => Some(format!("Something is already recording or restreaming. {cut}")),
             Action::RestreamStart { .. } if recording => Some(format!("A recording is running. {cut}")),
             Action::RestreamStart { replace: false, .. } if self.status.restream.live => {
-                let current = self.status.restream.channel_name.as_deref().unwrap_or("another channel");
+                let current = self.status.restream.channel_name.as_deref().map(short).unwrap_or_default();
                 Some(format!("The family is watching {current}. Switch the restream to this channel?"))
             }
             Action::StopRecording(_) => Some("Stop this recording? What is recorded so far is kept.".into()),
             Action::RestreamStop => Some("Stop the restream? Anyone watching it loses the picture.".into()),
             Action::DeleteSchedule(_) => Some("Delete this schedule? Its timer is removed too.".into()),
             Action::CancelDownload(_) => Some("Cancel this download? The partial file is removed.".into()),
+            Action::DownloadEpisodes { episodes, what, .. } if episodes.len() > 1 => {
+                Some(format!("Download {what}: {} episodes, one at a time? Each one is a large file.", episodes.len()))
+            }
             _ => None,
         }
     }
 
     fn play(&mut self, title: &str, target: play::Target) {
         match play::play(&self.cfg, title, target) {
-            Ok(()) => self.say(format!("Playing {title} in mpv"), OK),
+            Ok(()) => self.say(format!("Playing {} in mpv", short(title)), OK),
             Err(e) => self.fail(format!("{e:#}")),
         }
     }
@@ -321,7 +377,7 @@ impl App {
 
     fn on_key(&mut self, key: KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-        if ctrl && key.code == KeyCode::Char('c') {
+        if ctrl && matches!(key.code, KeyCode::Char('c') | KeyCode::Char('q')) {
             self.quit = true;
             return;
         }
@@ -333,9 +389,17 @@ impl App {
             }
             return;
         }
-        if self.watch.typing {
-            self.watch.on_typing_key(key, &self.db, &self.cfg);
-            return;
+        // Sections with a search box take the keys while their box is active.
+        if self.focus == Focus::List {
+            match self.section {
+                Section::Search => return self.search_key(key),
+                Section::YouTube if self.youtube.typing => return self.youtube_typing_key(key),
+                Section::Live | Section::Movies | Section::Series if self.watch.typing => {
+                    self.watch.on_typing_key(key, &self.db, &self.cfg);
+                    return;
+                }
+                _ => {}
+            }
         }
         match key.code {
             KeyCode::Char('q') => self.quit = true,
@@ -345,14 +409,16 @@ impl App {
                 self.say("Refreshed", DIM);
             }
             KeyCode::Char('/') => {
-                if !self.browsing() {
-                    self.open_section(Section::Live);
+                match self.section {
+                    Section::Live | Section::Movies | Section::Series => self.watch.typing = true,
+                    Section::YouTube => self.youtube.typing = true,
+                    _ => self.open_section(Section::Search),
                 }
                 self.focus = Focus::List;
-                self.watch.typing = true;
             }
-            KeyCode::Char(c @ '1'..='6') => {
-                self.open_section(SECTIONS[c as usize - '1' as usize]);
+            KeyCode::Char(c @ '0'..='9') => {
+                let index = if c == '0' { 9 } else { c as usize - '1' as usize };
+                self.open_section(SECTIONS[index]);
                 self.focus = Focus::List;
             }
             KeyCode::Tab | KeyCode::BackTab => {
@@ -383,27 +449,45 @@ impl App {
                     }
                     None
                 } else {
-                    self.watch.on_key(key, &self.db)
+                    self.watch.on_key(key, &self.db, self.status.restream.live)
                 }
             }
             _ if back => {
                 self.focus = Focus::Sidebar;
                 None
             }
-            Section::Record => self.record_key(key),
+            Section::YouTube => self.youtube.on_key(key),
+            Section::Recordings => self.recordings_key(key),
+            Section::Downloads => self.downloads_key(key),
             Section::Library => self.library_key(key),
-            Section::Status => None,
+            Section::Account => self.account_key(key),
+            Section::Search | Section::Status => None,
         };
         if let Some(action) = action {
             self.perform(action, false);
         }
+        self.start_pending();
+    }
+
+    /// Kick off what a key asked for in the background (episodes, a YouTube search).
+    fn start_pending(&mut self) {
         if let Some(series_id) = self.watch.wants_episodes.take() {
             self.spawn(move |cfg| Ok(Done::Episodes { series_id, episodes: crate::episodes(cfg, series_id)? }));
         }
+        if let Some(query) = self.youtube.wants_search.take() {
+            self.spawn(move |_| Ok(Done::YouTube { videos: crate::youtube::search(&query, 20)?, query, for_search: false }));
+        }
+        if let Some(query) = self.search.wants_youtube.take() {
+            self.spawn(move |_| Ok(Done::YouTube { videos: crate::youtube::search(&query, 8)?, query, for_search: true }));
+        }
     }
 
-    fn browsing(&self) -> bool {
-        matches!(self.section, Section::Live | Section::Movies | Section::Series)
+    fn youtube_typing_key(&mut self, key: KeyEvent) {
+        if key.code == KeyCode::Esc && self.youtube.query.is_empty() {
+            self.focus = Focus::Sidebar;
+        }
+        self.youtube.on_typing_key(key);
+        self.start_pending();
     }
 
     fn open_section(&mut self, section: Section) {
@@ -420,7 +504,11 @@ impl App {
         if let Some(mode) = mode {
             self.watch.mode = mode;
             self.watch.query.clear();
+            self.watch.typing = false;
             self.watch.reset(&self.db, &self.cfg);
+        }
+        if section == Section::YouTube && self.youtube.is_empty() {
+            self.youtube.typing = true;
         }
     }
 
@@ -430,25 +518,25 @@ impl App {
         f.render_widget(Block::new().style(Style::new().bg(BG).fg(FG)), f.area());
         let [body, bar] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(f.area().inner(Margin { horizontal: 1, vertical: 0 }));
         let wide = body.width >= 110;
-        let [side, list, detail] = Layout::horizontal([
-            Constraint::Length(24),
-            Constraint::Min(30),
-            Constraint::Percentage(if wide { 34 } else { 0 }),
-        ])
-        .spacing(1)
-        .areas(body);
+        let [side, list, detail] = Layout::horizontal([Constraint::Length(26), Constraint::Min(30), Constraint::Percentage(if wide { 32 } else { 0 })])
+            .spacing(1)
+            .areas(body);
 
         self.draw_sidebar(f, side);
-        let list_focused = self.focus == Focus::List;
+        let focused = self.focus == Focus::List;
         match self.section {
+            Section::Search => self.draw_search(f, list, detail, wide),
             Section::Live | Section::Movies | Section::Series => {
-                self.watch.draw_list(f, list, list_focused);
+                self.watch.draw_list(f, list, focused, &self.status);
                 if wide {
-                    self.watch.draw_detail(f, detail, &self.schedules);
+                    self.watch.draw_detail(f, detail, &self.schedules, &self.status, &self.cfg.watch_url);
                 }
             }
-            Section::Record => self.draw_record(f, list, detail, wide),
+            Section::YouTube => self.youtube.draw(f, list, detail, focused, wide),
+            Section::Recordings => self.draw_recordings(f, list, detail, wide),
+            Section::Downloads => self.draw_downloads(f, list, detail, wide),
             Section::Library => self.draw_library(f, list, detail, wide),
+            Section::Account => self.draw_account(f, list, detail, wide),
             Section::Status => self.draw_status(f, list, detail, wide),
         }
         self.draw_bar(f, bar);
@@ -460,27 +548,30 @@ impl App {
     fn draw_bar(&mut self, f: &mut Frame, area: Rect) {
         let mut spans: Vec<Span> = vec![];
         let sep = || Span::styled("  │  ", Style::new().fg(BORDER));
-        match self.status.recording.first() {
-            Some(r) => {
-                spans.push(Span::styled(" REC ", Style::new().fg(BG).bg(BAD).bold()));
-                spans.push(Span::raw(format!(" {}", short(&r.what))));
-                if self.status.recording.len() > 1 {
-                    spans.push(dim(format!(" +{}", self.status.recording.len() - 1)));
-                }
-            }
-            None => match self.next_recording() {
-                Some(next) => spans.push(dim(format!(" next rec {next}"))),
-                None => spans.push(dim(" nothing recording")),
-            },
+        for r in self.status.recording.iter().take(1) {
+            spans.push(Span::styled(" REC ", Style::new().fg(BG).bg(BAD).bold()));
+            spans.push(Span::raw(format!(" {}", short(&r.what))));
         }
         if self.status.restream.live {
-            spans.push(sep());
-            spans.push(Span::styled(" LIVE ", Style::new().fg(BG).bg(OK).bold()));
+            if !spans.is_empty() {
+                spans.push(sep());
+            }
+            spans.push(Span::styled(" RESTREAMING ", Style::new().fg(BG).bg(OK).bold()));
             spans.push(Span::raw(format!(" {}", short(self.status.restream.channel_name.as_deref().unwrap_or("?")))));
+            spans.push(dim("  x in Live stops it"));
         }
-        if let Some(job) = self.jobs.iter().find(|j| j.state == downloads::State::Downloading) {
+        if spans.is_empty() {
+            spans.push(dim(match self.next_recording() {
+                Some(next) => format!(" next recording {next}"),
+                None => " nothing recording".into(),
+            }));
+        }
+        let active: Vec<&dl::Job> = self.jobs.iter().filter(|j| j.unfinished()).collect();
+        if let Some(job) = active.iter().find(|j| j.state == dl::State::Downloading) {
             spans.push(sep());
-            spans.push(Span::styled(format!("↓ {} · {}", short(&job.title), media::human_size(job.bytes)), Style::new().fg(ACCENT)));
+            let progress = job.progress().map(|p| format!("{p:.0}%")).unwrap_or_else(|| media::human_size(job.bytes));
+            let more = if active.len() > 1 { format!(" · {} to go", active.len() - 1) } else { String::new() };
+            spans.push(Span::styled(format!("↓ {} · {progress}{more}", short(&job.title)), Style::new().fg(ACCENT)));
         }
         if self.running > 0 {
             spans.push(sep());
@@ -494,7 +585,7 @@ impl App {
                 self.message = None;
             }
         }
-        let hints = format!("{}  ? keys  q quit ", self.hints());
+        let hints = format!("{}  ? keys ", self.hints());
         let [left, right] = Layout::horizontal([Constraint::Min(0), Constraint::Length(hints.chars().count() as u16)]).areas(area);
         f.render_widget(Line::from(spans), left);
         f.render_widget(Line::from(hints).fg(DIM), right);
@@ -522,13 +613,17 @@ impl App {
             return "↵ ok  esc cancel";
         }
         if self.focus == Focus::Sidebar {
-            return "↑↓ section  → open  / search";
+            return "↑↓ pick  → open  q quit";
         }
         match self.section {
-            Section::Live | Section::Movies | Section::Series => self.watch.hints(),
-            Section::Record => "x stop  space pause  d delete  ← back",
-            Section::Library => "↵ play  x cancel  ← back",
-            Section::Status => "ctrl+r refresh  ← back",
+            Section::Search => "type to search  ↑↓ results  ↵ open  esc menu",
+            Section::Live | Section::Movies | Section::Series => self.watch.hints(self.status.restream.live),
+            Section::YouTube => self.youtube.hints(),
+            Section::Recordings => "x stop  space pause  d delete  ← menu",
+            Section::Downloads => "x cancel  ← menu",
+            Section::Library => "↵ play  ← menu",
+            Section::Account => "u update list  g update guide  p password  e edit  ← menu",
+            Section::Status => "ctrl+r refresh  ← menu",
         }
     }
 }
@@ -599,7 +694,7 @@ fn move_in(state: &mut ListState, key: KeyCode, count: usize) -> bool {
 }
 
 fn label_value(label: &str, value: String, color: Color) -> Line<'static> {
-    Line::from(vec![Span::styled(format!("{label:<12}"), Style::new().fg(DIM)), Span::styled(value, Style::new().fg(color))])
+    Line::from(vec![Span::styled(format!("{label:<16}"), Style::new().fg(DIM)), Span::styled(value, Style::new().fg(color))])
 }
 
 fn hhmm(ts: i64) -> String {
@@ -607,8 +702,11 @@ fn hhmm(ts: i64) -> String {
     chrono::Local.timestamp_opt(ts, 0).single().map(|t| t.format("%H:%M").to_string()).unwrap_or_default()
 }
 
-/// The first part of a description ("NOOVO, every Sun…" → "NOOVO"), at most 30 characters.
+/// A short, readable name: game channels become their game, descriptions their first part.
 fn short(what: &str) -> String {
-    let first = what.split(',').next().unwrap_or(what).trim();
-    if first.chars().count() > 30 { format!("{}…", first.chars().take(29).collect::<String>()) } else { first.to_string() }
+    let text = match crate::db::event_info(what) {
+        Some(e) => format!("{} · {}", e.channel, e.title),
+        None => what.split(',').next().unwrap_or(what).trim().to_string(),
+    };
+    if text.chars().count() > 34 { format!("{}…", text.chars().take(33).collect::<String>()) } else { text }
 }

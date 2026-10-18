@@ -732,7 +732,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "kd"
+name = "kdtv"
 version = "0.1.0"
 dependencies = [
  "anyhow",

@@ -1,4 +1,4 @@
-# Copy to ~/.config/kd/kd.toml (or ./kd.toml). Paths are relative to this file; ~ works.
+# Copy to ~/.config/kdtv/kdtv.toml (or ./kdtv.toml). Paths are relative to this file; ~ works.
 profile = "home"                 # shown in the header; "travel" on the laptop
 
 # The Python CLI: scripts/ (the recorder), venv/, data/ and .env live here.
@@ -10,3 +10,4 @@ cli_dir = "~/Documents/DEV/kdtv/cli"
 # compose_dir   = "~/Documents/DEV"       # where docker-compose.yml is (default: two folders up)
 # watch_url     = "https://live.dresdell.com/"
 # containers    = ["iptv-nginx-rtmp", "iptv-jellyfin", "caddy", "omt"]
+# icons        = false                   # no Nerd Font on this terminal (e.g. a Pi console)

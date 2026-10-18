@@ -1,9 +1,9 @@
-//! kd: the KD TV brain. One binary for the TUI and scriptable commands (`--json`
-//! for JP and scripts); later, the background API.
+//! kdtv: KDTV CLI, the brain of KD TV. One binary for the TUI and scriptable
+//! commands (`--json` for JP and scripts); later, the background API.
 //!
-//! kd reads the data the Python side writes and uses the proven Python recorder
+//! kdtv reads the data the Python side writes and uses the proven Python recorder
 //! for the recording itself. Long-running work (recordings, the restream, the
-//! download queue) runs as systemd user units, so it outlives kd.
+//! download queue) runs as systemd user units, so it outlives kdtv.
 
 mod config;
 mod db;
@@ -14,12 +14,14 @@ mod log;
 mod play;
 mod provider;
 mod record;
+mod refresh;
 mod restream;
 mod runs;
 mod schedules;
 mod status;
 mod systemd;
 mod tui;
+mod youtube;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
@@ -28,12 +30,12 @@ use serde_json::json;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "kd", version, about = "KD TV: live TV, movies, series, recordings and restreams")]
+#[command(name = "kdtv", version, about = "KDTV CLI: live TV, movies, series, YouTube, recordings and restreams")]
 struct Cli {
     /// Print JSON instead of text (for JP and scripts)
     #[arg(long, global = true)]
     json: bool,
-    /// Use this kd.toml instead of looking for one
+    /// Use this kdtv.toml instead of looking for one
     #[arg(long, global = true, value_name = "FILE")]
     config: Option<PathBuf>,
     #[command(subcommand)]
@@ -116,6 +118,18 @@ enum Cmd {
         #[arg(long, value_name = "ID")]
         cancel: Option<String>,
     },
+    /// Search YouTube
+    Youtube {
+        #[arg(required = true)]
+        query: Vec<String>,
+        #[arg(long, default_value_t = 15)]
+        limit: usize,
+    },
+    /// Download the provider's channel list now (add --guide for the full TV guide)
+    Refresh {
+        #[arg(long)]
+        guide: bool,
+    },
     /// Recordings and downloads on disk
     Library {
         #[arg(long, default_value_t = 30)]
@@ -196,7 +210,18 @@ enum RestreamCmd {
 enum DownloadCmd {
     Movie { stream_id: i64 },
     Episode { episode_id: String },
-    Series { series_id: i64 },
+    /// Every episode, or one season with --season
+    Series {
+        series_id: i64,
+        #[arg(long)]
+        season: Option<i64>,
+    },
+    /// A YouTube video (add --audio for an mp3)
+    Youtube {
+        url: String,
+        #[arg(long)]
+        audio: bool,
+    },
 }
 
 fn main() {
@@ -416,9 +441,15 @@ fn run(cli: Cli) -> Result<()> {
                     let series = db.series(ep.series_id)?.map(|s| s.name).unwrap_or_else(|| "Series".into());
                     downloads::add_episodes(&cfg, &series, &[ep])?
                 }
-                DownloadCmd::Series { series_id } => {
+                DownloadCmd::Series { series_id, season } => {
                     let series = db.series(series_id)?.with_context(|| format!("no series with id {series_id}"))?;
-                    downloads::add_episodes(&cfg, &series.name, &episodes(&cfg, series_id)?)?
+                    let all = episodes(&cfg, series_id)?;
+                    let chosen: Vec<_> = all.into_iter().filter(|e| season.is_none_or(|s| e.season == s)).collect();
+                    downloads::add_episodes(&cfg, &series.name, &chosen)?
+                }
+                DownloadCmd::Youtube { url, audio } => {
+                    let video = youtube::Video { id: String::new(), title: url.clone(), channel: String::new(), duration: 0, url };
+                    vec![downloads::add_youtube(&cfg, &video, audio)?]
                 }
             };
             print(json, &jobs, || {
@@ -437,7 +468,8 @@ fn run(cli: Cli) -> Result<()> {
             print(json, &jobs, || {
                 for j in &jobs {
                     let state = format!("{:?}", j.state).to_lowercase();
-                    println!("{state:<11} {}  {}  {}", j.title, dim(&library::human_size(j.bytes)), dim(&j.id));
+                    let progress = j.progress().map(|p| format!("{p:.0}%")).unwrap_or_else(|| library::human_size(j.bytes));
+                    println!("{state:<11} {}  {}  {}", j.title, dim(&progress), dim(&j.id));
                     if let Some(e) = &j.error {
                         println!("            {}", dim(e));
                     }
@@ -446,6 +478,20 @@ fn run(cli: Cli) -> Result<()> {
                     println!("No downloads.");
                 }
             })
+        }
+
+        Cmd::Youtube { query, limit } => {
+            let videos = youtube::search(&query.join(" "), limit)?;
+            print(json, &videos, || {
+                for v in &videos {
+                    println!("{:>8}  {}  {}", youtube::duration(v.duration), v.title, dim(&format!("{} · {}", v.channel, v.url)));
+                }
+            })
+        }
+
+        Cmd::Refresh { guide } => {
+            let message = refresh::run(&cfg, guide)?;
+            print(json, &json!({ "ok": true, "message": message }), || println!("{message}"))
         }
 
         Cmd::Library { limit } => {

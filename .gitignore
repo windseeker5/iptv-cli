@@ -65,4 +65,4 @@ Thumbs.db
 
 # Rust
 rust/target/
-kd.toml
+kdtv.toml

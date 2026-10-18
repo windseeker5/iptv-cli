@@ -4,7 +4,7 @@
 use super::theme::*;
 use super::{label_value, App, Focus};
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Wrap};
 use ratatui::Frame;
@@ -38,17 +38,6 @@ impl App {
         lines.push(label_value("Restream", restream.0, restream.1));
         let queued = self.jobs.iter().filter(|j| !matches!(j.state, crate::downloads::State::Done | crate::downloads::State::Failed | crate::downloads::State::Cancelled)).count();
         lines.push(label_value("Downloads", if queued == 0 { "none queued".into() } else { format!("{queued} in the queue") }, if queued == 0 { DIM } else { FG }));
-
-        lines.push(Line::raw(""));
-        lines.push(heading("DATA"));
-        lines.push(label_value("Channels", age(s.list_age_minutes), freshness(s.list_age_minutes, 3 * 60)));
-        lines.push(label_value("Guide", age(s.guide_age_minutes), freshness(s.guide_age_minutes, 24 * 60)));
-        if let Some(c) = &s.database {
-            lines.push(label_value("Database", format!("{} live · {} movies · {} series", c.live, c.vod, c.series), FG));
-        }
-        if let Some(a) = &s.account {
-            lines.push(label_value("Account", format!("{} · expires {} · {} connection(s)", a.status, a.expires.as_deref().unwrap_or("?"), a.max_connections), FG));
-        }
 
         lines.push(Line::raw(""));
         lines.push(heading("FOLDERS"));
@@ -90,17 +79,3 @@ fn event_line(e: &Value, w: usize) -> Line<'static> {
     Line::from(vec![dim(format!("{time}  ")), Span::styled(format!("{event:<17}"), Style::new().fg(color)), dim(fit(&what, w.saturating_sub(24)))])
 }
 
-fn age(minutes: Option<i64>) -> String {
-    match minutes {
-        None => "never downloaded".into(),
-        Some(m) if m < 60 => format!("updated {m} min ago"),
-        Some(m) => format!("updated {}h{:02} ago", m / 60, m % 60),
-    }
-}
-
-fn freshness(minutes: Option<i64>, stale_after: i64) -> Color {
-    match minutes {
-        Some(m) if m <= stale_after => FG,
-        _ => WARN,
-    }
-}
