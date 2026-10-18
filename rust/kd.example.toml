@@ -1,0 +1,6 @@
+# Copy to ~/.config/kd/kd.toml (or ./kd.toml). Paths are relative to this file.
+profile = "home"            # "travel" on the laptop
+data_dir = "data"
+env_file = ".env"
+# Containers shown on the Status tab
+containers = ["iptv-nginx-rtmp", "iptv-jellyfin", "caddy", "omt"]

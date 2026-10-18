@@ -62,3 +62,7 @@ jellyfin/config/
 # OS
 .DS_Store
 Thumbs.db
+
+# Rust
+rust/target/
+kd.toml
