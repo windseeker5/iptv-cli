@@ -63,7 +63,8 @@ def find_segments(primary_path: str) -> list[Path]:
         primary.parent.glob(f"{primary.stem}.part*.ts"),
         key=lambda p: int(_PART_RE.search(p.name).group(1)),
     )
-    return [seg for seg in [primary, *parts] if seg.exists()]
+    # A retry that never got data from the provider leaves an empty file; skip it.
+    return [seg for seg in [primary, *parts] if seg.exists() and seg.stat().st_size > 0]
 
 
 def _join_mp4(parts: list[Path], output: Path) -> tuple[bool, str]:
