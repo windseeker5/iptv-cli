@@ -1,7 +1,7 @@
 # Copy to ~/.config/kdtv/kdtv.toml (or ./kdtv.toml). Paths are relative to this file; ~ works.
 profile = "home"                 # shown in the header; "travel" on the laptop
 
-# The Python CLI: scripts/ (the recorder), venv/, data/ and .env live here.
+# The KDTV folder: data/ and .env live here.
 cli_dir = "~/Documents/DEV/kdtv/cli"
 
 # Optional overrides

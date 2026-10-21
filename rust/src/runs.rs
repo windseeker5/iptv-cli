@@ -1,5 +1,5 @@
-//! The run diary: one report per recording in `data/runs/<run_id>.json`,
-//! written by `scripts/record_scheduled.py` (including runs started by timers).
+//! Reading the run diary: one report per recording in `data/runs/<run_id>.json`,
+//! written by the recorder (`diary.rs`).
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;

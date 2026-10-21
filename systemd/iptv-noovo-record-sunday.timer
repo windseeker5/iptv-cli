@@ -1,9 +1,0 @@
-[Unit]
-Description=Sunday trigger for IPTV NOOVO recording (Sun, 18:29 local time, 152 min, ends 21:01)
-
-[Timer]
-OnCalendar=Sun *-*-* 18:29:00
-Persistent=true
-
-[Install]
-WantedBy=timers.target

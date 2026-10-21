@@ -1,5 +1,5 @@
 [Unit]
-Description=KD CLI: refresh Maxime's UMass schedule every morning and afternoon (times and TV get added late)
+Description=KDTV: refresh Maxime's UMass schedule every morning and afternoon (times and TV get added late)
 
 [Timer]
 OnCalendar=*-*-* 06:15:00

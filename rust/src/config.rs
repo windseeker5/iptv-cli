@@ -7,7 +7,7 @@
 //!
 //! ```toml
 //! profile = "home"            # or "travel"
-//! cli_dir = "../cli"          # the Python CLI: scripts/, venv/, data/, .env
+//! cli_dir = "../cli"          # the KDTV folder: data/ and .env
 //! # Optional overrides
 //! records_dir = "~/Videos/kd" # where recordings go (default: USB_RECORDS_PATH from .env)
 //! containers = ["iptv-nginx-rtmp", "iptv-jellyfin", "caddy", "omt"]
@@ -57,7 +57,7 @@ pub struct Config {
     /// The kd.toml in use, handed to the background workers kd starts.
     pub file: Option<PathBuf>,
     pub profile: String,
-    /// The Python CLI (scripts/, venv/). Its own data folder is `cli_dir/data`.
+    /// The KDTV folder, holding `.env` and (by default) `data/`.
     pub cli_dir: PathBuf,
     pub data_dir: PathBuf,
     records_dir: Option<PathBuf>,
@@ -159,14 +159,9 @@ impl Config {
         std::env::var(key).ok().or_else(|| self.env.get(key).cloned()).filter(|v| !v.is_empty())
     }
 
-    /// A path from the CLI's .env; relative ones are relative to the CLI folder,
-    /// which is where the Python side runs from.
+    /// A path from the CLI's .env; relative ones are relative to the CLI folder.
     fn env_path(&self, key: &str) -> Option<PathBuf> {
         self.env(key).map(|v| normalize(&self.cli_dir.join(expand_home(Path::new(&v)))))
-    }
-
-    pub fn python(&self) -> PathBuf {
-        self.cli_dir.join("venv/bin/python3")
     }
 
     /// Preferred recordings folder: `records_dir` in kd.toml, else USB_RECORDS_PATH.
@@ -260,7 +255,7 @@ fn read_env(path: &Path) -> HashMap<String, String> {
     std::fs::read_to_string(path).map(|text| parse_env(&text)).unwrap_or_default()
 }
 
-/// As forgiving as python-dotenv, which the CLI's .env is written for: unquoted
+/// As forgiving as python-dotenv, which the .env was first written for: unquoted
 /// values may contain spaces, `export ` is allowed, `#` starts a comment.
 fn parse_env(text: &str) -> HashMap<String, String> {
     let mut out = HashMap::new();

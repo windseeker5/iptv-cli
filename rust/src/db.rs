@@ -1,7 +1,7 @@
 //! Read-only access to the CLI's SQLite database (`data/iptv.db`).
 //!
-//! The Python side (timers, refresh jobs) owns this file and writes to it, so kd
-//! opens it read-only and never holds a transaction open.
+//! `kdtv refresh` (the timers, JP) writes this file, so everything else opens it
+//! read-only and never holds a transaction open.
 
 use anyhow::{Context, Result};
 use chrono::{Local, TimeZone};
@@ -418,8 +418,7 @@ fn channel_from_row(r: &rusqlite::Row) -> rusqlite::Result<Channel> {
     Ok(Channel { stream_id: r.get(0)?, name: r.get::<_, Option<String>>(1)?.unwrap_or_default(), category: r.get(2)? })
 }
 
-/// Create the tables if they don't exist yet (a new machine). Same schema as
-/// `iptv_tui/domain/db.py::init_db`.
+/// Create the tables if they don't exist yet (a new machine).
 pub fn ensure_schema(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS live_streams (stream_id INTEGER PRIMARY KEY, name TEXT, category_id INTEGER,

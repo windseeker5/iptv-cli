@@ -1,9 +1,9 @@
 [Unit]
-Description=KD CLI: refresh Maxime's UMass hockey schedule from Hockey East (for JP)
+Description=KDTV: refresh Maxime's UMass hockey schedule from Hockey East (for JP)
 After=network-online.target
 
 [Service]
 Type=oneshot
 WorkingDirectory=%h/Documents/DEV/kdtv/cli
-ExecStart=%h/Documents/DEV/kdtv/cli/venv/bin/python %h/Documents/DEV/kdtv/cli/scripts/refresh_maxime.py
+ExecStart=%h/.local/bin/kdtv maxime --refresh
 TimeoutStartSec=2min

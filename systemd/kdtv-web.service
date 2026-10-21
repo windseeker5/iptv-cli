@@ -8,7 +8,7 @@ Description=KDTV web: restream and /live pages (replaces the NGINX container)
 After=network-online.target
 
 [Service]
-ExecStart=%h/Documents/DEV/kdtv/cli/rust/target/release/kdtv web
+ExecStart=%h/.local/bin/kdtv web
 Restart=on-failure
 RestartSec=5
 

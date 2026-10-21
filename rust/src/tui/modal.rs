@@ -335,6 +335,7 @@ impl Form {
             days: days.clone(),
             date: date.clone(),
             show_name: show.as_deref(),
+            notify: true,
             created_by: "kd",
         };
         let errors: Vec<String> = day_error.into_iter().chain(schedules::validate(&new)).collect();

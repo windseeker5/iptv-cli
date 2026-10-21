@@ -1,8 +1,5 @@
 //! Recording schedules: `data/schedules/<id>.json` plus a systemd user timer
-//! `kdcli-rec-<id>.timer` that runs `scripts/run_schedule.py <id>`.
-//!
-//! Same files, same units as `iptv_tui/domain/schedules.py`, so schedules made
-//! here, by JP or by the old TUI are one and the same list.
+//! `kdcli-rec-<id>.timer` that runs `kdtv run-schedule <id>`.
 
 use crate::config::Config;
 use crate::systemd::systemctl;
@@ -104,6 +101,8 @@ pub struct New<'a> {
     pub days: Vec<String>,
     pub date: Option<String>,
     pub show_name: Option<&'a str>,
+    /// Ping Discord when a recording that fills no library finishes.
+    pub notify: bool,
     pub created_by: &'a str,
 }
 
@@ -192,7 +191,7 @@ fn read(path: &Path) -> Option<ScheduleFile> {
     serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }
 
-fn load(data_dir: &Path, id: &str) -> Option<ScheduleFile> {
+pub fn load(data_dir: &Path, id: &str) -> Option<ScheduleFile> {
     read(&path(data_dir, id).ok()?)
 }
 
@@ -205,7 +204,7 @@ pub fn is_one_time(data_dir: &Path, id: &str) -> bool {
     load(data_dir, id).is_some_and(|s| s.once())
 }
 
-fn next_run(id: &str) -> Option<String> {
+pub fn next_run(id: &str) -> Option<String> {
     let out = systemctl(&["show", &format!("{UNIT_PREFIX}{id}.timer"), "--property=NextElapseUSecRealtime", "--value"]).ok()?;
     let value = String::from_utf8_lossy(&out.stdout).trim().to_string();
     (!value.is_empty()).then_some(value)
@@ -255,15 +254,42 @@ pub fn validate(new: &New) -> Vec<String> {
     errors
 }
 
+/// The description of an enabled schedule the new one would run into, if any.
+pub fn clash(data_dir: &Path, new: &New) -> Option<String> {
+    let candidate = Window::of(&new.days, new.date.as_deref(), new.time, new.duration_min);
+    files(data_dir)
+        .into_iter()
+        .find(|s| s.enabled && !s.is_past() && Window::of(&s.days, s.date.as_deref(), &s.time, s.duration_min).overlaps(&candidate))
+        .map(|s| s.describe())
+}
+
+/// How a schedule not yet created will be described, for a Confirm card.
+pub fn describe_new(new: &New) -> String {
+    let days: Vec<String> = DAY_NAMES.iter().filter(|d| new.days.iter().any(|x| x == *d)).map(|d| d.to_string()).collect();
+    ScheduleFile {
+        id: String::new(),
+        stream_id: new.stream_id,
+        channel_name: new.channel_name.to_string(),
+        time: new.time.to_string(),
+        duration_min: new.duration_min,
+        date: if days.is_empty() { new.date.clone() } else { None },
+        days,
+        show_name: new.show_name.map(str::to_string),
+        notify: new.notify,
+        enabled: true,
+        created_at: String::new(),
+        created_by: None,
+    }
+    .describe()
+}
+
 pub fn create(cfg: &Config, new: New) -> Result<Schedule> {
     let errors = validate(&new);
     if !errors.is_empty() {
         bail!("{}", errors.join("; "));
     }
-    let candidate = Window::of(&new.days, new.date.as_deref(), new.time, new.duration_min);
-    let existing = files(&cfg.data_dir);
-    if let Some(clash) = existing.iter().find(|s| s.enabled && !s.is_past() && Window::of(&s.days, s.date.as_deref(), &s.time, s.duration_min).overlaps(&candidate)) {
-        bail!("this overlaps “{}”; your provider allows one connection, so only one recording can run at a time", clash.describe());
+    if let Some(clash) = clash(&cfg.data_dir, &new) {
+        bail!("this overlaps “{clash}”; your provider allows one connection, so only one recording can run at a time");
     }
     let days: Vec<String> = DAY_NAMES.iter().filter(|d| new.days.iter().any(|x| x == *d)).map(|d| d.to_string()).collect();
     let time = NaiveTime::parse_from_str(new.time, "%H:%M").map(|t| t.format("%H:%M").to_string())?;
@@ -276,7 +302,7 @@ pub fn create(cfg: &Config, new: New) -> Result<Schedule> {
         date: if days.is_empty() { new.date } else { None },
         days,
         show_name: new.show_name.map(str::trim).filter(|n| !n.is_empty()).map(str::to_string),
-        notify: true,
+        notify: new.notify,
         enabled: true,
         created_at: Local::now().format("%Y-%m-%dT%H:%M:%S").to_string(),
         created_by: Some(new.created_by.to_string()),
@@ -332,15 +358,17 @@ fn write_units(cfg: &Config, s: &ScheduleFile) -> Result<()> {
     let dir = unit_dir();
     std::fs::create_dir_all(&dir)?;
     let unit = format!("{UNIT_PREFIX}{}", s.id);
-    let root = cfg.cli_dir.display();
+    let exe = std::env::current_exe().context("finding the kdtv program")?;
+    let mut command = vec![exe.display().to_string()];
+    command.extend(cfg.config_args());
+    command.extend(["run-schedule".to_string(), s.id.clone()]);
     std::fs::write(
         dir.join(format!("{unit}.service")),
         format!(
-            "[Unit]\nDescription=KD CLI recording: {}\n\n[Service]\nType=oneshot\nWorkingDirectory={root}\nExecStart={} {} {}\n",
+            "[Unit]\nDescription=KDTV recording: {}\n\n[Service]\nType=oneshot\nWorkingDirectory={}\nExecStart={}\n",
             s.describe(),
-            cfg.python().display(),
-            cfg.cli_dir.join("scripts/run_schedule.py").display(),
-            s.id
+            cfg.cli_dir.display(),
+            command.iter().map(|a| systemd_quote(a)).collect::<Vec<_>>().join(" ")
         ),
     )?;
     std::fs::write(
@@ -353,6 +381,31 @@ fn write_units(cfg: &Config, s: &ScheduleFile) -> Result<()> {
         ),
     )?;
     Ok(())
+}
+
+/// Rewrite every schedule's units for this kdtv program (after installing or
+/// moving it), keeping each timer on or off as it was. Returns how many.
+pub fn repair(cfg: &Config) -> Result<usize> {
+    let all = files(&cfg.data_dir);
+    for s in &all {
+        write_units(cfg, s)?;
+    }
+    systemctl(&["daemon-reload"])?;
+    for s in all.iter().filter(|s| s.enabled && !s.is_past()) {
+        systemctl(&["enable", "--now", &format!("{UNIT_PREFIX}{}.timer", s.id)])?;
+    }
+    crate::log::event(cfg, "schedule.repair", json!({ "count": all.len() }));
+    Ok(all.len())
+}
+
+/// An ExecStart argument: quoted when it holds a space, `%` doubled for systemd.
+fn systemd_quote(arg: &str) -> String {
+    let arg = arg.replace('%', "%%");
+    if arg.contains(char::is_whitespace) || arg.contains('"') {
+        format!("\"{}\"", arg.replace('\\', "\\\\").replace('"', "\\\""))
+    } else {
+        arg
+    }
 }
 
 fn random_hex() -> String {
@@ -425,6 +478,7 @@ mod tests {
             days,
             date,
             show_name: None,
+            notify: true,
             created_by: "test",
         };
         assert!(validate(&new("18:29", vec!["Mon".into()], None)).is_empty());

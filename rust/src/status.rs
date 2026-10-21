@@ -126,6 +126,6 @@ pub fn list_age_minutes(data_dir: &Path) -> (Option<i64>, Option<i64>) {
 fn unit_description(unit: &str) -> Option<String> {
     let out = crate::systemd::systemctl(&["show", unit, "--property=Description", "--value"]).ok()?;
     let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    let text = text.strip_prefix("KD CLI recording: ").unwrap_or(&text).to_string();
+    let text = ["KD CLI recording: ", "KDTV recording: "].iter().find_map(|p| text.strip_prefix(p)).unwrap_or(&text).to_string();
     (!text.is_empty()).then_some(text)
 }

@@ -1,4 +1,4 @@
-//! Favorite live channels, from `data/favorites.json` (the runtime list the Python TUI keeps).
+//! Favorite live channels, from `data/favorites.json` (the runtime list).
 
 use crate::db::Channel;
 use serde::Deserialize;

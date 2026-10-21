@@ -2,7 +2,7 @@
 # Copy to ~/.config/kdtv/kdtv.toml. Paths are relative to this file; ~ works.
 profile = "travel"
 
-# A clone of this repository on this machine (scripts/, venv/, .env).
+# A clone of this repository on this machine (data/ and .env).
 cli_dir = "~/kdtv/cli"
 
 # Recordings stay on this machine.

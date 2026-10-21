@@ -1,20 +1,26 @@
 //! kdtv: KDTV CLI, the brain of KD TV. One binary for the TUI and scriptable
 //! commands (`--json` for JP and scripts); later, the background API.
 //!
-//! kdtv reads the data the Python side writes and uses the proven Python recorder
-//! for the recording itself. Long-running work (recordings, the restream, the
-//! download queue) runs as systemd user units, so it outlives kdtv.
+//! Long-running work (recordings, the restream, the download queue) runs as
+//! systemd user units, so it outlives kdtv.
 
 mod check;
 mod config;
 mod db;
+mod diary;
 mod downloads;
 mod favorites;
+mod jp;
 mod library;
 mod log;
+mod maxime;
+mod notify;
+mod pipeline;
 mod play;
+mod preflight;
 mod provider;
 mod record;
+mod recorder;
 mod refresh;
 mod restream;
 mod runs;
@@ -141,6 +147,8 @@ enum Cmd {
         #[arg(long, default_value_t = 30)]
         limit: usize,
     },
+    /// Convert downloaded videos (.mkv, .ts…) to MP4 so any TV plays them
+    Remux,
     /// Services, active recordings and restream, data freshness
     Status,
     /// Serve the restream and the /live pages (replaces the NGINX container)
@@ -151,6 +159,48 @@ enum Cmd {
     RestreamWorker { stream_id: i64 },
     #[command(hide = true)]
     DownloadWorker,
+    /// The recorder itself, as a systemd unit runs it
+    #[command(hide = true)]
+    RecordWorker {
+        stream_id: i64,
+        #[arg(long)]
+        seconds: i64,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        channel_name: String,
+        /// Put the episode into Jellyfin as this show
+        #[arg(long)]
+        show: Option<String>,
+        #[arg(long)]
+        drive_warning: Option<String>,
+    },
+    /// What a schedule's timer runs
+    #[command(hide = true)]
+    RunSchedule { id: String },
+    /// Rebuild a library episode from the pieces a recording left on disk
+    #[command(hide = true)]
+    RetryRun { run_id: String },
+    /// Check the recordings starting in 40-80 minutes (the pre-flight timer)
+    #[command(hide = true)]
+    Preflight {
+        /// Check this schedule right now
+        #[arg(long, value_name = "ID")]
+        now: Option<String>,
+    },
+    /// Maxime's next UMass games and where to watch them
+    #[command(hide = true)]
+    Maxime {
+        /// Download the official schedule first
+        #[arg(long)]
+        refresh: bool,
+    },
+    /// JP's toolbox as an MCP server (Claude Code starts it)
+    #[command(hide = true)]
+    JpMcp,
+    /// JP's bridge to the OMT site, on a Unix socket
+    #[command(hide = true)]
+    JpRunner,
 }
 
 #[derive(Subcommand)]
@@ -200,6 +250,8 @@ enum ScheduleCmd {
     Pause { id: String },
     Resume { id: String },
     Delete { id: String },
+    /// Rewrite every schedule's timer for this kdtv program (after installing or moving it)
+    Repair,
 }
 
 #[derive(Subcommand)]
@@ -383,12 +435,17 @@ fn run(cli: Cli) -> Result<()> {
                             days,
                             date,
                             show_name: show.as_deref(),
+                            notify: true,
                             created_by: "kd",
                         },
                     )?
                 }
                 ScheduleCmd::Pause { id } => schedules::set_enabled(&cfg, &id, false)?,
                 ScheduleCmd::Resume { id } => schedules::set_enabled(&cfg, &id, true)?,
+                ScheduleCmd::Repair => {
+                    let count = schedules::repair(&cfg)?;
+                    return print(json, &json!({ "repaired": count }), || println!("Rewrote the timers of {count} schedule(s)"));
+                }
                 ScheduleCmd::Delete { id } => {
                     let existed = schedules::delete(&cfg, &id)?;
                     return print(json, &json!({ "deleted": id, "existed": existed }), || {
@@ -514,6 +571,18 @@ fn run(cli: Cli) -> Result<()> {
             })
         }
 
+        Cmd::Remux => {
+            let (done, failed) = pipeline::remux_downloads(&cfg, |name, result| match result {
+                Ok(()) => println!("  {name} ... OK"),
+                Err(e) => println!("  {name} ... FAILED: {e}"),
+            });
+            print(json, &json!({ "remuxed": done, "failed": failed }), || println!("{done} remuxed, {failed} failed."))?;
+            if failed > 0 {
+                std::process::exit(1);
+            }
+            Ok(())
+        }
+
         Cmd::Status => {
             let db = open().ok();
             let s = status::collect(&cfg, db.as_ref());
@@ -529,6 +598,36 @@ fn run(cli: Cli) -> Result<()> {
         Cmd::Check => check::run(&cfg, json),
         Cmd::RestreamWorker { stream_id } => restream::worker(&cfg, stream_id),
         Cmd::DownloadWorker => downloads::worker(&cfg),
+        Cmd::RecordWorker { stream_id, seconds, output, channel_name, show, drive_warning } => {
+            let show = match show {
+                Some(name) => Some((cfg.tv_library_root().context("TVSHOW_LIBRARY_ROOT is not set in .env")?.join(&name), name)),
+                None => None,
+            };
+            let job = recorder::Job { stream_id, seconds, output, channel_name, show, notify: true, drive_warning };
+            std::process::exit(recorder::run(&cfg, &job));
+        }
+        Cmd::RunSchedule { id } => std::process::exit(recorder::run_schedule(&cfg, &id)?),
+        Cmd::RetryRun { run_id } => std::process::exit(recorder::retry(&cfg, &run_id)?),
+        Cmd::Preflight { now } => {
+            for line in preflight::run(&cfg, now.as_deref())? {
+                println!("{line}");
+            }
+            Ok(())
+        }
+        Cmd::Maxime { refresh } => {
+            if refresh {
+                let result = maxime::refresh(&cfg)?;
+                println!("{result}");
+                if result["ok"] != true {
+                    std::process::exit(1);
+                }
+                return Ok(());
+            }
+            println!("{}", serde_json::to_string_pretty(&maxime::games(&cfg, 3, 1))?);
+            Ok(())
+        }
+        Cmd::JpMcp => jp::tools::serve(&cfg),
+        Cmd::JpRunner => jp::runner::serve(&cfg),
     }
 }
 

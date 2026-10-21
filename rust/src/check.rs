@@ -29,12 +29,7 @@ pub fn run(cfg: &Config, json: bool) -> Result<()> {
         Some(f) => f.display().to_string(),
         None => "none found: using the current folder (see rust/kdtv.example.toml)".into(),
     });
-    add("CLI folder", cfg.cli_dir.join("scripts/record_scheduled.py").is_file(), true, cfg.cli_dir.display().to_string());
-    add("Python recorder", cfg.python().is_file(), true, if cfg.python().is_file() {
-        cfg.python().display().to_string()
-    } else {
-        format!("no {}: python3 -m venv venv && venv/bin/pip install -r requirements.txt", cfg.python().display())
-    });
+    add("Data folder", cfg.data_dir.is_dir(), true, cfg.data_dir.display().to_string());
     let p = &cfg.provider;
     let login = !p.server.is_empty() && !p.username.is_empty() && !p.password.is_empty();
     add("Provider login", login, true, if login { format!("in {}", cfg.env_file.display()) } else { format!("set IPTV_SERVER_URL, IPTV_USERNAME, IPTV_PASSWORD in {}", cfg.env_file.display()) });

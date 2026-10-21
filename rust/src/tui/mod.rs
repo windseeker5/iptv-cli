@@ -286,7 +286,7 @@ impl App {
             Action::Schedule { channel, time, minutes, days, date, show } => self.spawn(move |cfg| {
                 let s = schedules::create(
                     cfg,
-                    schedules::New { stream_id: channel.stream_id, channel_name: &channel.name, time: &time, duration_min: minutes, days, date, show_name: show.as_deref(), created_by: "kdtv" },
+                    schedules::New { stream_id: channel.stream_id, channel_name: &channel.name, time: &time, duration_min: minutes, days, date, show_name: show.as_deref(), notify: true, created_by: "kdtv" },
                 )?;
                 Ok(Done::Message(format!("Scheduled: {}", s.what)))
             }),

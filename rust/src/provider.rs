@@ -1,5 +1,5 @@
-//! Calls to the provider's player API. Only series episode lists for now; the
-//! channel list and guide are still downloaded by the Python timers.
+//! Series episode lists from the provider's player API (the channel list and
+//! guide are in `refresh.rs`).
 //!
 //! Uses curl, like the downloads, so kd carries no TLS stack of its own.
 

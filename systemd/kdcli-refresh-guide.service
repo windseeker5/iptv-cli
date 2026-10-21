@@ -1,9 +1,9 @@
 [Unit]
-Description=KD CLI: refresh the channel list + full TV guide from the IPTV provider
+Description=KDTV: refresh the channel list + full TV guide from the IPTV provider
 After=network-online.target
 
 [Service]
 Type=oneshot
 WorkingDirectory=%h/Documents/DEV/kdtv/cli
-ExecStart=%h/Documents/DEV/kdtv/cli/venv/bin/python %h/Documents/DEV/kdtv/cli/scripts/refresh_tv_data.py --guide
+ExecStart=%h/.local/bin/kdtv refresh --guide
 TimeoutStartSec=10min

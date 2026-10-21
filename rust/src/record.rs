@@ -1,12 +1,12 @@
 //! Record now, and stop a recording.
 //!
-//! "Now" goes through the same proven recorder the timers use
-//! (`scripts/record_scheduled.py`: FFmpeg with retries, run diary, Jellyfin
-//! post-processing, Discord), started as a transient systemd unit `kdcli-now-*`.
+//! "Now" runs the same recorder the timers use (`recorder.rs`: FFmpeg with
+//! retries, run diary, Jellyfin post-processing, Discord) as `kdtv record-worker`
+//! in a transient systemd unit `kdcli-now-*`, so it outlives kdtv.
 
 use crate::config::Config;
 use crate::systemd;
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use serde_json::json;
 use std::path::{Path, PathBuf};
@@ -52,40 +52,40 @@ pub fn record_now(cfg: &Config, req: &Request) -> Result<Started> {
         notes.push(format!("shortened to {minutes} min so it ends before “{}” at {}", what.split(',').next().unwrap_or(&what), start.format("%H:%M")));
     }
     let (dir, folder_warning) = records_dir(cfg)?;
-    notes.extend(folder_warning);
+    notes.extend(folder_warning.clone());
     let warning = (!notes.is_empty()).then(|| notes.join("; "));
-    let output = dir.join(format!("{}_{}.ts", sanitize_filename(req.channel_name), now.format("%Y-%m-%d_%H%M")));
+    let output = output_path(&dir, req.channel_name, now);
     let unit = format!("kdcli-now-{}", now.format("%Y%m%d-%H%M%S"));
     let seconds = minutes * 60;
 
-    let mut command = vec![
-        cfg.python().display().to_string(),
-        cfg.cli_dir.join("scripts/record_scheduled.py").display().to_string(),
-        "--stream-id".into(),
+    let exe = std::env::current_exe().context("finding the kdtv program")?;
+    let mut command = vec![exe.display().to_string()];
+    command.extend(cfg.config_args());
+    command.extend([
+        "record-worker".into(),
         req.stream_id.to_string(),
-        "--duration".into(),
+        "--seconds".into(),
         seconds.to_string(),
         "--output".into(),
         output.display().to_string(),
         "--channel-name".into(),
         req.channel_name.to_string(),
-    ];
+    ]);
     match (req.show_name, cfg.tv_library_root()) {
-        (Some(show), Some(root)) => command.extend([
-            "--postprocess-library-dir".into(),
-            root.join(show).display().to_string(),
-            "--postprocess-show-name".into(),
-            show.to_string(),
-        ]),
+        (Some(show), Some(_)) => command.extend(["--show".into(), show.to_string()]),
         (Some(_), None) => bail!("no Jellyfin TV folder configured (TVSHOW_LIBRARY_ROOT in .env)"),
-        (None, _) => command.push("--notify-discord".into()),
+        (None, _) => {}
+    }
+    if let Some(w) = folder_warning {
+        command.extend(["--drive-warning".into(), w]);
     }
 
     systemd::run(systemd::Run {
         unit: &unit,
         description: &format!("KD CLI recording: {}, now, {minutes} min", req.channel_name),
         working_dir: &cfg.cli_dir,
-        max_seconds: Some(seconds as u64 + 300),
+        // The recording, plus time to convert and place a long show.
+        max_seconds: Some(seconds as u64 + 1800),
         command,
     })?;
     crate::log::event(
@@ -119,7 +119,7 @@ pub fn stop(cfg: &Config, unit: &str) -> Result<()> {
 }
 
 /// The recordings folder if it accepts files, else `data/recordings` (an unplugged USB
-/// drive is the usual reason), the same fallback as the Python recorder.
+/// drive is the usual reason).
 pub fn records_dir(cfg: &Config) -> Result<(PathBuf, Option<String>)> {
     let preferred = cfg.records_dir();
     let problem = match writable(&preferred) {
@@ -143,6 +143,11 @@ fn writable(dir: &Path) -> Option<String> {
         Ok(()) => None,
         Err(e) => Some(format!("cannot write to {}: {e}", dir.display())),
     }
+}
+
+/// `<folder>/ca_fr_noovo_v-tele_hd_2026-10-21_1829.ts`
+pub fn output_path(dir: &Path, channel_name: &str, at: chrono::DateTime<chrono::Local>) -> PathBuf {
+    dir.join(format!("{}_{}.ts", sanitize_filename(channel_name), at.format("%Y-%m-%d_%H%M")))
 }
 
 /// "CA FR: NOOVO V-TELE HD" → "ca_fr_noovo_v-tele_hd", like `recordings.sanitize_filename`.

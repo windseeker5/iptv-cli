@@ -1,8 +1,8 @@
 //! Download the provider's lists and TV guide into `data/iptv.db`.
 //!
-//! The same tables, the same `data/cache/refresh.json` stamps and the same lock
-//! file as `iptv_tui/domain/tv_refresh.py`, so the Python timers, JP and kdtv
-//! never refresh at the same time or disagree on how fresh the data is.
+//! One lock file (`data/cache/refresh.lock`) and one set of stamps
+//! (`data/cache/refresh.json`), so the timers, JP and the screen never refresh at
+//! the same time or disagree on how fresh the data is.
 //!
 //! - channels: live categories + channels (the hourly job)
 //! - guide: the full XMLTV guide (twice a day)
@@ -37,7 +37,7 @@ pub fn run(cfg: &Config, what: What) -> Result<String> {
     let started = Instant::now();
     let cache = cfg.data_dir.join("cache");
     std::fs::create_dir_all(&cache)?;
-    // Wait for any other refresh (a Python timer, JP) to finish first.
+    // Wait for any other refresh (a timer, JP) to finish first.
     let _lock = Lock::take(&cache.join("refresh.lock"))?;
 
     let mut conn = Connection::open(cfg.data_dir.join("iptv.db"))?;
@@ -64,7 +64,7 @@ pub fn run(cfg: &Config, what: What) -> Result<String> {
 }
 
 /// One player_api call through curl, the login URL-encoded.
-fn api(cfg: &Config, action: Option<&str>) -> Result<Value> {
+pub fn api(cfg: &Config, action: Option<&str>) -> Result<Value> {
     let p = &cfg.provider;
     let mut cmd = Command::new("curl");
     cmd.args(["-sS", "-G", "--fail", "--max-time", "120", "-A", BROWSER_UA])
@@ -366,8 +366,7 @@ fn thousands(n: usize) -> String {
     out
 }
 
-/// The same exclusive lock file the Python refresh takes (`fcntl.flock`);
-/// held for as long as the file stays open.
+/// An exclusive lock file (`flock`), held for as long as the file stays open.
 struct Lock(#[allow(dead_code)] std::fs::File);
 
 impl Lock {

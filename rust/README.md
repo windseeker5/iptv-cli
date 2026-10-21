@@ -1,16 +1,18 @@
 # KDTV CLI (`kdtv`)
 
 One program for live TV, movies, series, YouTube, recordings, restreams and
-downloads. `kdtv` is the brain and the screen; the proven Python recorder
-(`scripts/record_scheduled.py`) still does the recording itself.
+downloads: the screen, the commands, the recorder, the timers' jobs and JP's
+toolbox for the OMT site.
 
 ## Run it
 
 ```bash
 cd rust && cargo build --release          # the program: target/release/kdtv
+install -Dm755 target/release/kdtv ~/.local/bin/kdtv
 cp kdtv.example.toml ~/.config/kdtv/kdtv.toml   # then set cli_dir
-target/release/kdtv                       # the full-screen interface
-target/release/kdtv --help                # every command; add --json for scripts/JP
+kdtv                                      # the full-screen interface
+kdtv --help                               # every command; add --json for scripts
+kdtv schedule repair                      # after installing: point the recording timers here
 ```
 
 ## The screen
@@ -50,24 +52,22 @@ address it shows).
 
 ```bash
 # 1. What it needs (Raspberry Pi OS / Debian names)
-sudo apt install git ffmpeg curl mpv python3-venv
+sudo apt install git ffmpeg curl mpv
 pipx install yt-dlp                     # or: sudo apt install yt-dlp
 curl https://sh.rustup.rs -sSf | sh     # Rust, to build kdtv on the Pi itself
 
-# 2. The code, the Python recorder, your login
-git clone <this repository> ~/kdtv/cli && cd ~/kdtv/cli
-git checkout feature/rust-refactor
-python3 -m venv venv && venv/bin/pip install -r requirements.txt
+# 2. The code and your login
+git clone https://github.com/windseeker5/iptv-cli.git ~/kdtv/cli && cd ~/kdtv/cli
 cp .env.example .env                    # then put in IPTV_SERVER_URL / USERNAME / PASSWORD
 
 # 3. Build kdtv (a few minutes on a Pi 4 or 5)
-cd rust && cargo build --release && cd ..
+cd rust && cargo build --release && install -Dm755 target/release/kdtv ~/.local/bin/kdtv && cd ..
 mkdir -p ~/.config/kdtv && cp rust/kdtv.travel.example.toml ~/.config/kdtv/kdtv.toml
 
 # 4. Download your lists, check, go
-rust/target/release/kdtv refresh --everything
-rust/target/release/kdtv check
-rust/target/release/kdtv
+kdtv refresh --everything
+kdtv check
+kdtv
 ```
 
 `kdtv check` lists what's ready and what's missing. For timers to record while
@@ -81,8 +81,7 @@ console: `icons = false` in `kdtv.toml`.
 same headers, and writes the same `hls_access.log` lines OMT and tv-counter read
 to count viewers. So Caddy, OMT and the Android app don't change.
 
-The switch waits until JP restreams through `kdtv`: today JP's Python toolbox still
-pushes RTMP to NGINX. Then:
+JP restreams through `kdtv` too, so the switch is only configuration:
 
 1. `restream_via = "kdtv"` and `hls_dir = "../cli/nginx/hls-kdtv"` in `kdtv.toml`
 2. `docker compose stop nginx-rtmp` (DEV folder), then remove its block from
@@ -97,7 +96,10 @@ pushes RTMP to NGINX. Then:
 | `main.rs` | the commands (`kdtv record`, `kdtv schedule add`, `kdtv youtube`, …) |
 | `config.rs` | reads `kdtv.toml` and the CLI's `.env` |
 | `db.rs` | the channel/movie/series database; game-channel names |
-| `record.rs`, `schedules.rs` | record now, stop, schedules (same files and timers as the Python side) |
+| `record.rs`, `schedules.rs` | record now, stop, schedules and their `kdcli-rec-*` timers |
+| `recorder.rs`, `pipeline.rs`, `diary.rs`, `notify.rs` | the recorder: FFmpeg with retries, convert/join/place in Jellyfin, the run diary, Discord and Jellyfin calls |
+| `preflight.rs`, `maxime.rs` | the pre-flight check before recordings; Maxime's UMass schedule for JP |
+| `jp/` | JP: `tools.rs` (MCP server), `actions.rs` (proposals and Confirm), `eyes.rs` (owner's read-only checks), `runner.rs` (the OMT socket), `prompt.rs` |
 | `restream.rs` | restream unit `kd-restream` (FFmpeg → NGINX-RTMP) |
 | `downloads.rs` | download queue + worker unit `kd-downloads` (curl, yt-dlp) |
 | `youtube.rs`, `provider.rs`, `refresh.rs` | YouTube search, series episodes, channel list and guide downloads |
