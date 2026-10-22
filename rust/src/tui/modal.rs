@@ -37,6 +37,12 @@ pub enum Action {
     DownloadYouTube { video: Video, audio: bool },
     CancelDownload(String),
     Refresh { guide: bool, everything: bool },
+    /// `c` in Downloads: take the finished ones off the list.
+    ClearFinished,
+    /// `c` in Recordings: forget the recent recordings (the videos stay).
+    ClearRuns,
+    /// `f`: add to My list, or take out of it.
+    ToggleSaved(crate::favorites::Saved),
 }
 
 pub enum Modal {
@@ -102,24 +108,27 @@ impl Modal {
         let key = |k: &str, what: &str| Line::from(vec![Span::styled(format!("{k:<12}"), Style::new().fg(ACCENT).bold()), Span::raw(what.to_string())]);
         let lines = vec![
             heading("EVERYWHERE"),
-            key("1 … 9, 0", "jump to a section (Search is 1, Status is 0)"),
+            key("1 … 9", "jump to a section (Search is 1, Status is 9)"),
             key("/", "search"),
             key("tab", "switch between the menu and the list"),
             key("↑ ↓  → ←", "move · open · go back"),
             key("q", "quit (recordings, restream and downloads keep going)"),
             Line::raw(""),
-            heading("LIVE"),
-            key("↵  r  n", "watch · record · schedule the next show"),
-            key("s  x", "restream for the family · stop the restream"),
-            Line::raw(""),
-            heading("MOVIES · SERIES · YOUTUBE"),
-            key("↵  d", "watch · download"),
+            heading("MY LIST · ALL"),
+            key("f", "save to My list · remove from it"),
+            key("↵  r  n", "channel: watch · record · schedule the next show"),
+            key("s  x", "channel: restream for the family · stop the restream"),
+            key("↵  d", "movie or episode: watch · download"),
             key("[  ]", "previous / next season"),
             key("s  D", "download this season · every season"),
-            key("a", "YouTube: download the audio only (mp3)"),
+            Line::raw(""),
+            heading("YOUTUBE"),
+            key("↵  d", "watch · download"),
+            key("a", "download the audio only (mp3)"),
             Line::raw(""),
             heading("RECORDINGS · DOWNLOADS · ACCOUNT"),
             key("x", "stop a recording · cancel a download"),
+            key("c", "clear the recent recordings · the finished downloads"),
             key("space  d", "pause or resume a schedule · delete it"),
             key("u  g", "update the channel list · the TV guide"),
             Line::raw(""),

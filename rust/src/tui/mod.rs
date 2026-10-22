@@ -3,14 +3,14 @@
 //! ```text
 //! ╭ menu ───────╮╭ list ─────────────────╮╭ details ───────╮
 //! │ Search      ││ what's in the section ││ the selection  │
-//! │ Live …      ││                       ││ and its        │
+//! │ My list …   ││                       ││ and its        │
 //! │ Account …   ││                       ││ actions        │
 //! ╰─────────────╯╰───────────────────────╯╰────────────────╯
 //!  REC … │ RESTREAMING … │ ↓ download │ message        keys
 //! ```
 //!
 //! ↑↓ move, → or ↵ go into the list, ← or esc go back, Tab switches panel,
-//! 1-9 and 0 jump to a section, `/` searches, `?` shows every key. Slow work runs
+//! 1-9 jump to a section, `/` searches, `?` shows every key. Slow work runs
 //! on a background thread so the screen never freezes.
 
 mod account;
@@ -47,9 +47,8 @@ const REFRESH_EVERY: Duration = Duration::from_secs(30);
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Section {
     Search,
-    Live,
-    Movies,
-    Series,
+    MyList,
+    All,
     YouTube,
     Recordings,
     Downloads,
@@ -58,11 +57,10 @@ enum Section {
     Status,
 }
 
-const SECTIONS: [Section; 10] = [
+const SECTIONS: [Section; 9] = [
     Section::Search,
-    Section::Live,
-    Section::Movies,
-    Section::Series,
+    Section::MyList,
+    Section::All,
     Section::YouTube,
     Section::Recordings,
     Section::Downloads,
@@ -82,6 +80,8 @@ type TaskResult = Result<Done, String>;
 
 enum Done {
     Message(String),
+    /// Something to read before going on (a download was queued).
+    Popup { title: String, text: String },
     Episodes { series_id: i64, episodes: Vec<Episode> },
     YouTube { query: String, videos: Vec<Video>, for_search: bool },
 }
@@ -103,7 +103,8 @@ struct App {
     runs: Vec<runs::Run>,
     jobs: Vec<dl::Job>,
     media: Vec<media::Media>,
-    favorites: usize,
+    /// Failed downloads already announced, so each failure is announced once.
+    failed_seen: std::collections::HashSet<String>,
     refreshed: Instant,
     message: Option<(String, Color, Instant)>,
     modal: Option<Modal>,
@@ -130,14 +131,14 @@ impl App {
             schedules: schedules::list(&cfg.data_dir),
             runs: runs::recent(&cfg.data_dir, 12),
             jobs: dl::list(&cfg),
+            failed_seen: dl::list(&cfg).into_iter().filter(|j| j.state == dl::State::Failed).map(|j| j.id).collect(),
             media: media::list(&cfg),
-            favorites: crate::favorites::live(&cfg.data_dir).len(),
             search: search::Search::default(),
             watch: watch::Watch::default(),
             youtube: youtube::YouTube::default(),
             cfg,
             db,
-            section: Section::Live,
+            section: Section::MyList,
             focus: Focus::List,
             recordings_list: ListState::default().with_selected(Some(0)),
             downloads_list: ListState::default().with_selected(Some(0)),
@@ -171,6 +172,7 @@ impl App {
                 self.refresh();
             } else if busy {
                 self.jobs = dl::list(&self.cfg);
+                self.announce_failures();
             }
             self.collect_tasks();
             if self.edit_env {
@@ -193,9 +195,22 @@ impl App {
         self.schedules = schedules::list(&self.cfg.data_dir);
         self.runs = runs::recent(&self.cfg.data_dir, 12);
         self.jobs = dl::list(&self.cfg);
+        self.announce_failures();
         self.media = media::list(&self.cfg);
         self.refreshed = Instant::now();
         self.watch.refresh_now(&self.db);
+    }
+
+    /// A download that failed since the last look: say so in the bar (the worker
+    /// also shows a desktop notification).
+    fn announce_failures(&mut self) {
+        let new: Vec<String> = self.jobs.iter().filter(|j| j.state == dl::State::Failed && !self.failed_seen.contains(&j.id)).map(|j| j.title.clone()).collect();
+        self.failed_seen.extend(self.jobs.iter().filter(|j| j.state == dl::State::Failed).map(|j| j.id.clone()));
+        match new.as_slice() {
+            [] => {}
+            [one] => self.say(format!("Download failed: {} (see Downloads)", short(one)), BAD),
+            many => self.say(format!("{} downloads failed (see Downloads)", many.len()), BAD),
+        }
     }
 
     fn say(&mut self, text: impl Into<String>, color: Color) {
@@ -225,6 +240,11 @@ impl App {
             changed = true;
             match result {
                 Ok(Done::Message(text)) => self.say(text, OK),
+                Ok(Done::Popup { title, text }) => {
+                    let mut lines: Vec<Line> = text.lines().map(|l| Line::raw(l.to_string())).collect();
+                    lines.extend([Line::raw(""), Line::from(dim("any key to close"))]);
+                    self.modal = Some(Modal::Message { title, lines, color: OK });
+                }
                 Ok(Done::Episodes { series_id, episodes }) => self.watch.episodes_loaded(series_id, episodes),
                 Ok(Done::YouTube { query, videos, for_search }) => {
                     if for_search {
@@ -320,12 +340,18 @@ impl App {
             }),
             Action::DownloadMovie(m) => self.spawn(move |cfg| {
                 dl::add_movie(cfg, &m)?;
-                Ok(Done::Message(format!("Queued {} (see Downloads)", m.name)))
+                Ok(Done::Popup { title: "Download started".into(), text: downloading_text(cfg, &m.name) })
             }),
             Action::DownloadEpisodes { series, episodes, .. } => self.spawn(move |cfg| {
                 let jobs = dl::add_episodes(cfg, &series, &episodes)?;
-                Ok(Done::Message(format!("Queued {} episode(s) of {series} (see Downloads)", jobs.len())))
+                let what = match jobs.as_slice() {
+                    [one] => one.title.clone(),
+                    _ => format!("{} episodes of {series}, one at a time", jobs.len()),
+                };
+                Ok(Done::Popup { title: "Download started".into(), text: downloading_text(cfg, &what) })
             }),
+            Action::ClearRuns => self.spawn(|cfg| Ok(Done::Message(format!("Cleared {} past recording(s) from the list; the videos stay", runs::clear(&cfg.data_dir)?)))),
+            Action::ClearFinished => self.spawn(|cfg| Ok(Done::Message(format!("Cleared {} finished download(s) from the list", dl::clear_finished(cfg)?)))),
             Action::DownloadYouTube { video, audio } => self.spawn(move |cfg| {
                 dl::add_youtube(cfg, &video, audio)?;
                 Ok(Done::Message(format!("Queued {} (see Downloads)", video.title)))
@@ -334,6 +360,14 @@ impl App {
                 let job = dl::cancel(cfg, &id)?;
                 Ok(Done::Message(format!("Cancelled {}", job.title)))
             }),
+            Action::ToggleSaved(item) => match crate::favorites::toggle(&self.cfg.data_dir, &item) {
+                Ok(added) => {
+                    self.watch.saved_changed(&self.db, &self.cfg);
+                    let name = short(&item.name);
+                    self.say(if added { format!("Saved {name} to My list") } else { format!("Removed {name} from My list") }, OK);
+                }
+                Err(e) => self.fail(format!("{e:#}")),
+            },
             Action::Refresh { guide, everything } => {
                 self.say(
                     match (guide, everything) {
@@ -352,9 +386,13 @@ impl App {
         let recording = !self.status.recording.is_empty();
         let busy = self.status.connection_busy();
         let cut = "Your provider allows one connection, so this may cut it. Go ahead anyway?";
+        let downloading = self.jobs.iter().any(|j| j.state == dl::State::Downloading && j.needs_provider());
         match action {
             Action::PlayLive(_) | Action::PlayMovie(_) | Action::PlayEpisode { .. } if busy => {
                 Some(format!("A recording or the restream is using the connection. {cut}"))
+            }
+            Action::PlayLive(_) | Action::PlayMovie(_) | Action::PlayEpisode { .. } if downloading => {
+                Some("A download is using your provider's connection. It pauses while you watch and picks up where it stopped when mpv closes. Watch now?".into())
             }
             Action::RecordNow { .. } if busy => Some(format!("Something is already recording or restreaming. {cut}")),
             Action::RestreamStart { .. } if recording => Some(format!("A recording is running. {cut}")),
@@ -366,6 +404,8 @@ impl App {
             Action::RestreamStop => Some("Stop the restream? Anyone watching it loses the picture.".into()),
             Action::DeleteSchedule(_) => Some("Delete this schedule? Its timer is removed too.".into()),
             Action::CancelDownload(_) => Some("Cancel this download? The partial file is removed.".into()),
+            Action::ClearRuns => Some("Clear the recent recordings list? Only the list goes: the recorded videos stay where they are.".into()),
+            Action::ClearFinished => Some("Clear the done, failed and cancelled downloads from this list? Files on disk stay.".into()),
             Action::DownloadEpisodes { episodes, what, .. } if episodes.len() > 1 => {
                 Some(format!("Download {what}: {} episodes, one at a time? Each one is a large file.", episodes.len()))
             }
@@ -401,7 +441,7 @@ impl App {
             match self.section {
                 Section::Search => return self.search_key(key),
                 Section::YouTube if self.youtube.typing => return self.youtube_typing_key(key),
-                Section::Live | Section::Movies | Section::Series if self.watch.typing => {
+                Section::MyList | Section::All if self.watch.typing => {
                     self.watch.on_typing_key(key, &self.db, &self.cfg);
                     return;
                 }
@@ -417,15 +457,14 @@ impl App {
             }
             KeyCode::Char('/') => {
                 match self.section {
-                    Section::Live | Section::Movies | Section::Series => self.watch.typing = true,
+                    Section::MyList | Section::All => self.watch.typing = true,
                     Section::YouTube => self.youtube.typing = true,
                     _ => self.open_section(Section::Search),
                 }
                 self.focus = Focus::List;
             }
-            KeyCode::Char(c @ '0'..='9') => {
-                let index = if c == '0' { 9 } else { c as usize - '1' as usize };
-                self.open_section(SECTIONS[index]);
+            KeyCode::Char(c @ '1'..='9') => {
+                self.open_section(SECTIONS[c as usize - '1' as usize]);
                 self.focus = Focus::List;
             }
             KeyCode::Tab | KeyCode::BackTab => {
@@ -449,7 +488,7 @@ impl App {
     fn list_key(&mut self, key: KeyEvent) {
         let back = matches!(key.code, KeyCode::Left | KeyCode::Esc | KeyCode::Backspace | KeyCode::Char('h'));
         let action = match self.section {
-            Section::Live | Section::Movies | Section::Series => {
+            Section::MyList | Section::All => {
                 if back {
                     if !self.watch.back(&self.db, &self.cfg) {
                         self.focus = Focus::Sidebar;
@@ -503,9 +542,8 @@ impl App {
         }
         self.section = section;
         let mode = match section {
-            Section::Live => Some(watch::Mode::Live),
-            Section::Movies => Some(watch::Mode::Movies),
-            Section::Series => Some(watch::Mode::Series),
+            Section::MyList => Some(watch::Mode::Mine),
+            Section::All => Some(watch::Mode::All),
             _ => None,
         };
         if let Some(mode) = mode {
@@ -533,7 +571,7 @@ impl App {
         let focused = self.focus == Focus::List;
         match self.section {
             Section::Search => self.draw_search(f, list, detail, wide),
-            Section::Live | Section::Movies | Section::Series => {
+            Section::MyList | Section::All => {
                 self.watch.draw_list(f, list, focused, &self.status);
                 if wide {
                     self.watch.draw_detail(f, detail, &self.schedules, &self.status, &self.cfg.watch_url);
@@ -565,7 +603,7 @@ impl App {
             }
             spans.push(Span::styled(" RESTREAMING ", Style::new().fg(BG).bg(OK).bold()));
             spans.push(Span::raw(format!(" {}", short(self.status.restream.channel_name.as_deref().unwrap_or("?")))));
-            spans.push(dim("  x in Live stops it"));
+            spans.push(dim("  x on a channel stops it"));
         }
         if spans.is_empty() {
             spans.push(dim(match self.next_recording() {
@@ -615,27 +653,36 @@ impl App {
             .map(|(_, text)| text)
     }
 
-    fn hints(&self) -> &'static str {
+    fn hints(&self) -> String {
         if self.modal.is_some() {
-            return "↵ ok  esc cancel";
+            return "↵ ok  esc cancel".into();
         }
         if self.focus == Focus::Sidebar {
-            return "↑↓ pick  → open  q quit";
+            return "↑↓ pick  → open  q quit".into();
         }
-        match self.section {
+        let hints = match self.section {
             Section::Search => "type to search  ↑↓ results  ↵ open  esc menu",
-            Section::Live | Section::Movies | Section::Series => self.watch.hints(self.status.restream.live),
+            Section::MyList | Section::All => return self.watch.hints(self.status.restream.live),
             Section::YouTube => self.youtube.hints(),
-            Section::Recordings => "x stop  space pause  d delete  ← menu",
-            Section::Downloads => "x cancel  ← menu",
+            Section::Recordings => "x stop  space pause  d delete  c clear recent  ← menu",
+            Section::Downloads => "x cancel  c clear finished  ← menu",
             Section::Library => "↵ play  ← menu",
             Section::Account => "u list  g guide  m everything  p password  e edit  ← menu",
             Section::Status => "ctrl+r refresh  ← menu",
-        }
+        };
+        hints.into()
     }
 }
 
 // ── shared helpers ───────────────────────────────────────────────────────
+
+/// The popup after queuing a download: what, where, and how you'll hear back.
+fn downloading_text(cfg: &Config, what: &str) -> String {
+    format!(
+        "{what}\n\nSaved in {}\n\nFollow it in Downloads (6). A desktop notification says when each one is done or fails.",
+        cfg.downloads_dir().display()
+    )
+}
 
 /// A list with headings; only rows with a key can be selected.
 struct Rows<K> {

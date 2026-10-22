@@ -172,8 +172,9 @@ impl Config {
             .unwrap_or_else(|| self.cli_dir.join("nginx/recordings"))
     }
 
+    /// Where downloads go: `downloads_dir` in kd.toml, else USB_DOWNLOADS_PATH (next to the recordings).
     pub fn downloads_dir(&self) -> PathBuf {
-        self.downloads_dir.clone().unwrap_or_else(|| self.data_dir.join("downloads"))
+        self.downloads_dir.clone().or_else(|| self.env_path("USB_DOWNLOADS_PATH")).unwrap_or_else(|| self.data_dir.join("downloads"))
     }
 
     /// Where FFmpeg writes the restream's HLS files (restream_via = "kdtv").

@@ -50,19 +50,27 @@ impl App {
         rows
     }
 
+    /// "▰▰▱▱▱▱▱▱  25%  912.4 MB / 3.4 GB" while it moves; the size once done.
     fn job_line(&self, i: usize, w: usize) -> Line<'static> {
         let j = &self.jobs[i];
         let (label, color) = state_label(&j.state);
-        let progress = match (j.state.clone(), j.progress()) {
-            (State::Downloading, Some(p)) => format!("{} {p:>3.0}%", blocks(p / 100.0, 8)),
-            (State::Downloading | State::Waiting, None) if j.bytes > 0 => human_size(j.bytes),
-            (State::Done, _) => human_size(j.bytes),
-            _ => String::new(),
+        let progress_w = 34.min(w / 2);
+        let of = |total: u64| format!("{} / {}", human_size(j.bytes), human_size(total));
+        let (bar, text) = match (j.state.clone(), j.progress(), j.real_total()) {
+            (State::Downloading | State::Waiting, Some(p), Some(total)) => (blocks(p / 100.0, 8), format!(" {p:>3.0}%  {}", of(total))),
+            (State::Downloading | State::Waiting, Some(p), None) => (blocks(p / 100.0, 8), format!(" {p:>3.0}%")),
+            (State::Downloading | State::Waiting, None, _) if j.bytes > 0 => (String::new(), human_size(j.bytes)),
+            (State::Done, _, _) => (String::new(), human_size(j.bytes)),
+            _ => (String::new(), String::new()),
         };
+        let progress = format!("{bar}{text}");
+        let pad = progress_w.saturating_sub(progress.chars().count());
         Line::from(vec![
             Span::styled(format!("{label:<12}"), Style::new().fg(color)),
-            Span::raw(fit(&j.title, w.saturating_sub(12 + 15))),
-            dim(format!("{progress:>15}")),
+            Span::raw(fit(&j.title, w.saturating_sub(12 + progress_w + 1))),
+            Span::raw(" ".repeat(pad + 1)),
+            Span::styled(bar, Style::new().fg(ACCENT)),
+            dim(text),
         ])
     }
 
@@ -90,7 +98,7 @@ impl App {
                     Source::YouTube { .. } => "YouTube video",
                 };
                 let mut lines = vec![Line::from(Span::styled(label.to_uppercase(), Style::new().fg(color).bold())), Line::from(j.title.clone()).bold(), Line::raw("")];
-                if let Some(p) = j.progress().filter(|_| j.state == State::Downloading) {
+                if let Some(p) = j.progress().filter(|_| j.unfinished()) {
                     let tail = format!(" {p:.0}%");
                     let mut g = gauge(p / 100.0, w.saturating_sub(tail.len()));
                     g.push(dim(tail));
@@ -98,26 +106,33 @@ impl App {
                     lines.push(Line::raw(""));
                 }
                 lines.push(label_value("Kind", kind.into(), FG));
-                lines.push(label_value("So far", human_size(j.bytes), FG));
-                if let Some(t) = j.total {
-                    lines.push(label_value("Size", human_size(t), FG));
+                let so_far = match j.real_total() {
+                    Some(t) if j.unfinished() => format!("{} of {}", human_size(j.bytes), human_size(t)),
+                    _ => human_size(j.bytes),
+                };
+                lines.push(label_value(if j.state == State::Done { "Size" } else { "So far" }, so_far, FG));
+                if let Some(speed) = j.speed.filter(|_| j.state == State::Downloading) {
+                    lines.push(label_value("Speed", format!("{}/s", human_size(speed as u64)), FG));
+                }
+                if let Some(s) = j.seconds_left().filter(|_| j.state == State::Downloading) {
+                    lines.push(label_value("Time left", format!("about {}", left(s)), FG));
                 }
                 lines.push(label_value("Saves to", j.output.clone(), DIM));
                 if j.state == State::Waiting {
                     lines.push(Line::raw(""));
-                    lines.push(Line::from(dim("Paused while a recording or the restream uses the connection. It picks up where it stopped.")));
+                    lines.push(Line::from(dim("Paused while a recording, the restream or something you watch uses the connection. It picks up where it stopped.")));
                 }
                 if let Some(e) = &j.error {
                     lines.push(Line::raw(""));
                     lines.push(Line::from(Span::styled(e.clone(), Style::new().fg(BAD))));
                 }
-                (lines, if j.unfinished() { vec![("x", "cancel".to_string())] } else { vec![] })
+                (lines, if j.unfinished() { vec![("x", "cancel".to_string())] } else { vec![("c", "clear finished".to_string())] })
             }
             None => (
                 vec![
                     Line::from("One at a time").bold(),
                     Line::raw(""),
-                    Line::from(dim("Your provider allows one connection: downloads pause by themselves while a recording or the restream runs, then resume.")),
+                    Line::from(dim("Your provider allows one connection: downloads pause by themselves while a recording, the restream or something you watch runs, then resume.")),
                     Line::raw(""),
                     Line::from(dim("YouTube downloads don't use that connection and carry on.")),
                 ],
@@ -135,6 +150,7 @@ impl App {
         }
         let job = keys.get(self.downloads_list.selected().unwrap_or(0)).and_then(|i| self.jobs.get(*i))?;
         match key.code {
+            KeyCode::Char('c') => Some(Action::ClearFinished),
             KeyCode::Char('x') if job.unfinished() => Some(Action::CancelDownload(job.id.clone())),
             _ => None,
         }

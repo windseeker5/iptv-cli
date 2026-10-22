@@ -1,7 +1,8 @@
-//! Live, Movies and Series: the list in the middle, the selection on the right.
+//! My list and All: the list in the middle, the selection on the right.
 //!
-//! With an empty search, Live shows your favorites and Movies/Series their
-//! categories; ↵ opens, ← or esc goes back, `/` searches the current section.
+//! My list is what you saved (channels, movies and series together); All is the
+//! provider's own lists: Live, Movies, Series, then their categories. `f` saves or
+//! removes the selection, ↵ opens, ← or esc goes back, `/` searches the section.
 //! A series opens on its first season; `[` and `]` change season.
 
 use super::modal::{self, Action};
@@ -10,6 +11,7 @@ use super::{hhmm, move_in, selected_style};
 use crate::config::Config;
 use crate::db::{event_info, Category, Channel, Db, Episode, Movie, Program, Series};
 use crate::downloads::{self, Job, Source, State};
+use crate::favorites::{self, Kind, Saved};
 use crate::schedules::Schedule;
 use crate::status::Status;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
@@ -18,45 +20,104 @@ use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{HighlightSpacing, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::Frame;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 const LIMIT: usize = 500;
 /// Rows that get their "on now" looked up (one quick query each).
 const NOW_FOR: usize = 300;
+/// All's first screen.
+const KINDS: [Kind; 3] = [Kind::Live, Kind::Movie, Kind::Series];
+/// Marks a saved row in All.
+const SAVED: &str = "♥ ";
 
 #[derive(Default, Clone, Copy, PartialEq)]
 pub enum Mode {
     #[default]
-    Live,
-    Movies,
-    Series,
+    Mine,
+    All,
 }
 
 impl Mode {
     fn name(self) -> &'static str {
         match self {
-            Mode::Live => "Live",
-            Mode::Movies => "Movies",
-            Mode::Series => "Series",
+            Mode::Mine => "My list",
+            Mode::All => "All",
+        }
+    }
+}
+
+fn kind_name(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Live => "Live",
+        Kind::Movie => "Movies",
+        Kind::Series => "Series",
+    }
+}
+
+/// Something you can save: a channel, a movie or a series.
+#[derive(Clone)]
+enum Item {
+    Channel(Channel),
+    Movie(Movie),
+    Series(Series),
+}
+
+impl Item {
+    fn key(&self) -> (Kind, i64) {
+        match self {
+            Item::Channel(c) => (Kind::Live, c.stream_id),
+            Item::Movie(m) => (Kind::Movie, m.stream_id),
+            Item::Series(s) => (Kind::Series, s.series_id),
+        }
+    }
+
+    fn saved(&self) -> Saved {
+        let (kind, id) = self.key();
+        let (name, category) = match self {
+            Item::Channel(c) => (c.name.clone(), c.category.clone()),
+            Item::Movie(m) => (m.name.clone(), None),
+            Item::Series(s) => (s.name.clone(), s.category.clone()),
+        };
+        Saved { kind, id, name, category }
+    }
+
+    fn name(&self) -> &str {
+        match self {
+            Item::Channel(c) => &c.name,
+            Item::Movie(m) => &m.name,
+            Item::Series(s) => &s.name,
+        }
+    }
+
+    fn channel(&self) -> Option<&Channel> {
+        match self {
+            Item::Channel(c) => Some(c),
+            _ => None,
         }
     }
 }
 
 enum View {
+    /// All's first screen: Live, Movies, Series.
+    Kinds,
+    Categories(Kind, Vec<Category>),
     Channels(Vec<Channel>, Vec<Option<Program>>),
-    Categories(Vec<Category>),
     Movies(Vec<Movie>),
     Series(Vec<Series>),
+    /// My list, and searches in All: channels, movies and series together.
+    Mixed(Vec<Item>, Vec<Option<Program>>),
     Episodes { series: Series, all: Vec<Episode>, season: i64, loading: bool },
 }
 
 impl View {
     fn len(&self) -> usize {
         match self {
+            View::Kinds => KINDS.len(),
+            View::Categories(_, v) => v.len(),
             View::Channels(v, _) => v.len(),
-            View::Categories(v) => v.len(),
             View::Movies(v) => v.len(),
             View::Series(v) => v.len(),
+            View::Mixed(v, _) => v.len(),
             View::Episodes { all, season, .. } => all.iter().filter(|e| e.season == *season).count(),
         }
     }
@@ -69,6 +130,8 @@ enum EpisodeState {
     Downloading(Option<f64>),
     Queued,
     Waiting,
+    /// The last try failed; Downloads says why.
+    Failed,
 }
 
 /// One level of browsing: what's listed, where the cursor is, and its name.
@@ -86,6 +149,8 @@ pub struct Watch {
     back: Vec<Level>,
     pub guide: Vec<Program>,
     episode_state: HashMap<String, EpisodeState>,
+    /// What My list holds, to mark it in All.
+    saved: HashSet<(Kind, i64)>,
     /// Set when the user opened a series whose episodes still need downloading.
     pub wants_episodes: Option<i64>,
 }
@@ -93,13 +158,14 @@ pub struct Watch {
 impl Default for Watch {
     fn default() -> Self {
         Watch {
-            mode: Mode::Live,
+            mode: Mode::Mine,
             query: String::new(),
             typing: false,
-            level: Level { view: View::Channels(vec![], vec![]), list: ListState::default(), label: String::new() },
+            level: Level { view: View::Mixed(vec![], vec![]), list: ListState::default(), label: String::new() },
             back: vec![],
             guide: vec![],
             episode_state: HashMap::new(),
+            saved: HashSet::new(),
             wants_episodes: None,
         }
     }
@@ -109,12 +175,28 @@ fn now() -> i64 {
     chrono::Utc::now().timestamp()
 }
 
-fn on_now(db: &Db, channels: &[Channel]) -> Vec<Option<Program>> {
+fn on_now<'a>(db: &Db, channels: impl Iterator<Item = Option<&'a Channel>>) -> Vec<Option<Program>> {
     let t = now();
     channels
-        .iter()
         .enumerate()
-        .map(|(i, c)| if i < NOW_FOR { db.guide(c.stream_id, t, 1).ok()?.into_iter().next().filter(|p| p.start_ts <= t) } else { None })
+        .map(|(i, c)| if i < NOW_FOR { db.guide(c?.stream_id, t, 1).ok()?.into_iter().next().filter(|p| p.start_ts <= t) } else { None })
+        .collect()
+}
+
+fn mixed(db: &Db, items: Vec<Item>) -> View {
+    let now = on_now(db, items.iter().map(Item::channel));
+    View::Mixed(items, now)
+}
+
+/// My list as it is in the file; a movie or series the provider dropped is left out.
+fn my_items(db: &Db, cfg: &Config) -> Vec<Item> {
+    favorites::list(&cfg.data_dir)
+        .into_iter()
+        .filter_map(|s| match s.kind {
+            Kind::Live => Some(Item::Channel(Channel { stream_id: s.id, name: s.name, category: s.category })),
+            Kind::Movie => db.movie(s.id).ok().flatten().map(Item::Movie),
+            Kind::Series => db.series(s.id).ok().flatten().map(Item::Series),
+        })
         .collect()
 }
 
@@ -126,60 +208,85 @@ fn seasons(all: &[Episode]) -> Vec<i64> {
 }
 
 impl Watch {
+    /// The top list for the section and the search, with its name.
+    fn top(&self, db: &Db, cfg: &Config) -> (View, String) {
+        let q = self.query.trim();
+        let (view, label) = match (self.mode, q.is_empty()) {
+            (Mode::Mine, true) => (mixed(db, my_items(db, cfg)), String::new()),
+            (Mode::Mine, false) => {
+                let words: Vec<String> = q.split_whitespace().map(str::to_lowercase).collect();
+                let items = my_items(db, cfg).into_iter().filter(|i| words.iter().all(|w| i.name().to_lowercase().contains(w))).collect();
+                (mixed(db, items), String::new())
+            }
+            (Mode::All, true) => (View::Kinds, "from your provider".into()),
+            (Mode::All, false) => {
+                let mut items: Vec<Item> = db.search_channels(q, LIMIT).unwrap_or_default().into_iter().map(Item::Channel).collect();
+                items.extend(db.search_series(q, LIMIT).unwrap_or_default().into_iter().map(Item::Series));
+                items.extend(db.search_movies(q, LIMIT).unwrap_or_default().into_iter().map(Item::Movie));
+                (mixed(db, items), String::new())
+            }
+        };
+        let label = match (q.is_empty(), view.len()) {
+            (true, _) => label,
+            (false, 1) => format!("1 result for “{q}”"),
+            (false, n) => format!("{n} results for “{q}”"),
+        };
+        (view, label)
+    }
+
     /// Rebuild the top list from the section and the search.
     pub fn reset(&mut self, db: &Db, cfg: &Config) {
-        let q = self.query.trim();
-        let searching = !q.is_empty();
-        let (view, label) = match (self.mode, searching) {
-            (Mode::Live, false) => {
-                let channels = crate::favorites::live(&cfg.data_dir);
-                let now = on_now(db, &channels);
-                (View::Channels(channels, now), "Favorites".to_string())
-            }
-            (Mode::Live, true) => {
-                let channels = db.search_channels(q, LIMIT).unwrap_or_default();
-                let now = on_now(db, &channels);
-                (View::Channels(channels, now), String::new())
-            }
-            (Mode::Movies, false) => (View::Categories(db.movie_categories().unwrap_or_default()), "Categories".into()),
-            (Mode::Movies, true) => (View::Movies(db.search_movies(q, LIMIT).unwrap_or_default()), String::new()),
-            (Mode::Series, false) => (View::Categories(db.series_categories().unwrap_or_default()), "Categories".into()),
-            (Mode::Series, true) => (View::Series(db.search_series(q, LIMIT).unwrap_or_default()), String::new()),
-        };
-        let label = match (searching, view.len()) {
-            (false, _) => label,
-            (true, 1) => format!("1 result for “{q}”"),
-            (true, n) => format!("{n} results for “{q}”"),
-        };
+        self.saved = favorites::list(&cfg.data_dir).iter().map(|s| (s.kind, s.id)).collect();
+        let (view, label) = self.top(db, cfg);
         self.back.clear();
         self.level = Level { list: ListState::default().with_selected((view.len() > 0).then_some(0)), view, label };
         self.load_guide(db);
     }
 
-    /// Show a search in a section with one item selected (from the Search section).
+    /// How many things My list holds.
+    pub fn saved_count(&self) -> usize {
+        self.saved.len()
+    }
+
+    /// After `f`: mark the change, and rebuild My list where the cursor was.
+    pub fn saved_changed(&mut self, db: &Db, cfg: &Config) {
+        self.saved = favorites::list(&cfg.data_dir).iter().map(|s| (s.kind, s.id)).collect();
+        if self.mode == Mode::Mine {
+            let (view, label) = self.top(db, cfg);
+            let level = match self.back.first_mut() {
+                Some(level) => level,
+                None => &mut self.level,
+            };
+            let keep = level.list.selected().unwrap_or(0).min(view.len().saturating_sub(1));
+            *level = Level { list: ListState::default().with_selected((view.len() > 0).then_some(keep)), view, label };
+        }
+        self.load_guide(db);
+    }
+
+    /// Show a search in All with one item selected (from the Search section).
     /// For a series, open its episodes right away.
-    pub fn show(&mut self, mode: Mode, query: &str, id: i64, db: &Db, cfg: &Config) {
-        self.mode = mode;
+    pub fn show(&mut self, kind: Kind, query: &str, id: i64, db: &Db, cfg: &Config) {
+        self.mode = Mode::All;
         self.query = query.to_string();
         self.typing = false;
         self.reset(db, cfg);
         let index = match &self.level.view {
-            View::Channels(v, _) => v.iter().position(|c| c.stream_id == id),
-            View::Movies(v) => v.iter().position(|m| m.stream_id == id),
-            View::Series(v) => v.iter().position(|s| s.series_id == id),
+            View::Mixed(v, _) => v.iter().position(|i| i.key() == (kind, id)),
             _ => None,
         };
         self.level.list.select(index.or(Some(0)));
         self.load_guide(db);
-        if mode == Mode::Series {
+        if kind == Kind::Series {
             self.enter(db, false);
         }
     }
 
     /// Recompute what's on now (the 30-second refresh).
     pub fn refresh_now(&mut self, db: &Db) {
-        if let View::Channels(channels, now) = &mut self.level.view {
-            *now = on_now(db, channels);
+        match &mut self.level.view {
+            View::Channels(channels, now) => *now = on_now(db, channels.iter().map(Some)),
+            View::Mixed(items, now) => *now = on_now(db, items.iter().map(Item::channel)),
+            _ => {}
         }
         self.load_guide(db);
     }
@@ -208,11 +315,28 @@ impl Watch {
         self.level.list.selected().unwrap_or(0)
     }
 
-    fn selected_channel(&self) -> Option<&Channel> {
+    /// The channel, movie or series under the cursor; in a series, the series.
+    fn selected_item(&self) -> Option<Item> {
+        let i = self.selected();
         match &self.level.view {
-            View::Channels(v, _) => v.get(self.selected()),
+            View::Channels(v, _) => v.get(i).cloned().map(Item::Channel),
+            View::Movies(v) => v.get(i).cloned().map(Item::Movie),
+            View::Series(v) => v.get(i).cloned().map(Item::Series),
+            View::Mixed(v, _) => v.get(i).cloned(),
+            View::Episodes { series, .. } => Some(Item::Series(series.clone())),
+            View::Kinds | View::Categories(..) => None,
+        }
+    }
+
+    fn selected_channel(&self) -> Option<Channel> {
+        match self.selected_item()? {
+            Item::Channel(c) => Some(c),
             _ => None,
         }
+    }
+
+    fn is_saved(&self, item: &Item) -> bool {
+        self.saved.contains(&item.key())
     }
 
     /// The episodes of the season on screen.
@@ -251,20 +375,21 @@ impl Watch {
     pub fn mark_episodes(&mut self, cfg: &Config, jobs: &[Job]) {
         self.episode_state.clear();
         let View::Episodes { series, all, .. } = &self.level.view else { return };
-        let by_id: HashMap<&str, &Job> = jobs
-            .iter()
-            .filter(|j| j.unfinished())
-            .filter_map(|j| match &j.source {
-                Source::Episode { episode_id } => Some((episode_id.as_str(), j)),
-                _ => None,
-            })
-            .collect();
+        // Jobs come newest first: keep each episode's latest try.
+        let mut by_id: HashMap<&str, &Job> = HashMap::new();
+        for j in jobs.iter().filter(|j| j.unfinished() || j.state == State::Failed) {
+            if let Source::Episode { episode_id, .. } = &j.source {
+                by_id.entry(episode_id.as_str()).or_insert(j);
+            }
+        }
         for e in all {
+            let on_disk = downloads::episode_output(cfg, &series.name, e).exists();
             let state = match by_id.get(e.episode_id.as_str()) {
                 Some(j) if j.state == State::Downloading => Some(EpisodeState::Downloading(j.progress())),
                 Some(j) if j.state == State::Waiting => Some(EpisodeState::Waiting),
-                Some(_) => Some(EpisodeState::Queued),
-                None if downloads::episode_output(cfg, &series.name, e).exists() => Some(EpisodeState::OnDisk),
+                Some(j) if j.state == State::Queued => Some(EpisodeState::Queued),
+                _ if on_disk => Some(EpisodeState::OnDisk),
+                Some(_) => Some(EpisodeState::Failed),
                 None => None,
             };
             if let Some(state) = state {
@@ -296,12 +421,14 @@ impl Watch {
 
     pub fn on_key(&mut self, key: KeyEvent, db: &Db, restream_live: bool) -> Option<Action> {
         let i = self.selected();
+        let lists_channels = matches!(self.level.view, View::Channels(..) | View::Mixed(..));
         match key.code {
             KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => self.enter(db, key.code == KeyCode::Enter),
-            KeyCode::Char('r') => self.selected_channel().map(|c| Action::RecordMenu(c.clone())),
-            KeyCode::Char('x') if restream_live && self.mode == Mode::Live => Some(Action::RestreamStop),
+            KeyCode::Char('f') => self.selected_item().map(|item| Action::ToggleSaved(item.saved())),
+            KeyCode::Char('r') => self.selected_channel().map(Action::RecordMenu),
+            KeyCode::Char('x') if restream_live && lists_channels => Some(Action::RestreamStop),
             KeyCode::Char('n') => {
-                let channel = self.selected_channel()?.clone();
+                let channel = self.selected_channel()?;
                 let next = self.guide.iter().find(|p| p.start_ts > now())?;
                 Some(modal::schedule_action(&channel, next))
             }
@@ -318,21 +445,22 @@ impl Watch {
                 None
             }
             KeyCode::Char('d') => match &self.level.view {
-                View::Movies(v) => v.get(i).map(|m| Action::DownloadMovie(m.clone())),
                 View::Episodes { series, .. } => self.season_episodes().get(i).map(|e| Action::DownloadEpisodes {
                     series: series.name.clone(),
                     episodes: vec![(*e).clone()],
                     what: format!("S{:02}E{:02}", e.season, e.episode_num),
                 }),
-                _ => None,
+                _ => match self.selected_item()? {
+                    Item::Movie(m) => Some(Action::DownloadMovie(m)),
+                    _ => None,
+                },
             },
             KeyCode::Char('s') => match &self.level.view {
-                View::Channels(v, _) => v.get(i).map(|c| Action::RestreamStart { channel: c.clone(), replace: false }),
                 View::Episodes { series, season, .. } => {
                     let episodes: Vec<Episode> = self.season_episodes().into_iter().cloned().collect();
                     (!episodes.is_empty()).then(|| Action::DownloadEpisodes { series: series.name.clone(), episodes, what: format!("season {season}") })
                 }
-                _ => None,
+                _ => self.selected_channel().map(|channel| Action::RestreamStart { channel, replace: false }),
             },
             KeyCode::Char('D') => match &self.level.view {
                 View::Episodes { series, all, .. } if !all.is_empty() => Some(Action::DownloadEpisodes {
@@ -351,61 +479,95 @@ impl Watch {
         }
     }
 
-    /// ↵ plays or opens; → only opens (categories, series).
+    /// ↵ plays or opens; → only opens (lists, categories, series).
     fn enter(&mut self, db: &Db, play: bool) -> Option<Action> {
         let i = self.selected();
         match &self.level.view {
-            View::Channels(v, _) if play => v.get(i).map(|c| Action::PlayLive(c.clone())),
-            View::Movies(v) if play => v.get(i).map(|m| Action::PlayMovie(m.clone())),
+            View::Kinds => {
+                let kind = *KINDS.get(i)?;
+                let categories = match kind {
+                    Kind::Live => db.live_categories(),
+                    Kind::Movie => db.movie_categories(),
+                    Kind::Series => db.series_categories(),
+                };
+                self.open(View::Categories(kind, categories.unwrap_or_default()), kind_name(kind).into());
+                None
+            }
+            View::Categories(kind, v) => {
+                let category = v.get(i)?.clone();
+                let view = match (kind, category.id) {
+                    (Kind::Live, _) => {
+                        let channels = db.channels_in(&category.name, LIMIT).unwrap_or_default();
+                        let now = on_now(db, channels.iter().map(Some));
+                        View::Channels(channels, now)
+                    }
+                    (Kind::Movie, Some(id)) => View::Movies(db.movies_in(id, LIMIT).unwrap_or_default()),
+                    _ => View::Series(db.series_in(&category.name, LIMIT).unwrap_or_default()),
+                };
+                self.open(view, category.name);
+                self.load_guide(db);
+                None
+            }
             View::Episodes { series, .. } if play => {
                 let name = series.name.clone();
                 self.season_episodes().get(i).map(|e| Action::PlayEpisode { series: name, episode: (*e).clone() })
             }
-            View::Categories(v) => {
-                let category = v.get(i)?.clone();
-                let view = match (self.mode, category.id) {
-                    (Mode::Movies, Some(id)) => View::Movies(db.movies_in(id, LIMIT).unwrap_or_default()),
-                    _ => View::Series(db.series_in(&category.name, LIMIT).unwrap_or_default()),
-                };
-                self.open(view, category.name);
-                None
-            }
-            View::Series(v) => {
-                let series = v.get(i)?.clone();
-                let all = db.episodes(series.series_id).unwrap_or_default();
-                let loading = all.is_empty();
-                if loading {
-                    self.wants_episodes = Some(series.series_id);
+            View::Episodes { .. } => None,
+            _ => match self.selected_item()? {
+                Item::Series(series) => {
+                    self.open_series(db, series);
+                    None
                 }
-                let season = seasons(&all).first().copied().unwrap_or(1);
-                let label = series.name.clone();
-                self.open(View::Episodes { series, all, season, loading }, label);
-                None
-            }
-            _ => None,
+                Item::Channel(c) if play => Some(Action::PlayLive(c)),
+                Item::Movie(m) if play => Some(Action::PlayMovie(m)),
+                _ => None,
+            },
         }
     }
 
-    pub fn hints(&self, restream_live: bool) -> &'static str {
-        if self.typing {
-            return "type to search  ↵ done  ↑↓ move";
+    fn open_series(&mut self, db: &Db, series: Series) {
+        let all = db.episodes(series.series_id).unwrap_or_default();
+        let loading = all.is_empty();
+        if loading {
+            self.wants_episodes = Some(series.series_id);
         }
-        match &self.level.view {
-            View::Channels(..) if restream_live => "↵ watch  r record  s restream  x stop restream",
-            View::Channels(..) => "↵ watch  r record  s restream  n next  / search",
-            View::Categories(_) => "↵ open  / search  ← back",
-            View::Movies(_) => "↵ watch  d download  / search  ← back",
-            View::Series(_) => "↵ episodes  / search  ← back",
-            View::Episodes { .. } => "↵ watch  [ ] season  d s D download  ← back",
+        let season = seasons(&all).first().copied().unwrap_or(1);
+        let label = series.name.clone();
+        self.open(View::Episodes { series, all, season, loading }, label);
+    }
+
+    /// `f` in words for the selection: "save" or "remove".
+    fn save_word(&self, item: &Item) -> &'static str {
+        if self.is_saved(item) { "remove" } else { "save" }
+    }
+
+    pub fn hints(&self, restream_live: bool) -> String {
+        if self.typing {
+            return "type to search  ↵ done  ↑↓ move".into();
+        }
+        let item = self.selected_item();
+        let f = item.as_ref().map(|i| format!("  f {}", self.save_word(i))).unwrap_or_default();
+        match (&self.level.view, &item) {
+            (View::Kinds | View::Categories(..), _) => "↵ open  / search  ← back".into(),
+            (View::Episodes { .. }, _) => format!("↵ watch  [ ] season  d s D download{f}  ← back"),
+            (_, Some(Item::Channel(_))) if restream_live => format!("↵ watch  r record  s restream  x stop restream{f}"),
+            (_, Some(Item::Channel(_))) => format!("↵ watch  r record  s restream  n next{f}  / search"),
+            (_, Some(Item::Movie(_))) => format!("↵ watch  d download{f}  / search"),
+            (_, Some(Item::Series(_))) => format!("↵ episodes{f}  / search"),
+            (_, None) => "/ search  ← back".into(),
         }
     }
 
     // ── the list panel ───────────────────────────────────────────────────
 
     pub fn draw_list(&mut self, f: &mut Frame, area: Rect, focused: bool, status: &Status) {
+        let name = match &self.level.label {
+            label if label.is_empty() => self.mode.name().to_string(),
+            label => format!("{} · {label}", self.mode.name()),
+        };
         let title = match &self.level.view {
-            View::Episodes { loading: true, .. } => format!("{} · {} · loading…", self.mode.name(), self.level.label),
-            _ => format!("{} · {}", self.mode.name(), self.level.label),
+            View::Episodes { loading: true, .. } => format!("{name} · loading…"),
+            _ => name,
         };
         let hint = if self.typing || !self.query.is_empty() { " esc clear " } else { " / search " };
         let block = panel(&title, focused).title_top(Line::from(hint).fg(DIM).right_aligned());
@@ -447,51 +609,94 @@ impl Watch {
         f.render_stateful_widget(widget, list, &mut self.level.list);
     }
 
+    /// "♥ " on a saved row in All, room for it otherwise; nothing in My list.
+    fn mark(&self, item: &Item) -> &'static str {
+        match self.mode {
+            Mode::Mine => "",
+            Mode::All if self.is_saved(item) => SAVED,
+            Mode::All => "  ",
+        }
+    }
+
     /// The column header and one row per item, fitted to `w` columns.
     fn rows(&self, w: usize, status: &Status) -> (String, Vec<ListItem<'static>>) {
         let t = now();
         let dim_style = Style::new().fg(DIM);
+        let restreaming = status.restream.channel_name.as_deref().filter(|_| status.restream.live);
+        let mark_w = if self.mode == Mode::All { SAVED.chars().count() } else { 0 };
+        let (name_w, time_w) = ((w * 2 / 5).clamp(12, 26), 13);
+        let show_w = w.saturating_sub(mark_w + name_w + time_w + 2);
+        // A channel row; a movie or series in a mixed list uses the same columns.
+        let line = |mark: &str, name: &str, show: &str, time: Span<'static>| {
+            ListItem::new(Line::from(vec![Span::styled(mark.to_string(), Style::new().fg(BAD)), Span::raw(format!("{}  ", fit(name, name_w))), Span::styled(fit(show, show_w), dim_style), time]))
+        };
+        let channel_row = |item: &Item, c: &Channel, p: Option<&Program>| {
+            let event = event_info(&c.name);
+            let name = event.as_ref().map(|e| e.channel.clone()).unwrap_or_else(|| display_name(&c.name).to_string());
+            let (show, time) = match (p, &event) {
+                (Some(p), _) => {
+                    let done = (t - p.start_ts) as f64 / (p.end_ts - p.start_ts).max(1) as f64;
+                    (p.title.clone().unwrap_or_default(), format!("{} {:>7}", blocks(done, 5), left(p.end_ts - t)))
+                }
+                (None, Some(e)) => (e.title.clone(), e.start.map(|s| format!("started {}", s.format("%H:%M"))).unwrap_or_default()),
+                (None, None) => (String::new(), String::new()),
+            };
+            let time = if restreaming == Some(c.name.as_str()) {
+                Span::styled(format!("{:>time_w$}", "● restreaming"), Style::new().fg(OK).bold())
+            } else {
+                Span::styled(format!("{time:>time_w$}"), dim_style)
+            };
+            line(self.mark(item), &name, &show, time)
+        };
+        let stars = |r: Option<f64>| rating(r).unwrap_or_default();
+        let what = |kind: &str, extra: Option<String>| [Some(kind.to_string()), extra.filter(|e| !e.is_empty())].into_iter().flatten().collect::<Vec<_>>().join(" · ");
         match &self.level.view {
-            View::Channels(channels, now_on) => {
-                let (name_w, time_w) = ((w * 2 / 5).clamp(12, 26), 13);
-                let show_w = w.saturating_sub(name_w + time_w + 2);
-                let head = format!("{}  {}{:>time_w$}", fit("CHANNEL", name_w), fit("ON NOW", show_w), "TIME");
-                let restreaming = status.restream.channel_name.as_deref().filter(|_| status.restream.live);
-                let items = channels
+            View::Kinds => {
+                let counts = status.database.as_ref();
+                let rows = KINDS
                     .iter()
-                    .zip(now_on)
-                    .map(|(c, p)| {
-                        let event = event_info(&c.name);
-                        let name = event.as_ref().map(|e| e.channel.clone()).unwrap_or_else(|| display_name(&c.name).to_string());
-                        let (show, time) = match (p, &event) {
-                            (Some(p), _) => {
-                                let done = (t - p.start_ts) as f64 / (p.end_ts - p.start_ts).max(1) as f64;
-                                (p.title.clone().unwrap_or_default(), format!("{} {:>7}", blocks(done, 5), left(p.end_ts - t)))
-                            }
-                            (None, Some(e)) => (e.title.clone(), e.start.map(|s| format!("started {}", s.format("%H:%M"))).unwrap_or_default()),
-                            (None, None) => (String::new(), String::new()),
-                        };
-                        let time_span = if restreaming == Some(c.name.as_str()) {
-                            Span::styled(format!("{:>time_w$}", "● restreaming"), Style::new().fg(OK).bold())
-                        } else {
-                            Span::styled(format!("{time:>time_w$}"), dim_style)
-                        };
-                        ListItem::new(Line::from(vec![Span::raw(format!("{}  ", fit(&name, name_w))), Span::styled(fit(&show, show_w), dim_style), time_span]))
+                    .map(|kind| {
+                        let n = counts.map(|c| match kind {
+                            Kind::Live => c.live,
+                            Kind::Movie => c.vod,
+                            Kind::Series => c.series,
+                        });
+                        let count = n.map(|n| format!("{n}")).unwrap_or_default();
+                        ListItem::new(Line::from(vec![Span::raw(fit(kind_name(*kind), w.saturating_sub(10))), Span::styled(format!("{count:>10}"), dim_style)]))
                     })
                     .collect();
+                ("LIST".into(), rows)
+            }
+            View::Categories(_, v) => ("CATEGORY".into(), v.iter().map(|c| ListItem::new(fit(&c.name, w))).collect()),
+            View::Channels(channels, now_on) => {
+                let head = format!("{}{}  {}{:>time_w$}", " ".repeat(mark_w), fit("CHANNEL", name_w), fit("ON NOW", show_w), "TIME");
+                let items = channels.iter().zip(now_on).map(|(c, p)| channel_row(&Item::Channel(c.clone()), c, p.as_ref())).collect();
                 (head, items)
             }
-            View::Categories(v) => ("CATEGORY".into(), v.iter().map(|c| ListItem::new(fit(&c.name, w))).collect()),
+            View::Mixed(items, now_on) => {
+                let middle = if items.iter().any(|i| i.channel().is_some()) { "ON NOW" } else { "" };
+                let head = format!("{}{}  {}", " ".repeat(mark_w), fit("NAME", name_w), fit(middle, show_w));
+                let rows = items
+                    .iter()
+                    .zip(now_on)
+                    .map(|(item, p)| match item {
+                        Item::Channel(c) => channel_row(item, c, p.as_ref()),
+                        Item::Movie(m) => line(self.mark(item), &m.name, &what("Movie", m.year.clone()), Span::styled(format!("{:>time_w$}", stars(m.rating)), dim_style)),
+                        Item::Series(s) => line(self.mark(item), &s.name, &what("Series", s.genre.clone()), Span::styled(format!("{:>time_w$}", stars(s.rating)), dim_style)),
+                    })
+                    .collect();
+                (head, rows)
+            }
             View::Movies(v) => {
-                let name_w = w.saturating_sub(14);
-                let head = format!("{}{:>6}{:>8}", fit("TITLE", name_w), "YEAR", "RATING");
+                let name_w = w.saturating_sub(14 + mark_w);
+                let head = format!("{}{}{:>6}{:>8}", " ".repeat(mark_w), fit("TITLE", name_w), "YEAR", "RATING");
                 let items = v
                     .iter()
                     .map(|m| {
-                        let rating = m.rating.filter(|r| *r > 0.0).map(|r| format!("★ {r:.1}")).unwrap_or_default();
                         ListItem::new(Line::from(vec![
+                            Span::styled(self.mark(&Item::Movie(m.clone())), Style::new().fg(BAD)),
                             Span::raw(fit(&m.name, name_w)),
-                            Span::styled(format!("{:>6}{rating:>8}", m.year.clone().unwrap_or_default()), dim_style),
+                            Span::styled(format!("{:>6}{:>8}", m.year.clone().unwrap_or_default(), stars(m.rating)), dim_style),
                         ]))
                     })
                     .collect();
@@ -499,11 +704,17 @@ impl Watch {
             }
             View::Series(v) => {
                 let genre_w = 18.min(w / 3);
-                let name_w = w.saturating_sub(genre_w + 2);
-                let head = format!("{}  {}", fit("SERIES", name_w), fit("GENRE", genre_w));
+                let name_w = w.saturating_sub(genre_w + 2 + mark_w);
+                let head = format!("{}{}  {}", " ".repeat(mark_w), fit("SERIES", name_w), fit("GENRE", genre_w));
                 let items = v
                     .iter()
-                    .map(|s| ListItem::new(Line::from(vec![Span::raw(format!("{}  ", fit(&s.name, name_w))), Span::styled(fit(s.genre.as_deref().unwrap_or(""), genre_w), dim_style)])))
+                    .map(|s| {
+                        ListItem::new(Line::from(vec![
+                            Span::styled(self.mark(&Item::Series(s.clone())), Style::new().fg(BAD)),
+                            Span::raw(format!("{}  ", fit(&s.name, name_w))),
+                            Span::styled(fit(s.genre.as_deref().unwrap_or(""), genre_w), dim_style),
+                        ]))
+                    })
                     .collect();
                 (head, items)
             }
@@ -521,6 +732,7 @@ impl Watch {
                             Some(EpisodeState::Downloading(None)) => ("↓ downloading".into(), ACCENT),
                             Some(EpisodeState::Waiting) => ("waiting".into(), WARN),
                             Some(EpisodeState::Queued) => ("queued".into(), DIM),
+                            Some(EpisodeState::Failed) => ("✗ failed".into(), BAD),
                             None => (String::new(), DIM),
                         };
                         ListItem::new(Line::from(vec![
@@ -540,7 +752,9 @@ impl Watch {
         match (&self.level.view, self.query.trim()) {
             (View::Episodes { loading: true, .. }, _) => "Asking the provider for the episodes…".into(),
             (View::Episodes { .. }, _) => "No episodes.".into(),
-            (View::Channels(..), "") => "No favorites yet. Press / to search for a channel.".into(),
+            (View::Mixed(..), "") if self.mode == Mode::Mine => {
+                "Nothing saved yet. In All, press f on a channel, a movie or a series to add it here.".into()
+            }
             (_, "") => "Nothing here.".into(),
             (_, q) => format!("Nothing matches “{q}”."),
         }
@@ -554,69 +768,23 @@ impl Watch {
         f.render_widget(block, area);
         let i = self.selected();
         let w = inner.width as usize;
-        let meta = |parts: Vec<Option<String>>| parts.into_iter().flatten().collect::<Vec<_>>().join("  ·  ");
-        let rating = |r: Option<f64>| r.filter(|r| *r > 0.0).map(|r| format!("★ {r:.1}"));
 
-        let (lines, actions): (Vec<Line>, Vec<(&str, String)>) = match &self.level.view {
-            View::Channels(v, _) => match v.get(i) {
-                Some(c) => {
-                    let restreaming_here = status.restream.live && status.restream.channel_name.as_deref() == Some(c.name.as_str());
-                    let mut lines = self.channel_lines(c, w, schedules);
-                    if restreaming_here {
-                        let since = status.restream.since.as_deref().and_then(|s| s.get(11..16)).unwrap_or("?");
-                        lines.push(Line::raw(""));
-                        lines.push(Line::from(Span::styled("● Restreaming to the family", Style::new().fg(OK).bold())));
-                        lines.push(Line::from(format!("  {} · since {since}", watch_url.trim_start_matches("https://").trim_end_matches('/'))));
-                    }
-                    let actions = if restreaming_here {
-                        vec![("↵", "watch".to_string()), ("r", "record".to_string()), ("x", "stop the restream".to_string()), ("n", "schedule next".to_string())]
-                    } else {
-                        vec![("↵", "watch".to_string()), ("r", "record".to_string()), ("s", "restream".to_string()), ("n", "schedule next".to_string())]
-                    };
-                    (lines, actions)
-                }
-                None => (vec![], vec![]),
-            },
-            View::Categories(v) => match v.get(i) {
-                Some(c) => (vec![Line::from(c.name.clone()).bold()], vec![("↵", "open".to_string())]),
-                None => (vec![], vec![]),
-            },
-            View::Movies(v) => match v.get(i) {
-                Some(m) => (
-                    vec![
-                        Line::from(dim("MOVIE")),
-                        Line::from(m.name.clone()).bold(),
-                        Line::from(dim(meta(vec![m.year.clone(), rating(m.rating), m.genre.clone()]))),
-                    ],
-                    vec![("↵", "watch".to_string()), ("d", "download".to_string())],
+        let (lines, mut actions): (Vec<Line>, Vec<(&str, String)>) = match &self.level.view {
+            View::Kinds => match KINDS.get(i) {
+                Some(kind) => (
+                    vec![Line::from(kind_name(*kind)).bold(), Line::from(dim("Everything your provider lists, by its own categories."))],
+                    vec![("↵", "open".to_string())],
                 ),
                 None => (vec![], vec![]),
             },
-            View::Series(v) => match v.get(i) {
-                Some(s) => {
-                    let mut lines = vec![
-                        Line::from(dim(s.category.clone().unwrap_or_else(|| "SERIES".into()))),
-                        Line::from(s.name.clone()).bold(),
-                        Line::from(dim(meta(vec![s.genre.clone(), rating(s.rating)]))),
-                        Line::raw(""),
-                    ];
-                    if let Some(plot) = &s.plot {
-                        lines.push(Line::raw(plot.clone()));
-                        lines.push(Line::raw(""));
-                    }
-                    if let Some(cast) = &s.cast {
-                        lines.push(Line::from(dim(format!("With {cast}"))));
-                    }
-                    (lines, vec![("↵", "episodes".to_string())])
-                }
+            View::Categories(_, v) => match v.get(i) {
+                Some(c) => (vec![Line::from(c.name.clone()).bold()], vec![("↵", "open".to_string())]),
                 None => (vec![], vec![]),
             },
             View::Episodes { series, all, season, .. } => {
                 let in_season = self.season_episodes();
                 let on_disk = all.iter().filter(|e| matches!(self.episode_state.get(&e.episode_id), Some(EpisodeState::OnDisk))).count();
-                let mut lines = vec![
-                    Line::from(dim(format!("{} · SEASON {season}", series.name.to_uppercase()))),
-                ];
+                let mut lines = vec![Line::from(dim(format!("{} · SEASON {season}", series.name.to_uppercase())))];
                 if let Some(e) = in_season.get(i) {
                     lines.push(Line::from(format!("S{:02}E{:02} · {}", e.season, e.episode_num, episode_title(e))).bold());
                     lines.push(Line::from(dim(meta(vec![e.air_date.clone(), Some(minutes(e.duration.as_deref())).filter(|m| !m.is_empty())]))));
@@ -625,16 +793,42 @@ impl Watch {
                 lines.push(Line::from(dim(format!("{} seasons · {} episodes · {on_disk} on disk", seasons(all).len(), all.len()))));
                 let actions = vec![
                     ("↵", "watch".to_string()),
-                    ("d", "this episode".to_string()),
-                    ("s", format!("season {season} ({})", in_season.len())),
-                    ("D", format!("all seasons ({})", all.len())),
+                    ("d", "download episode".to_string()),
+                    ("s", format!("download season {season} ({})", in_season.len())),
+                    ("D", format!("download all seasons ({})", all.len())),
                 ];
                 (lines, actions)
             }
+            _ => match self.selected_item() {
+                Some(Item::Channel(c)) => self.channel_detail(&c, w, schedules, status, watch_url),
+                Some(Item::Movie(m)) => movie_detail(&m),
+                Some(Item::Series(s)) => series_detail(&s),
+                None => (vec![], vec![]),
+            },
         };
+        if let Some(item) = self.selected_item() {
+            actions.push(("f", if self.is_saved(&item) { "remove from My list" } else { "save to My list" }.to_string()));
+        }
         let used = chips(f, inner, &actions);
         let text = Rect { height: inner.height.saturating_sub(used), ..inner };
         f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), text);
+    }
+
+    fn channel_detail(&self, c: &Channel, w: usize, schedules: &[Schedule], status: &Status, watch_url: &str) -> (Vec<Line<'static>>, Vec<(&'static str, String)>) {
+        let restreaming_here = status.restream.live && status.restream.channel_name.as_deref() == Some(c.name.as_str());
+        let mut lines = self.channel_lines(c, w, schedules);
+        if restreaming_here {
+            let since = status.restream.since.as_deref().and_then(|s| s.get(11..16)).unwrap_or("?");
+            lines.push(Line::raw(""));
+            lines.push(Line::from(Span::styled("● Restreaming to the family", Style::new().fg(OK).bold())));
+            lines.push(Line::from(format!("  {} · since {since}", watch_url.trim_start_matches("https://").trim_end_matches('/'))));
+        }
+        let actions = if restreaming_here {
+            vec![("↵", "watch".to_string()), ("r", "record".to_string()), ("x", "stop the restream".to_string()), ("n", "schedule next".to_string())]
+        } else {
+            vec![("↵", "watch".to_string()), ("r", "record".to_string()), ("s", "restream".to_string()), ("n", "schedule next".to_string())]
+        };
+        (lines, actions)
     }
 
     fn channel_lines(&self, channel: &Channel, w: usize, schedules: &[Schedule]) -> Vec<Line<'static>> {
@@ -685,6 +879,38 @@ impl Watch {
         }
         lines
     }
+}
+
+fn meta(parts: Vec<Option<String>>) -> String {
+    parts.into_iter().flatten().collect::<Vec<_>>().join("  ·  ")
+}
+
+fn rating(r: Option<f64>) -> Option<String> {
+    r.filter(|r| *r > 0.0).map(|r| format!("★ {r:.1}"))
+}
+
+fn movie_detail(m: &Movie) -> (Vec<Line<'static>>, Vec<(&'static str, String)>) {
+    (
+        vec![Line::from(dim("MOVIE")), Line::from(m.name.clone()).bold(), Line::from(dim(meta(vec![m.year.clone(), rating(m.rating), m.genre.clone()])))],
+        vec![("↵", "watch".to_string()), ("d", "download".to_string())],
+    )
+}
+
+fn series_detail(s: &Series) -> (Vec<Line<'static>>, Vec<(&'static str, String)>) {
+    let mut lines = vec![
+        Line::from(dim(s.category.clone().unwrap_or_else(|| "SERIES".into()))),
+        Line::from(s.name.clone()).bold(),
+        Line::from(dim(meta(vec![s.genre.clone(), rating(s.rating)]))),
+        Line::raw(""),
+    ];
+    if let Some(plot) = &s.plot {
+        lines.push(Line::raw(plot.clone()));
+        lines.push(Line::raw(""));
+    }
+    if let Some(cast) = &s.cast {
+        lines.push(Line::from(dim(format!("With {cast}"))));
+    }
+    (lines, vec![("↵", "episodes".to_string())])
 }
 
 /// "00:28:50" → "29 min"

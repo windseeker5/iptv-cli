@@ -6,7 +6,7 @@
 
 use crate::config::Config;
 use crate::systemd;
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use serde::Serialize;
 use serde_json::json;
 use std::path::{Path, PathBuf};
@@ -58,7 +58,7 @@ pub fn record_now(cfg: &Config, req: &Request) -> Result<Started> {
     let unit = format!("kdcli-now-{}", now.format("%Y%m%d-%H%M%S"));
     let seconds = minutes * 60;
 
-    let exe = std::env::current_exe().context("finding the kdtv program")?;
+    let exe = systemd::kdtv_exe()?;
     let mut command = vec![exe.display().to_string()];
     command.extend(cfg.config_args());
     command.extend([

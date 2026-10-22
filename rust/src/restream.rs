@@ -68,7 +68,7 @@ pub fn start(cfg: &Config, channel: &Channel, replace: bool) -> Result<Started> 
         stop(cfg)?;
     }
 
-    let exe = std::env::current_exe().context("finding the kd program")?;
+    let exe = systemd::kdtv_exe()?;
     let mut command = vec![exe.display().to_string()];
     command.extend(cfg.config_args());
     command.extend(["restream-worker".to_string(), channel.stream_id.to_string()]);

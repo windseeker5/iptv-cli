@@ -176,7 +176,7 @@ fn ask_claude(cfg: &Config, session: &str, message: &str, user: Option<&str>, ow
     let agent_dir = cfg.data_dir.join("agent");
     let work = agent_dir.join("work"); // an empty folder: nothing for Claude to read there
     let _ = std::fs::create_dir_all(&work);
-    let Ok(exe) = std::env::current_exe() else { return fail("JP couldn't find the kdtv program.".into()) };
+    let Ok(exe) = crate::systemd::kdtv_exe() else { return fail("JP couldn't find the kdtv program.".into()) };
     let mut args: Vec<String> = cfg.config_args();
     args.push("jp-mcp".into());
     let mcp = json!({ "mcpServers": { "kdtv": {
