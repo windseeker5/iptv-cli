@@ -147,7 +147,8 @@ fn save_catalog(cfg: &Config, conn: &mut Connection) -> Result<(usize, usize)> {
     let p = &cfg.provider;
 
     let tx = conn.transaction()?;
-    for table in ["account_info", "vod_categories", "vod_streams", "series_streams", "series_episodes"] {
+    // Episodes stay: they are fetched one series at a time, and a queued download needs their links.
+    for table in ["account_info", "vod_categories", "vod_streams", "series_streams"] {
         tx.execute(&format!("DELETE FROM {table}"), [])?;
     }
     let user = &account["user_info"];

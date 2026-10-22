@@ -35,7 +35,7 @@ impl App {
 
         rows.header("SCHEDULED");
         if self.schedules.is_empty() {
-            rows.note("Nothing scheduled. In Live, press r on a channel.");
+            rows.note("Nothing scheduled. In My list or All, press r on a channel.");
         }
         for (i, s) in self.schedules.iter().enumerate() {
             let past = s.days.is_empty() && s.next_run.is_none();
@@ -143,7 +143,7 @@ impl App {
                             lines.push(Line::from(dim(format!("· {p}"))));
                         }
                     }
-                    (lines, vec![])
+                    (lines, vec![("c", "clear recent (videos stay)".to_string())])
                 }
                 None => (vec![], vec![]),
             },
@@ -163,6 +163,7 @@ impl App {
             (KeyCode::Char('x'), Key::Restream) => Some(Action::RestreamStop),
             (KeyCode::Char(' '), Key::Schedule(i)) => self.schedules.get(i).map(|s| Action::PauseSchedule { id: s.id.clone(), enabled: !s.enabled }),
             (KeyCode::Char('d'), Key::Schedule(i)) => self.schedules.get(i).map(|s| Action::DeleteSchedule(s.id.clone())),
+            (KeyCode::Char('c'), _) if !self.runs.is_empty() => Some(Action::ClearRuns),
             _ => None,
         }
     }

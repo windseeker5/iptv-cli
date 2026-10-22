@@ -358,7 +358,7 @@ fn write_units(cfg: &Config, s: &ScheduleFile) -> Result<()> {
     let dir = unit_dir();
     std::fs::create_dir_all(&dir)?;
     let unit = format!("{UNIT_PREFIX}{}", s.id);
-    let exe = std::env::current_exe().context("finding the kdtv program")?;
+    let exe = crate::systemd::kdtv_exe()?;
     let mut command = vec![exe.display().to_string()];
     command.extend(cfg.config_args());
     command.extend(["run-schedule".to_string(), s.id.clone()]);

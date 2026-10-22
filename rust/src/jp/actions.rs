@@ -436,7 +436,7 @@ fn run_action(cfg: &Config, kind: &str, a: &Value, user: Option<&str>) -> anyhow
 
 /// The rebuild runs as its own systemd unit (it can take a minute or two).
 fn start_retry(cfg: &Config, run_id: &str) -> anyhow::Result<()> {
-    let exe = std::env::current_exe()?;
+    let exe = crate::systemd::kdtv_exe()?;
     let mut command = vec![exe.display().to_string()];
     command.extend(cfg.config_args());
     command.extend(["retry-run".to_string(), run_id.to_string()]);

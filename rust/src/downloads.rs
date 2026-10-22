@@ -6,8 +6,13 @@
 //! exits when the queue is empty.
 //!
 //! The provider allows a single connection, so provider downloads step aside
-//! whenever a recording or a restream runs and resume the file where they stopped.
-//! YouTube downloads don't use that connection and carry on.
+//! whenever a recording, a restream or something played from the provider runs
+//! (see `play::playing`) and resume the file where they stopped. YouTube downloads
+//! don't use that connection and carry on. Each finished or failed download shows
+//! a desktop notification.
+//!
+//! Files go to `downloads_dir` in kdtv.toml, else USB_DOWNLOADS_PATH, else
+//! `data/downloads`: movies at the top, a folder per series.
 
 use crate::config::Config;
 use crate::db::{Db, Episode, Movie};
@@ -40,7 +45,12 @@ pub enum State {
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Source {
     Movie { stream_id: i64 },
-    Episode { episode_id: String },
+    /// `series_id` lets the worker ask the provider again when the link is gone.
+    Episode {
+        episode_id: String,
+        #[serde(default)]
+        series_id: Option<i64>,
+    },
     YouTube { url: String, audio: bool },
 }
 
@@ -58,6 +68,9 @@ pub struct Job {
     pub total: Option<u64>,
     #[serde(default)]
     pub percent: Option<f64>,
+    /// Bytes a second, smoothed; only while downloading.
+    #[serde(default)]
+    pub speed: Option<f64>,
     #[serde(default)]
     pub error: Option<String>,
     pub created_at: String,
@@ -70,13 +83,34 @@ impl Job {
         matches!(self.state, State::Queued | State::Downloading | State::Waiting)
     }
 
-    /// 0–100 when known.
+    /// 0–100 when known. A size smaller than what already arrived is not the real one.
     pub fn progress(&self) -> Option<f64> {
-        self.percent.or_else(|| self.total.filter(|t| *t > 0).map(|t| self.bytes as f64 * 100.0 / t as f64))
+        self.percent.or_else(|| self.real_total().map(|t| self.bytes as f64 * 100.0 / t as f64))
     }
 
-    fn needs_provider(&self) -> bool {
+    /// The file's size, when the provider told us a believable one.
+    pub fn real_total(&self) -> Option<u64> {
+        self.total.filter(|t| *t > 1_000_000 && *t >= self.bytes)
+    }
+
+    /// Seconds to go at the current speed.
+    pub fn seconds_left(&self) -> Option<i64> {
+        let (total, speed) = (self.real_total()?, self.speed.filter(|s| *s > 0.0)?);
+        Some((total.saturating_sub(self.bytes) as f64 / speed) as i64)
+    }
+
+    pub fn needs_provider(&self) -> bool {
         !matches!(self.source, Source::YouTube { .. })
+    }
+}
+
+impl Source {
+    /// The same title, whatever extra the job file carries.
+    fn same(&self, other: &Source) -> bool {
+        match (self, other) {
+            (Source::Episode { episode_id: a, .. }, Source::Episode { episode_id: b, .. }) => a == b,
+            _ => self == other,
+        }
     }
 }
 
@@ -127,7 +161,17 @@ pub fn youtube_dir(cfg: &Config) -> PathBuf {
 
 // ── adding and cancelling ────────────────────────────────────────────────
 
+/// Make sure the folder exists and kdtv may write in it, before anything is queued.
+fn check_folder(dir: &Path) -> Result<()> {
+    std::fs::create_dir_all(dir).with_context(|| format!("can't create the download folder {}", dir.display()))?;
+    let probe = dir.join(".kdtv-write-test");
+    std::fs::write(&probe, b"").with_context(|| format!("kdtv isn't allowed to save in {}", dir.display()))?;
+    let _ = std::fs::remove_file(&probe);
+    Ok(())
+}
+
 pub fn add_movie(cfg: &Config, movie: &Movie) -> Result<Job> {
+    check_folder(&cfg.downloads_dir())?;
     let job = add(cfg, movie.name.clone(), Source::Movie { stream_id: movie.stream_id }, movie_output(cfg, movie))?;
     ensure_worker(cfg)?;
     Ok(job)
@@ -135,12 +179,13 @@ pub fn add_movie(cfg: &Config, movie: &Movie) -> Result<Job> {
 
 /// Queue episodes, skipping the ones already on disk or in the queue.
 pub fn add_episodes(cfg: &Config, series_name: &str, episodes: &[Episode]) -> Result<Vec<Job>> {
+    check_folder(&cfg.downloads_dir())?;
     let queued = list(cfg);
     let mut jobs = vec![];
     for e in episodes {
-        let source = Source::Episode { episode_id: e.episode_id.clone() };
+        let source = Source::Episode { episode_id: e.episode_id.clone(), series_id: Some(e.series_id) };
         let output = episode_output(cfg, series_name, e);
-        if output.exists() || queued.iter().any(|j| j.source == source && j.unfinished()) {
+        if output.exists() || queued.iter().any(|j| j.source.same(&source) && j.unfinished()) {
             continue;
         }
         let code = format!("S{:02}E{:02}", e.season, e.episode_num);
@@ -160,7 +205,7 @@ pub fn add_youtube(cfg: &Config, video: &Video, audio: bool) -> Result<Job> {
 }
 
 fn add(cfg: &Config, title: String, source: Source, output: PathBuf) -> Result<Job> {
-    if list(cfg).iter().any(|j| j.source == source && j.unfinished()) {
+    if list(cfg).iter().any(|j| j.source.same(&source) && j.unfinished()) {
         bail!("{title} is already in the download queue");
     }
     // Unique and in order, even when a whole series is queued in one go.
@@ -176,6 +221,7 @@ fn add(cfg: &Config, title: String, source: Source, output: PathBuf) -> Result<J
         bytes: 0,
         total: None,
         percent: None,
+        speed: None,
         error: None,
         created_at: now.format("%Y-%m-%dT%H:%M:%S").to_string(),
         finished_at: None,
@@ -183,6 +229,16 @@ fn add(cfg: &Config, title: String, source: Source, output: PathBuf) -> Result<J
     save(cfg, &job)?;
     crate::log::event(cfg, "download.queued", json!({ "id": job.id, "title": job.title }));
     Ok(job)
+}
+
+/// Take the done, failed and cancelled downloads off the list (files on disk stay).
+pub fn clear_finished(cfg: &Config) -> Result<usize> {
+    let finished: Vec<Job> = list(cfg).into_iter().filter(|j| !j.unfinished()).collect();
+    for j in &finished {
+        std::fs::remove_file(queue_dir(cfg).join(format!("{}.json", j.id)))?;
+    }
+    crate::log::event(cfg, "download.clear", json!({ "count": finished.len() }));
+    Ok(finished.len())
 }
 
 pub fn cancel(cfg: &Config, id: &str) -> Result<Job> {
@@ -201,7 +257,7 @@ fn ensure_worker(cfg: &Config) -> Result<()> {
     if systemd::is_active(UNIT) {
         return Ok(());
     }
-    let exe = std::env::current_exe().context("finding the kdtv program")?;
+    let exe = systemd::kdtv_exe()?;
     let mut command = vec![exe.display().to_string()];
     command.extend(cfg.config_args());
     command.push("download-worker".into());
@@ -243,6 +299,7 @@ pub fn worker(cfg: &Config) -> Result<()> {
             job.finished_at = Some(stamp());
             save(cfg, &job)?;
             crate::log::event(cfg, "download.failed", json!({ "id": job.id, "error": job.error }));
+            crate::notify::desktop(&format!("Download failed: {}", job.title), job.error.as_deref().unwrap_or(""), true);
         }
     }
     crate::log::event(cfg, "download.worker", json!({ "state": "queue empty" }));
@@ -254,50 +311,73 @@ fn stamp() -> String {
 }
 
 fn connection_busy(cfg: &Config) -> bool {
-    !systemd::active_units(crate::record::UNIT_PATTERNS).is_empty() || crate::restream::active(&cfg.data_dir).is_some()
+    !systemd::active_units(crate::record::UNIT_PATTERNS).is_empty() || crate::restream::active(&cfg.data_dir).is_some() || crate::play::playing(cfg)
 }
 
 fn finish(cfg: &Config, job: &mut Job) -> Result<()> {
     job.state = State::Done;
     job.percent = Some(100.0);
+    job.speed = None;
     job.finished_at = Some(stamp());
     save(cfg, job)?;
     crate::log::event(cfg, "download.done", json!({ "id": job.id, "title": job.title, "bytes": job.bytes }));
+    crate::notify::desktop(&format!("Downloaded {}", job.title), &format!("Saved in {}", job.output), false);
     Ok(())
 }
 
-/// Size the provider announces, for a percentage (one quick request).
+/// The file's size, for a percentage. The provider refuses a HEAD request (502,
+/// 16 bytes), so ask for the first byte and read the total in Content-Range.
 fn remote_size(url: &str) -> Option<u64> {
-    let out = Command::new("curl").args(["-sIL", "--max-time", "20", "-A", USER_AGENT]).arg(url).output().ok()?;
-    String::from_utf8_lossy(&out.stdout)
+    let out = Command::new("curl")
+        .args(["-sS", "-L", "-r", "0-0", "--max-time", "20", "-A", USER_AGENT, "-H", "Accept: */*", "-D", "-", "-o", "/dev/null"])
+        .arg(url)
+        .output()
+        .ok()?;
+    size_from_headers(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// "Content-Range: bytes 0-0/3638412721" → 3638412721 (the last response, after redirects).
+fn size_from_headers(headers: &str) -> Option<u64> {
+    headers
         .lines()
-        .filter_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().to_string()))
-        .filter_map(|v| v.parse::<u64>().ok())
+        .filter_map(|l| {
+            let (name, value) = l.split_once(':')?;
+            name.trim().eq_ignore_ascii_case("content-range").then(|| value.rsplit('/').next()?.trim().parse::<u64>().ok())?
+        })
         .next_back()
-        .filter(|n| *n > 0)
+        .filter(|n| *n > 1_000_000)
 }
 
 /// Download one provider job with curl, resuming a partial file. Returns when the
 /// job is done, cancelled, or put back to wait for the connection.
 fn download(cfg: &Config, job: &mut Job) -> Result<()> {
-    let url = {
+    let lookup = || -> Result<Option<String>> {
         let db = Db::open(&cfg.data_dir)?;
         match &job.source {
-            Source::Movie { stream_id } => db.movie_url(*stream_id)?,
-            Source::Episode { episode_id } => db.episode_url(episode_id)?,
+            Source::Movie { stream_id } => db.movie_url(*stream_id),
+            Source::Episode { episode_id, .. } => db.episode_url(episode_id),
             Source::YouTube { .. } => unreachable!("YouTube jobs use yt-dlp"),
         }
-        .context("the provider no longer lists this title")?
     };
+    let url = match (lookup()?, &job.source) {
+        (Some(url), _) => Some(url),
+        // The episode links were cleared (an older full refresh did that): ask again.
+        (None, Source::Episode { series_id: Some(series_id), .. }) => {
+            crate::provider::fetch_episodes(cfg, *series_id)?;
+            lookup()?
+        }
+        (None, _) => None,
+    }
+    .context("the provider no longer lists this title")?;
     let output = PathBuf::from(&job.output);
     let part = PathBuf::from(format!("{}.part", job.output));
     if let Some(dir) = output.parent() {
-        std::fs::create_dir_all(dir)?;
+        check_folder(dir)?;
     }
 
     job.state = State::Downloading;
     job.error = None;
-    if job.total.is_none() {
+    if job.real_total().is_none() {
         job.total = remote_size(&url);
     }
     save(cfg, job)?;
@@ -314,9 +394,15 @@ fn download(cfg: &Config, job: &mut Job) -> Result<()> {
         .spawn()
         .context("starting curl")?;
 
+    job.speed = None;
+    let mut last = (file_size(&part), std::time::Instant::now());
     loop {
         std::thread::sleep(Duration::from_secs(3));
         job.bytes = file_size(&part);
+        let now = (job.bytes, std::time::Instant::now());
+        let speed = now.0.saturating_sub(last.0) as f64 / now.1.duration_since(last.1).as_secs_f64().max(0.1);
+        job.speed = Some(job.speed.map_or(speed, |s| s * 0.7 + speed * 0.3));
+        last = now;
         if let Some(status) = child.try_wait()? {
             if !status.success() {
                 let mut err = String::new();
@@ -339,6 +425,7 @@ fn download(cfg: &Config, job: &mut Job) -> Result<()> {
             let _ = child.kill();
             let _ = child.wait();
             job.state = State::Waiting;
+            job.speed = None;
             save(cfg, job)?;
             crate::log::event(cfg, "download.paused", json!({ "id": job.id, "bytes": job.bytes }));
             return Ok(());
@@ -413,4 +500,16 @@ fn file_size(p: &Path) -> u64 {
 pub fn safe_name(name: &str) -> String {
     let kept: String = name.chars().filter(|c| c.is_alphanumeric() || matches!(c, ' ' | '-' | '_')).collect();
     kept.split_whitespace().collect::<Vec<_>>().join("_")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn size_comes_from_the_last_content_range() {
+        let headers = "HTTP/1.1 302 Found\r\nContent-Type: text/html\r\n\r\nHTTP/1.1 206 Partial Content\r\nContent-Length: 1\r\nContent-Range: bytes 0-0/3638412721\r\n";
+        assert_eq!(size_from_headers(headers), Some(3_638_412_721));
+        assert_eq!(size_from_headers("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 16\r\n"), None);
+    }
 }

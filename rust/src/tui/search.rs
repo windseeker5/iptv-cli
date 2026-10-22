@@ -3,7 +3,7 @@
 //! its own section, where all its actions are.
 
 use super::theme::*;
-use super::watch::Mode;
+use crate::favorites::Kind;
 use super::{move_in, App, Focus, Rows, Section};
 use crate::db::{Channel, Db, Movie, Series};
 use crate::youtube::{self, Video};
@@ -152,10 +152,10 @@ impl App {
         let keys = self.search.rows(80).keys();
         let Some(hit) = keys.get(self.search.list.selected().unwrap_or(0)).cloned() else { return };
         let query = self.search.query.trim().to_string();
-        let (section, mode, id) = match hit {
-            Hit::Series(i) => (Section::Series, Mode::Series, self.search.series[i].series_id),
-            Hit::Movie(i) => (Section::Movies, Mode::Movies, self.search.movies[i].stream_id),
-            Hit::Channel(i) => (Section::Live, Mode::Live, self.search.channels[i].stream_id),
+        let (kind, id) = match hit {
+            Hit::Series(i) => (Kind::Series, self.search.series[i].series_id),
+            Hit::Movie(i) => (Kind::Movie, self.search.movies[i].stream_id),
+            Hit::Channel(i) => (Kind::Live, self.search.channels[i].stream_id),
             Hit::AskYouTube => {
                 self.search.youtube = YouTubeState::Loading;
                 self.search.wants_youtube = Some(query);
@@ -170,8 +170,8 @@ impl App {
                 return;
             }
         };
-        self.open_section(section);
-        self.watch.show(mode, &query, id, &self.db, &self.cfg);
+        self.open_section(Section::All);
+        self.watch.show(kind, &query, id, &self.db, &self.cfg);
         self.start_pending();
     }
 
@@ -217,7 +217,7 @@ impl App {
             }
             Some(Hit::Movie(i)) => {
                 let m = &s.movies[*i];
-                (vec![Line::from(dim("MOVIE")), Line::from(m.name.clone()).bold(), Line::from(dim(m.genre.clone().unwrap_or_default()))], vec![("↵", "open in Movies".to_string())])
+                (vec![Line::from(dim("MOVIE")), Line::from(m.name.clone()).bold(), Line::from(dim(m.genre.clone().unwrap_or_default()))], vec![("↵", "open in All".to_string())])
             }
             Some(Hit::Channel(i)) => {
                 let c = &s.channels[*i];
@@ -225,7 +225,7 @@ impl App {
                     Some(e) => vec![Line::from(dim(format!("{} · {}", e.channel, e.sport.unwrap_or_default()).to_uppercase())), Line::from(e.title).bold()],
                     None => vec![Line::from(dim(c.category.clone().unwrap_or_default())), Line::from(c.name.clone()).bold()],
                 };
-                (lines, vec![("↵", "open in Live".to_string())])
+                (lines, vec![("↵", "open in All".to_string())])
             }
             Some(Hit::AskYouTube) => (vec![Line::from("YouTube").bold(), Line::from(dim("Takes a second or two."))], vec![("↵", "search YouTube".to_string())]),
             Some(Hit::YouTube(i)) => match &s.youtube {

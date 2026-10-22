@@ -22,8 +22,8 @@ pub const BAD: Color = Color::Rgb(255, 123, 114);
 pub mod icon {
     pub const TV: &str = "\u{f26c}";
     pub const SEARCH: &str = "\u{f002}";
-    pub const FILM: &str = "\u{f008}";
-    pub const SERIES: &str = "\u{f24d}";
+    pub const HEART: &str = "\u{f004}";
+    pub const LIST: &str = "\u{f03a}";
     pub const YOUTUBE: &str = "\u{f16a}";
     pub const RECORD: &str = "\u{f192}";
     pub const DOWNLOAD: &str = "\u{f019}";

@@ -24,15 +24,14 @@ every key; the bottom-right corner always shows the keys that work right now.
 | # | Section | What | Keys |
 | --- | --- | --- | --- |
 | 1 | Search | live, movies, series and YouTube in one box | type · ↵ open |
-| 2 | Live | favorites, what's on, time left; game channels by their game | ↵ watch · r record · n next · s restream · x stop restream |
-| 3 | Movies | categories or search | ↵ watch · d download |
-| 4 | Series | categories, seasons, episodes | ↵ watch · [ ] season · d / s / D download episode, season, all |
-| 5 | YouTube | search, watch, download | ↵ watch · d video · a audio |
-| 6 | Recordings | now, schedules, recent | x stop · space pause · d delete |
-| 7 | Downloads | the queue, one at a time | x cancel |
-| 8 | Library | every file on disk | ↵ play |
-| 9 | Account | provider login, subscription, lists | u update list · g update guide · p password · e edit |
-| 0 | Status | services, folders, today's log | |
+| 2 | My list | what you saved: channels (what's on, time left), movies and series together | f remove · channel: ↵ watch · r record · n next · s restream · x stop restream |
+| 3 | All | the provider's lists: Live, Movies, Series, then its categories; ♥ marks what's saved | f save · movie: ↵ watch · d download · series: [ ] season · d / s / D download episode, season, all |
+| 4 | YouTube | search, watch, download | ↵ watch · d video · a audio |
+| 5 | Recordings | now, schedules, recent | x stop · space pause · d delete · c clear recent (the videos stay) |
+| 6 | Downloads | the queue, one at a time; saved in USB_DOWNLOADS_PATH, a desktop notification when each is done or fails | x cancel · c clear finished |
+| 7 | Library | what kdtv saved: recordings, downloads, YouTube | ↵ play |
+| 8 | Account | provider login, subscription, lists | u update list · g update guide · p password · e edit |
+| 9 | Status | services, folders, today's log | |
 
 Other commands worth knowing: `kdtv refresh [--guide | --everything]`,
 `kdtv check`, `kdtv web`, `kdtv youtube <words>`, `kdtv download series <id> --season 3`.

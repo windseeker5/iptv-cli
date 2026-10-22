@@ -85,6 +85,36 @@ pub fn recent(data_dir: &Path, limit: usize) -> Vec<Run> {
         .collect()
 }
 
+/// Every episode file the diary says a recording made.
+pub fn episode_paths(data_dir: &Path) -> Vec<std::path::PathBuf> {
+    let Ok(entries) = std::fs::read_dir(data_dir.join("runs")) else { return vec![] };
+    entries
+        .filter_map(Result::ok)
+        .filter_map(|e| serde_json::from_str::<RunFile>(&std::fs::read_to_string(e.path()).ok()?).ok())
+        .filter_map(|r| r.result.episode_path.map(std::path::PathBuf::from))
+        .collect()
+}
+
+/// Forget the past recordings (the diary only; the videos stay where they are).
+/// A recording still running keeps its diary.
+pub fn clear(data_dir: &Path) -> std::io::Result<usize> {
+    let Ok(entries) = std::fs::read_dir(data_dir.join("runs")) else { return Ok(0) };
+    let recording_now = !crate::systemd::active_units(crate::record::UNIT_PATTERNS).is_empty();
+    let mut cleared = 0;
+    for path in entries.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "json")) {
+        let running = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| serde_json::from_str::<RunFile>(&t).ok())
+            .is_some_and(|r| r.status.as_deref() == Some("running"));
+        if running && recording_now {
+            continue;
+        }
+        std::fs::remove_file(&path)?;
+        cleared += 1;
+    }
+    Ok(cleared)
+}
+
 /// 2099.1 → "34m59s", 9000 → "2h30m00s", like `run_report.format_seconds`.
 pub fn format_seconds(seconds: Option<f64>) -> String {
     let Some(seconds) = seconds else { return "?".into() };

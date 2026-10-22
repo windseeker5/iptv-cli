@@ -8,7 +8,7 @@ self-hosted stack (Jellyfin, restreaming) serves what it records.
 ## What it does
 
 **Browse & play**: search live channels, movies and series; what's on now and
-next; play in `mpv`; favorites.
+next; play in `mpv`; My list: save channels, movies and series with `f`.
 
 **Record**: record now or on a schedule (once or every week), until the show
 ends. Recordings survive a busy or dropping provider: the recorder retries until

@@ -4,8 +4,20 @@
 //! a systemd user unit, so it keeps going after kd exits and can be stopped by name.
 
 use anyhow::{bail, Context, Result};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+
+/// The kdtv program to put in a unit. When kdtv was reinstalled while this one
+/// runs, Linux names the old file "… (deleted)": the new one at the same path is
+/// the one to start.
+pub fn kdtv_exe() -> Result<PathBuf> {
+    let exe = std::env::current_exe().context("finding the kdtv program")?;
+    let text = exe.display().to_string();
+    match text.strip_suffix(" (deleted)").map(PathBuf::from) {
+        Some(installed) if installed.exists() => Ok(installed),
+        _ => Ok(exe),
+    }
+}
 
 pub fn systemctl(args: &[&str]) -> Result<Output> {
     Command::new("systemctl").arg("--user").args(args).output().context("running systemctl")

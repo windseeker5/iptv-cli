@@ -1,4 +1,6 @@
-//! Finished media on disk: recordings, downloads, YouTube and the Jellyfin TV shows.
+//! What kdtv saved: recordings, downloads and YouTube. Jellyfin's own collection is
+//! left to Jellyfin; of its TV folder only the shows kdtv records are listed (the
+//! folder of each scheduled show, and every episode the recording diary points to).
 
 use crate::config::Config;
 use serde::Serialize;
@@ -23,7 +25,9 @@ pub fn roots(cfg: &Config) -> Vec<(&'static str, PathBuf)> {
     roots.push(("Download", cfg.downloads_dir()));
     roots.push(("YouTube", cfg.data_dir.join("youtube")));
     if let Some(tv) = cfg.tv_library_root() {
-        roots.push(("TV show", tv));
+        for show in crate::schedules::list(&cfg.data_dir).into_iter().filter_map(|s| s.show_name) {
+            roots.push(("Recording", tv.join(show)));
+        }
     }
     let mut seen = vec![];
     roots.retain(|(_, p)| {
@@ -37,22 +41,27 @@ pub fn roots(cfg: &Config) -> Vec<(&'static str, PathBuf)> {
 
 /// Newest first.
 pub fn list(cfg: &Config) -> Vec<Media> {
-    let mut out = vec![];
-    for (kind, root) in roots(cfg) {
-        walk(&root, &mut |path| {
-            let ext = path.extension().and_then(|e| e.to_str()).map(str::to_lowercase);
-            if !ext.is_some_and(|e| MEDIA_EXTENSIONS.contains(&e.as_str())) {
-                return;
-            }
-            let Ok(meta) = path.metadata() else { return };
-            out.push(Media {
-                kind,
-                name: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
-                path: path.to_path_buf(),
-                size: meta.len(),
-                modified: meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs() as i64),
-            });
+    let mut out: Vec<Media> = vec![];
+    let mut add = |kind: &'static str, path: &Path| {
+        let ext = path.extension().and_then(|e| e.to_str()).map(str::to_lowercase);
+        if !ext.is_some_and(|e| MEDIA_EXTENSIONS.contains(&e.as_str())) || out.iter().any(|m| m.path == path) {
+            return;
+        }
+        let Ok(meta) = path.metadata() else { return };
+        out.push(Media {
+            kind,
+            name: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+            path: path.to_path_buf(),
+            size: meta.len(),
+            modified: meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs() as i64),
         });
+    };
+    for (kind, root) in roots(cfg) {
+        walk(&root, &mut |path| add(kind, path));
+    }
+    // A recording filed under a show nobody schedules any more.
+    for path in crate::runs::episode_paths(&cfg.data_dir) {
+        add("Recording", &path);
     }
     out.sort_by_key(|m| std::cmp::Reverse(m.modified));
     out

@@ -80,6 +80,21 @@ impl Db {
             .optional()?)
     }
 
+    /// The provider's live categories ("CA| GENERAL FR"…); known by name only, like series.
+    pub fn live_categories(&self) -> Result<Vec<Category>> {
+        let mut stmt = self.0.prepare(
+            "SELECT DISTINCT category_name FROM live_streams WHERE category_name IS NOT NULL ORDER BY category_name",
+        )?;
+        Ok(stmt.query_map([], |r| Ok(Category { id: None, name: r.get(0)? }))?.collect::<Result<_, _>>()?)
+    }
+
+    pub fn channels_in(&self, category: &str, limit: usize) -> Result<Vec<Channel>> {
+        let mut stmt = self.0.prepare(&format!(
+            "SELECT stream_id, name, category_name FROM live_streams WHERE category_name = ? ORDER BY name LIMIT {limit}"
+        ))?;
+        Ok(stmt.query_map(params![category], channel_from_row)?.collect::<Result<_, _>>()?)
+    }
+
     /// What's on now and the next few shows. Back-to-back guide blocks with the same
     /// title are merged, since broadcasters often split one long show into several.
     pub fn guide(&self, stream_id: i64, now: i64, count: usize) -> Result<Vec<Program>> {
@@ -162,7 +177,7 @@ impl Db {
 
 #[derive(Serialize, Clone, Debug)]
 pub struct Category {
-    /// Movie categories have a numeric id; series categories are known by name only.
+    /// Movie categories have a numeric id; live and series categories are known by name only.
     pub id: Option<i64>,
     pub name: String,
 }

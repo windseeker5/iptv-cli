@@ -1,5 +1,5 @@
-//! The menu on the left: KDTV, the ten sections in three groups, and the
-//! connection in plain words at the bottom.
+//! The menu on the left: KDTV, the nine sections in three groups, and the
+//! provider's one stream in plain words at the bottom.
 
 use super::theme::*;
 use super::{App, Focus, Section, SECTIONS};
@@ -29,7 +29,7 @@ impl App {
             Line::raw(""),
         ];
         for (i, section) in SECTIONS.iter().enumerate() {
-            if i == 5 || i == 8 {
+            if i == 4 || i == 7 {
                 lines.push(Line::raw(""));
             }
             let (glyph, name, count, color) = self.section_label(*section);
@@ -51,7 +51,7 @@ impl App {
         };
         let bottom = vec![
             Line::from(Span::styled("─".repeat(width), Style::new().fg(BORDER))),
-            Line::from(dim("Connection")),
+            Line::from(dim("Stream")),
             Line::from(Span::styled(format!("● {connection}"), Style::new().fg(color))),
             Line::from(dim(age)),
         ];
@@ -60,17 +60,17 @@ impl App {
         f.render_widget(Paragraph::new(bottom), end);
     }
 
-    /// "free", "busy: recording"… What holds the provider's single connection.
+    /// "available", "in use: recording"… What holds the provider's single connection.
     fn connection_words(&self) -> (String, Color) {
         let s = &self.status;
         if !s.recording.is_empty() {
-            ("busy: recording".into(), BAD)
+            ("in use: recording".into(), BAD)
         } else if s.restream.live {
-            ("busy: restreaming".into(), WARN)
+            ("in use: restreaming".into(), WARN)
         } else if self.jobs.iter().any(|j| j.state == State::Downloading && !matches!(j.source, Source::YouTube { .. })) {
-            ("busy: downloading".into(), WARN)
+            ("in use: downloading".into(), WARN)
         } else {
-            ("free".into(), OK)
+            ("available".into(), OK)
         }
     }
 
@@ -80,16 +80,20 @@ impl App {
         let unfinished = self.jobs.iter().filter(|j| j.unfinished()).count();
         match section {
             Section::Search => (icon::SEARCH, "Search", String::new(), DIM),
-            Section::Live => (icon::TV, "Live", self.favorites.to_string(), DIM),
-            Section::Movies => (icon::FILM, "Movies", counts.map(|c| thousands(c.vod)).unwrap_or_default(), DIM),
-            Section::Series => (icon::SERIES, "Series", counts.map(|c| thousands(c.series)).unwrap_or_default(), DIM),
+            Section::MyList => (icon::HEART, "My list", self.watch.saved_count().to_string(), DIM),
+            Section::All => (icon::LIST, "All", counts.map(|c| thousands(c.live + c.vod + c.series)).unwrap_or_default(), DIM),
             Section::YouTube => (icon::YOUTUBE, "YouTube", String::new(), DIM),
             Section::Recordings => match self.status.recording.len() {
                 0 => (icon::RECORD, "Recordings", self.schedules.iter().filter(|s| s.enabled).count().to_string(), DIM),
                 n => (icon::RECORD, "Recordings", format!("● {n}"), BAD),
             },
             Section::Downloads => {
-                let (count, color) = if unfinished > 0 { (format!("↓ {unfinished}"), ACCENT) } else { ("0".into(), DIM) };
+                let failed = self.jobs.iter().filter(|j| j.state == State::Failed).count();
+                let (count, color) = match (unfinished, failed) {
+                    (0, 0) => ("0".into(), DIM),
+                    (0, n) => (format!("✗ {n}"), BAD),
+                    (n, _) => (format!("↓ {n}"), ACCENT),
+                };
                 (icon::DOWNLOAD, "Downloads", count, color)
             }
             Section::Library => (icon::FOLDER, "Library", self.media.len().to_string(), DIM),

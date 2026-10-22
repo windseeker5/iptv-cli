@@ -1,6 +1,7 @@
-//! Discord messages and the Jellyfin library scan. Both go through curl, with the
-//! secret (webhook URL, API key, password) handed over on stdin so it never shows
-//! in the process list, and neither ever fails the job that calls it.
+//! Discord messages, desktop notifications and the Jellyfin library scan. Discord
+//! and Jellyfin go through curl, with the secret (webhook URL, API key, password)
+//! handed over on stdin so it never shows in the process list. None of them ever
+//! fails the job that calls it.
 
 use crate::config::Config;
 use serde_json::{json, Value};
@@ -15,6 +16,16 @@ pub fn discord(cfg: &Config, message: &str) -> Result<(), String> {
         .map(|_| ())
         // curl's own error text can include the webhook, which is a secret.
         .map_err(|_| "Discord did not accept the message".to_string())
+}
+
+/// A desktop pop-up (notify-send); nothing happens where there is no desktop (a Pi).
+pub fn desktop(title: &str, body: &str, urgent: bool) {
+    let _ = Command::new("notify-send")
+        .args(["--app-name=KDTV", "--urgency", if urgent { "critical" } else { "normal" }, title, body])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
 }
 
 /// Ask Jellyfin to rescan its libraries. Prefers the API key (survives password
