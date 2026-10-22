@@ -62,6 +62,15 @@ pub fn run(cfg: &Config, job: &Job) -> i32 {
         }),
     );
     report.event("start", OK, &format!("recording started: {}, {} planned", job.channel_name, format_seconds(Some(job.seconds as f64))), json!({}));
+    // The recording wins the provider's one connection: a restream left on would cut it.
+    if let Some(live) = crate::restream::active(&cfg.data_dir) {
+        let message = match crate::restream::stop(cfg) {
+            Ok(_) => format!("stopped the restream of {} so the recording gets the provider connection", live.channel_name),
+            Err(e) => format!("could not stop the restream of {} ({e}); the recording may be cut", live.channel_name),
+        };
+        log.warn(&message);
+        report.event("restream", WARNING, &message, json!({}));
+    }
     if let Some(w) = &job.drive_warning {
         report.event("drive", WARNING, &format!("the recordings drive is not usable ({w}); recorded to the local fallback folder instead"), json!({}));
     }

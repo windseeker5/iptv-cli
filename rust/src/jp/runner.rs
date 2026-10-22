@@ -131,7 +131,7 @@ fn route(cfg: &Config, method: &str, path: &str, data: &Value) -> (u16, Value) {
             out["session_id"] = session.clone().into();
             out["pending"] = a::pending_for(cfg, &session)
                 .iter()
-                .map(|p| json!({ "id": p["id"], "summary": p["summary"], "kind": p["kind"] }))
+                .map(|p| json!({ "id": p["id"], "summary": p["summary"], "kind": p["kind"], "card": p["card"] }))
                 .collect();
             (200, out)
         }

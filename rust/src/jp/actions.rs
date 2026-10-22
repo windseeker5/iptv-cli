@@ -4,6 +4,7 @@
 //! page, which reaches `execute` through the runner. The model never executes
 //! anything itself.
 
+use super::card;
 use crate::config::Config;
 use crate::{db, notify, refresh, restream, runs, schedules, status};
 use serde_json::{json, Value};
@@ -97,10 +98,11 @@ pub struct Who<'a> {
     pub user: Option<&'a str>,
 }
 
-fn propose(cfg: &Config, who: &Who, kind: &str, args: Value, summary: String) -> Value {
+/// `summary` is the one-line record for logs; `card` is what the Confirm card shows (card.rs).
+fn propose(cfg: &Config, who: &Who, kind: &str, args: Value, summary: String, card: Value) -> Value {
     let id = crate::jp::random_hex(6);
     let item = json!({ "id": id, "session": who.session, "kind": kind, "args": args, "summary": summary,
-                       "user": who.user, "created": now() });
+                       "card": card, "user": who.user, "created": now() });
     let dir = pending_dir(cfg);
     if let Err(e) = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(dir.join(format!("{id}.json")), item.to_string())) {
         return error(format!("could not save the proposal: {e}"));
@@ -150,24 +152,52 @@ pub fn propose_recording(cfg: &Config, who: &Who, r: Recording) -> Value {
     let args = json!({ "stream_id": r.stream_id, "channel_name": r.channel_name, "time": r.time,
                        "duration_min": r.duration_minutes, "days": r.days, "date": new.date,
                        "show_name": new.show_name, "notify": r.notify, "for": who.user });
-    propose(cfg, who, "create_schedule", args, summary)
+    let card = card::recording(&card::Rec {
+        channel: r.channel_name,
+        time: r.time,
+        minutes: r.duration_minutes,
+        days: &r.days,
+        date: new.date.as_deref(),
+        show: new.show_name,
+        notify: r.notify,
+    });
+    propose(cfg, who, "create_schedule", args, summary, card)
+}
+
+/// The card for changing schedule `id`, or None when there is no such schedule.
+fn schedule_card(cfg: &Config, id: &str, what: &str) -> Option<(String, Value)> {
+    let s = schedules::load(&cfg.data_dir, id)?;
+    let card = card::schedule_change(
+        &card::Rec {
+            channel: &s.channel_name,
+            time: &s.time,
+            minutes: s.duration_min,
+            days: &s.days,
+            date: s.date.as_deref(),
+            show: s.show_name.as_deref(),
+            notify: s.notify,
+        },
+        what,
+    );
+    Some((schedules::describe_id(&cfg.data_dir, id).unwrap_or_default(), card))
 }
 
 pub fn propose_delete_schedule(cfg: &Config, who: &Who, id: &str) -> Value {
-    match schedules::describe_id(&cfg.data_dir, id) {
-        Some(what) => propose(cfg, &Who { user: None, ..*who }, "delete_schedule", json!({ "schedule_id": id }), format!("Delete: {what}")),
+    match schedule_card(cfg, id, "delete") {
+        Some((what, card)) => propose(cfg, &Who { user: None, ..*who }, "delete_schedule", json!({ "schedule_id": id }), format!("Delete: {what}"), card),
         None => error(format!("no schedule {id}")),
     }
 }
 
 pub fn propose_pause_schedule(cfg: &Config, who: &Who, id: &str, paused: bool) -> Value {
-    match schedules::describe_id(&cfg.data_dir, id) {
-        Some(what) => propose(
+    match schedule_card(cfg, id, if paused { "pause" } else { "resume" }) {
+        Some((what, card)) => propose(
             cfg,
             &Who { user: None, ..*who },
             "pause_schedule",
             json!({ "schedule_id": id, "paused": paused }),
             format!("{}{what}", if paused { "Pause: " } else { "Resume: " }),
+            card,
         ),
         None => error(format!("no schedule {id}")),
     }
@@ -182,7 +212,17 @@ fn streaming_by(cfg: &Config) -> Option<String> {
         .and_then(|h| h["user"].as_str().map(str::to_string))
 }
 
+/// A recording running now: the provider allows one connection, so a restream would cut it.
+fn recording_now(cfg: &Config) -> Option<String> {
+    crate::status::active_recordings(&cfg.data_dir).into_iter().next().map(|r| r.what)
+}
+
 pub fn propose_start_restream(cfg: &Config, who: &Who, stream_id: i64, channel_name: &str) -> Value {
+    if let Some(what) = recording_now(cfg) {
+        return error(format!(
+            "a recording is running ({what}); the provider allows one connection, so a restream now would cut it. Tell the user it can go live once the recording is done"
+        ));
+    }
     let live = restream::active(&cfg.data_dir);
     let by = live.as_ref().and_then(|_| streaming_by(cfg));
     let by_text = by.as_ref().map(|b| format!(" (started by {b})")).unwrap_or_default();
@@ -190,7 +230,8 @@ pub fn propose_start_restream(cfg: &Config, who: &Who, stream_id: i64, channel_n
         Some(a) => format!("Replace {}{by_text} with {channel_name} on live.dresdell.com", a.channel_name),
         None => format!("Restream {channel_name} on live.dresdell.com"),
     };
-    let mut out = propose(cfg, who, "start_restream", json!({ "stream_id": stream_id, "channel_name": channel_name }), summary);
+    let card = card::restream_start(channel_name, live.as_ref().map(|a| a.channel_name.as_str()));
+    let mut out = propose(cfg, who, "start_restream", json!({ "stream_id": stream_id, "channel_name": channel_name }), summary, card);
     if let Some(a) = live {
         out["warning"] = format!(
             "Something is already live: {}{}. Tell the user it will be replaced if they confirm.",
@@ -204,7 +245,10 @@ pub fn propose_start_restream(cfg: &Config, who: &Who, stream_id: i64, channel_n
 
 pub fn propose_stop_restream(cfg: &Config, who: &Who) -> Value {
     match restream::active(&cfg.data_dir) {
-        Some(a) => propose(cfg, &Who { user: None, ..*who }, "stop_restream", json!({}), format!("Stop restreaming {}", a.channel_name)),
+        Some(a) => {
+            let card = card::restream_stop(&a.channel_name);
+            propose(cfg, &Who { user: None, ..*who }, "stop_restream", json!({}), format!("Stop restreaming {}", a.channel_name), card)
+        }
         None => error("nothing is being restreamed right now"),
     }
 }
@@ -234,12 +278,10 @@ pub fn propose_retry_run(cfg: &Config, who: &Who, run_id: &str) -> Value {
         return error(format!("the library already has an episode for {air} ({existing}); say so and ask before adding a second one"));
     }
     let total: f64 = segments.iter().filter_map(|s| crate::pipeline::media_seconds(s)).sum();
-    let summary = format!(
-        "Rebuild “{show}” of {air} from {} saved piece(s) ({} of footage) and add it to Jellyfin",
-        segments.len(),
-        runs::format_seconds(Some(total))
-    );
-    propose(cfg, who, "retry_run", json!({ "run_id": run_id }), summary)
+    let footage = runs::format_seconds(Some(total));
+    let summary = format!("Rebuild “{show}” of {air} from {} saved piece(s) ({footage} of footage) and add it to Jellyfin", segments.len());
+    let card = card::retry(show, &air, segments.len(), &footage);
+    propose(cfg, who, "retry_run", json!({ "run_id": run_id }), summary, card)
 }
 
 /// An episode of `show` already in the library for this air date (`… - 2026-10-21.mp4`).
@@ -258,7 +300,7 @@ fn episode_on(cfg: &Config, show: &str, air: &str) -> Option<String> {
 }
 
 pub fn propose_rescan_jellyfin(cfg: &Config, who: &Who) -> Value {
-    propose(cfg, who, "rescan_jellyfin", json!({}), "Ask Jellyfin to rescan its library now".into())
+    propose(cfg, who, "rescan_jellyfin", json!({}), "Ask Jellyfin to rescan its library now".into(), card::rescan())
 }
 
 // ── confirm / cancel (called by the runner, never by the model) ──────────
@@ -312,14 +354,14 @@ pub fn cancel(cfg: &Config, id: &str, user: Option<&str>) -> bool {
 
 pub fn execute(cfg: &Config, id: &str, user: Option<&str>, owner: bool) -> Value {
     let Some(path) = pending_path(cfg, id) else {
-        return json!({ "ok": false, "message": "bad id" });
+        return json!({ "ok": false, "message": "Je ne trouve pas cette action." });
     };
     let Some(item) = read_pending(&path) else {
-        return json!({ "ok": false, "message": "This action expired or was already handled." });
+        return json!({ "ok": false, "message": "Cette action a expiré ou a déjà été faite." });
     };
     let kind = item["kind"].as_str().unwrap_or("").to_string();
     if !owner && !FAMILY_ACTIONS.contains(&kind.as_str()) {
-        return json!({ "ok": false, "message": "Only the owner can do that one." });
+        return json!({ "ok": false, "message": "Seul le propriétaire peut faire celle-là." });
     }
     let _ = std::fs::remove_file(&path);
     let a = &item["args"];
@@ -351,36 +393,42 @@ fn run_action(cfg: &Config, kind: &str, a: &Value, user: Option<&str>) -> anyhow
                     created_by: user.unwrap_or("agent"),
                 },
             )?;
-            Ok(format!("Scheduled: {}", s.what))
+            Ok(match s.show_name.as_deref() {
+                Some(show) => format!("C'est prévu. Ça va aller dans Jellyfin, « {show} »."),
+                None => "C'est prévu.".to_string(),
+            })
         }
         "delete_schedule" => {
             schedules::delete(cfg, &text("schedule_id"))?;
-            Ok("Schedule deleted.".into())
+            Ok("C'est supprimé.".into())
         }
         "pause_schedule" => {
             let paused = a["paused"].as_bool().unwrap_or(true);
-            let s = schedules::set_enabled(cfg, &text("schedule_id"), !paused)?;
-            Ok(format!("{}{}", if paused { "Paused: " } else { "Resumed: " }, s.what))
+            schedules::set_enabled(cfg, &text("schedule_id"), !paused)?;
+            Ok(if paused { "C'est en pause." } else { "C'est reparti." }.into())
         }
         "start_restream" => {
             let stream_id = a["stream_id"].as_i64().unwrap_or(0);
             let channel = db::Db::open(&cfg.data_dir)?
                 .channel(stream_id)?
                 .unwrap_or(db::Channel { stream_id, name: text("channel_name"), category: None });
+            if let Some(what) = recording_now(cfg) {
+                anyhow::bail!("Un enregistrement est en cours ({what}). La diffusion le couperait : réessaie quand il sera fini.");
+            }
             restream::start(cfg, &channel, true)?;
-            Ok("Live on live.dresdell.com in a few seconds.".into())
+            Ok("C'est en direct sur live.dresdell.com dans quelques secondes.".into())
         }
         "stop_restream" => {
             restream::stop(cfg)?;
-            Ok("Restream stopped.".into())
+            Ok("C'est arrêté.".into())
         }
         "retry_run" => {
             start_retry(cfg, &text("run_id"))?;
-            Ok("Started. It takes a minute or two, and Discord will ping when it's done.".into())
+            Ok("C'est parti. Ça prend une minute ou deux, et Discord va te le dire.".into())
         }
         "rescan_jellyfin" => match notify::jellyfin_scan(cfg) {
-            Ok(()) => Ok("Jellyfin is rescanning its library.".into()),
-            Err(why) => anyhow::bail!("Could not rescan: {why}"),
+            Ok(()) => Ok("Jellyfin rescanne la bibliothèque.".into()),
+            Err(why) => anyhow::bail!("Jellyfin n'a pas pu rescanner ({why})."),
         },
         other => anyhow::bail!("unknown action {other}"),
     }

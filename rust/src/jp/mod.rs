@@ -4,6 +4,7 @@
 //! the site talks to (`runner.rs`).
 
 pub mod actions;
+mod card;
 pub mod eyes;
 mod prompt;
 pub mod runner;

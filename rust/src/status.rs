@@ -93,7 +93,7 @@ fn services(names: &[String]) -> Vec<Service> {
 }
 
 /// Recording services systemd is running right now (scheduled and NOOVO jobs).
-fn active_recordings(data_dir: &Path) -> Vec<Recording> {
+pub fn active_recordings(data_dir: &Path) -> Vec<Recording> {
     crate::systemd::active_units(crate::record::UNIT_PATTERNS)
         .into_iter()
         .map(|unit| {
