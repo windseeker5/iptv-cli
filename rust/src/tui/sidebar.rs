@@ -45,9 +45,9 @@ impl App {
 
         let (connection, color) = self.connection_words();
         let age = match self.status.list_age_minutes {
-            None => "List never updated".to_string(),
-            Some(m) if m < 60 => format!("List updated {m} min ago"),
-            Some(m) => format!("List updated {}h ago", m / 60),
+            None => "Never updated".to_string(),
+            Some(m) if m < 60 => format!("Updated {m} min ago"),
+            Some(m) => format!("Updated {}h ago", m / 60),
         };
         let bottom = vec![
             Line::from(Span::styled("─".repeat(width), Style::new().fg(BORDER))),

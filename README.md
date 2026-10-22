@@ -34,14 +34,17 @@ recordings and timers, and Rust to build.
 
 ```bash
 git clone https://github.com/windseeker5/iptv-cli.git && cd iptv-cli
+cargo build --release --manifest-path rust/Cargo.toml
+install -D rust/target/release/kdtv ~/.local/bin/kdtv
 cp .env.example .env                  # put in your provider login
-cd rust && cargo build --release
-install -Dm755 target/release/kdtv ~/.local/bin/kdtv
-mkdir -p ~/.config/kdtv && cp kdtv.example.toml ~/.config/kdtv/kdtv.toml   # set cli_dir
 kdtv refresh --everything             # channels, guide, movies, series
 kdtv check                            # what's ready, what's missing
 kdtv                                  # the full-screen interface
 ```
+
+kdtv uses the folder it runs in (its `.env` and `data/`). To run it from anywhere,
+point it at this folder once:
+`mkdir -p ~/.config/kdtv && echo "cli_dir = \"$PWD\"" > ~/.config/kdtv/kdtv.toml`.
 
 For recordings while logged out: `sudo loginctl enable-linger $USER`. After
 moving or reinstalling `kdtv`, `kdtv schedule repair` points every recording
