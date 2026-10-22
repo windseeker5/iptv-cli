@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KDTV Live</title>
+<style>
+  :root { --bg: #0d1117; --fg: #e6edf3; --dim: #8b949e; --accent: #5eead4; --line: #30363d; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 16px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  h1 { margin: 0; font-size: 18px; color: var(--accent); letter-spacing: .5px; }
+  #state { color: var(--dim); }
+  video { width: 100%; aspect-ratio: 16 / 9; background: #000; border: 1px solid var(--line); border-radius: 10px; }
+  #name { margin-top: 10px; font-weight: 600; }
+  #off { margin-top: 24px; color: var(--dim); }
+</style>
+</head>
+<body>
+<main>
+  <header><h1>KDTV</h1><span id="state">looking for the stream…</span></header>
+  <video id="video" controls playsinline muted></video>
+  <div id="name"></div>
+  <p id="off" hidden>Nothing is being restreamed right now. Start one in KDTV (Live, then s).</p>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+<script>
+  const video = document.getElementById("video");
+  const state = document.getElementById("state");
+  let key = null, hls = null;
+
+  function play(k) {
+    const url = "/hls/" + encodeURIComponent(k) + ".m3u8";
+    if (hls) { hls.destroy(); hls = null; }
+    if (window.Hls && Hls.isSupported()) {
+      hls = new Hls({ lowLatencyMode: true, liveSyncDurationCount: 3 });
+      hls.loadSource(url);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
+      hls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) setTimeout(() => key && play(key), 4000); });
+    } else {
+      video.src = url;
+      video.play().catch(() => {});
+    }
+  }
+
+  async function check() {
+    try {
+      const now = await (await fetch("/now.json", { cache: "no-store" })).json();
+      document.getElementById("off").hidden = now.live;
+      state.textContent = now.live ? "live" : "off air";
+      document.getElementById("name").textContent = now.live ? now.channel : "";
+      if (now.live && now.key !== key) { key = now.key; play(key); }
+      if (!now.live && key) { key = null; if (hls) hls.destroy(); video.removeAttribute("src"); }
+    } catch (e) { state.textContent = "can't reach KDTV"; }
+  }
+  check();
+  setInterval(check, 5000);
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+[Unit]
+Description=KDTV: refresh Maxime's UMass hockey schedule from Hockey East (for JP)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Documents/DEV/kdtv/cli
+ExecStart=%h/.local/bin/kdtv maxime --refresh
+TimeoutStartSec=2min

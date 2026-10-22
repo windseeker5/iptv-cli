@@ -1,6 +1,0 @@
-[Unit]
-Description=IPTV Sunday NOOVO Recording (long block)
-
-[Service]
-Type=oneshot
-ExecStart=%h/Documents/DEV/kdtv/cli/scripts/record_noovo_sunday.sh

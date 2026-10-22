@@ -1,63 +1,50 @@
 # CLAUDE.md
 
-Repository guidance for the IPTV project.
+Repository guidance for KDTV CLI.
 
 ## Current application
 
-`iptv.py` launches a modular Textual terminal interface. The old
-`simple-term-menu` application has been removed.
-
-The primary user workflows are:
-
-- browse/search and play live TV, movies, and series;
-- save favorites and generate an M3U playlist;
-- record now or schedule a recording through systemd user timers;
-- download VOD, series episodes, and YouTube media;
-- browse completed media in the Library;
-- restream a channel through NGINX-RTMP/HLS;
-- inspect and control the optional Docker services.
+`kdtv` (the Rust program in `rust/`) is the whole application: the full-screen
+TUI, scriptable commands (`--json`), the recorder, the timers' jobs (refresh,
+pre-flight, Maxime's schedule) and JP's toolbox and runner for the OMT site. The
+Python engine and the Textual TUI it replaced are in git history only.
 
 ## Architecture
 
-- `iptv_tui/screens/`: Textual screens and user interaction.
-- `iptv_tui/domain/`: UI-independent provider, media, recording, job, and
-  infrastructure logic.
-- `scripts/record_scheduled.py`: FFmpeg recorder launched by systemd.
-- `scripts/record_wrapper.sh`: activates the virtual environment for timers.
-- `scripts/remux_downloads_for_tv.py`: optional on-demand MP4 remux tool.
-- `data/`: runtime database, cache, logs, downloads, and fallback recordings.
-- `nginx/html/`: web dashboard and HLS player used by the restream service.
-- Docker: the shared `../../docker-compose.yml` (the DEV folder, two levels up) runs Caddy, KDTV, Jellyfin, NGINX-RTMP, Samba, tv-counter and Ollama; this folder holds their data.
+- `rust/`: `kdtv` (see `rust/README.md` for the file map).
+- `systemd/`: the timers and JP's runner, all running `~/.local/bin/kdtv`.
+  Recording schedules write their own `kdcli-rec-<id>` units.
+- `data/`: runtime database, schedules, recording diary (`runs/`), logs,
+  downloads, fallback recordings, JP's state (`agent/`).
+- `nginx/`: the NGINX-RTMP image and the pages it serves for the restream.
+- Docker: the shared `../../docker-compose.yml` (the DEV folder, two levels up)
+  runs Caddy, Jellyfin, NGINX-RTMP, tv-counter, OMT and Ollama; the OMT
+  container reaches JP's runner through `data/agent/run/runner.sock`.
 
 ## Important behavior
 
-- Live recordings use the same systemd-backed path whether they begin now or
-  later. Recording logs are written under `data/logs/`.
-- VOD transfers are serialized because the provider may allow only one active
-  connection.
+- The provider allows one connection: recordings, restreams, playing and
+  downloads must not overlap. Schedules that overlap are refused.
+- Every recording, now or scheduled, runs `kdtv` inside a systemd unit
+  (`kdcli-rec-*` or `kdcli-now-*`) and writes a diary in `data/runs/`.
+- After installing `kdtv` somewhere new, run `kdtv schedule repair`.
 - User state under `data/`, configured media paths, and Jellyfin directories
   must not be deleted or overwritten without explicit permission.
 - `favorites_seed.json` is a credential-free export; `data/favorites.json` is
   the runtime source.
-- Provider stream URLs contain credentials. Never print or expose them in logs.
+- Provider stream URLs contain credentials. Never print or expose them in logs;
+  JP's tools redact secrets from everything they return.
 
 ## Setup and validation
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
 cp .env.example .env
-python3 iptv.py
+cd rust && cargo build --release && install -Dm755 target/release/kdtv ~/.local/bin/kdtv
+cargo clippy --all-targets -- -D warnings && cargo test
 ```
 
-Validate Python changes with:
-
-```bash
-python3 -m unittest iptv_tui.test_domain_smoke iptv_tui.test_integration iptv_tui.test_app_smoke -v
-python3 -m compileall iptv_tui
-python3 -m py_compile iptv.py scripts/*.py util.py
-```
+After rebuilding: `systemctl --user restart kdcli-agent-runner` so JP uses the new
+program (timers pick it up on their next run).
 
 Validate infrastructure changes with (run from the DEV folder, two levels up: `cd ../..`):
 
@@ -66,5 +53,5 @@ docker compose config -q
 docker compose up -d --build
 ```
 
-External tools used at runtime include `ffmpeg`, `ffprobe`, `mpv`, systemd,
-and optionally Docker.
+External tools used at runtime: `ffmpeg`, `ffprobe`, `curl`, `mpv`, `yt-dlp`,
+systemd, `journalctl`, and optionally Docker and Claude Code (for JP).

@@ -1,6 +1,0 @@
-[Unit]
-Description=IPTV Nightly NOOVO Recording (Occupation Double)
-
-[Service]
-Type=oneshot
-ExecStart=%h/Documents/DEV/kdtv/cli/scripts/record_noovo_nightly.sh

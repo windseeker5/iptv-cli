@@ -1,0 +1,10 @@
+[Unit]
+Description=KDTV: refresh the channel list every hour (event channels appear a few hours before a game)
+
+[Timer]
+OnCalendar=*-*-* *:05:00
+Persistent=true
+RandomizedDelaySec=2min
+
+[Install]
+WantedBy=timers.target

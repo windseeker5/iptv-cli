@@ -1,0 +1,10 @@
+[Unit]
+Description=KDTV: look at upcoming recordings every 10 minutes
+
+[Timer]
+OnCalendar=*:0/10
+Persistent=false
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

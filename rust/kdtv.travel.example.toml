@@ -1,0 +1,21 @@
+# On the road: a laptop or a Raspberry Pi. No Docker, no Jellyfin, no NGINX.
+# Copy to ~/.config/kdtv/kdtv.toml. Paths are relative to this file; ~ works.
+profile = "travel"
+
+# A clone of this repository on this machine (data/ and .env).
+cli_dir = "~/kdtv/cli"
+
+# Recordings stay on this machine.
+records_dir = "~/Videos/KDTV"
+
+# kdtv restreams by itself: a phone or TV on the same Wi-Fi opens
+# http://<this machine>:8080/ (kdtv shows the address when the restream starts).
+restream_via = "kdtv"
+web_port = 8080
+watch_url = ""
+
+# Nothing to watch in Docker.
+containers = []
+
+# No Nerd Font (a Pi console)? Turn the icons off.
+icons = true

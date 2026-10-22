@@ -1,131 +1,97 @@
-# IPTV TUI
+# KDTV CLI
 
-A terminal UI for browsing, searching, playing, downloading, and recording IPTV content — with an optional self-hosted stack (Jellyfin, restreaming, network share) to organize and serve it afterward.
+`kdtv` is one Rust program for live TV, movies, series and YouTube from an IPTV
+provider: a full-screen terminal interface, scriptable commands (`--json`), the
+recorder, the timers' jobs, and JP's toolbox for the OMT site. An optional
+self-hosted stack (Jellyfin, restreaming) serves what it records.
 
-## Tech stack
+## What it does
 
-| Layer | Technology |
-|---|---|
-| UI | [Textual](https://textual.textualize.io/) (Python TUI framework) |
-| Language | Python 3 |
-| Local storage | SQLite (WAL mode) for the provider catalog + job/recording history |
-| Playback | [mpv](https://mpv.io/) |
-| Downloads | `wget`/`curl` (falls back to `requests` if neither is installed) |
-| YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) |
-| Video processing | `ffmpeg` / `ffprobe` — live recording, restream transcoding |
-| Scheduled recordings | systemd user timers (`systemd-run`) |
-| Self-hosted stack | One Docker Compose file in the DEV folder two levels up (`../../docker-compose.yml`): Caddy, KDTV, Jellyfin, NGINX-RTMP, Samba, tv-counter, Ollama (off by default) |
-| Tests | `unittest` — domain smoke tests + Textual headless integration tests |
+**Browse & play**: search live channels, movies and series; what's on now and
+next; play in `mpv`; favorites.
 
-## Features
+**Record**: record now or on a schedule (once or every week), until the show
+ends. Recordings survive a busy or dropping provider: the recorder retries until
+the planned end and joins the pieces. A schedule can send the episode straight to
+Jellyfin (converted to MP4, named `Show - S2026E042 - 2026-10-21.mp4`, library
+rescanned) and pings Discord when done. A pre-flight check looks at every
+recording an hour before it starts and pings Discord only when something is wrong.
 
-**Browse & play**
-- Search and browse live channels, VOD, and series by category
-- Live "now playing" EPG preview while browsing channels
-- Play any stream or downloaded file via `mpv`
-- Favorites list with an auto-generated M3U playlist
+**Download**: movies, an episode, a season or a whole series, one at a time (the
+provider allows one connection); YouTube video or audio through `yt-dlp`.
 
-**Download & record**
-- Download a single VOD/episode, or an entire series in one batch — downloads are queued and run one at a time (the provider only allows one concurrent connection)
-- Use one recording form to start now or **schedule** a recording, choose its duration, and optionally record until the current program ends
-- **Recording & Download Queue** shows queued/running work, supports cancellation, and opens recording logs
-- **My Videos** browses completed media, plays or deletes files, and remuxes files for TV playback
-- A type-to-confirm **Clear All** wipes downloaded files, recordings, and tracking history in one step
+**Restream** a channel to the family's live page (NGINX-RTMP, or `kdtv web`).
 
-**YouTube**
-- Search, play, and download YouTube videos (best quality, 720p, or audio-only) via `yt-dlp`
-
-**Restream & self-host**
-- Restream any IPTV channel to your own NGINX-RTMP server (HLS/RTMP output)
-- Manage the Docker stack (start/stop/status/logs) from inside the TUI
-- Jellyfin for library playback, Caddy for HTTPS reverse-proxying, Samba for browsing recordings/downloads from other devices on the network
-
-## Project layout
-
-```
-iptv.py                    entrypoint — launches the Textual app (iptv_tui/app.py)
-scripts/
-├── record_scheduled.py     standalone recorder invoked by scheduled systemd timers
-└── record_wrapper.sh       bash wrapper (activates venv) used by systemd-run
-
-iptv_tui/
-├── app.py                  Textual App, screen registry, theme
-├── domain/                 business logic — no UI dependencies
-│   ├── iptv_provider.py    provider API client, catalog cache/sync
-│   ├── downloads.py        VOD/series downloads
-│   ├── recordings.py       immediate/scheduled recordings + systemd timers
-│   ├── library.py          completed media discovery and safe deletion
-│   ├── youtube.py          yt-dlp search/download
-│   ├── restream.py         NGINX-RTMP restreaming
-│   ├── jobs.py             unified, disk-persisted job/history registry
-│   ├── reset.py            "Clear All" — wipe files + history
-│   ├── docker_ctl.py       docker-compose control
-│   ├── favorites.py, db.py, config.py, actions.py
-├── screens/                Textual screens, including Library and log viewer
-└── widgets/                shared widgets (header, status bar)
-
-data/                       all runtime state (gitignored)
-├── iptv.db                 SQLite catalog + job/recording history
-├── favorites.json          your saved favorites
-├── iptv.m3u                generated playlist
-├── cache/                  raw provider API dumps (regenerated on each "Update Database")
-├── logs/                   job history plus recording/restream diagnostics
-├── downloads/               downloaded VOD/series files
-├── recordings/              recorded live files (falls back here if USB_RECORDS_PATH isn't writable)
-└── youtube/                  downloaded YouTube files
-
-(docker-compose.yml and the Caddyfile live in DEV/, two levels up; Jellyfin's data is in DEV/jellyfin/)
-nginx/                       NGINX-RTMP image, config, served web pages
-```
+**JP**: the OMT site's chat helper runs on `kdtv jp-runner` and `kdtv jp-mcp`. It
+looks things up, proposes recordings and restreams (nothing happens until someone
+taps Confirm), and, for the owner, reads the recording diary, checks files, probes
+the provider and reads logs.
 
 ## Setup
 
+Needs `ffmpeg`/`ffprobe`, `curl`, `mpv`, `yt-dlp` (YouTube only), systemd for
+recordings and timers, and Rust to build.
+
 ```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-cp .env.example .env
-# edit .env with your IPTV provider credentials
-
-python3 iptv.py
+git clone https://github.com/windseeker5/iptv-cli.git && cd iptv-cli
+cp .env.example .env                  # put in your provider login
+cd rust && cargo build --release
+install -Dm755 target/release/kdtv ~/.local/bin/kdtv
+mkdir -p ~/.config/kdtv && cp kdtv.example.toml ~/.config/kdtv/kdtv.toml   # set cli_dir
+kdtv refresh --everything             # channels, guide, movies, series
+kdtv check                            # what's ready, what's missing
+kdtv                                  # the full-screen interface
 ```
 
-`iptv.py` auto-detects and activates `venv/` and switches to the script's own directory, so it can be run from anywhere.
-
-External tools expected on `PATH`: `ffmpeg`/`ffprobe`, `mpv`, and `wget` or `curl` (optional — falls back to Python `requests`). `docker` + `docker-compose` are only needed if you use the self-hosted stack; scheduled recordings need `systemd` (Linux).
+For recordings while logged out: `sudo loginctl enable-linger $USER`. After
+moving or reinstalling `kdtv`, `kdtv schedule repair` points every recording
+timer at it again.
 
 ## Configuration (`.env`)
 
 | Variable | Purpose |
 |---|---|
-| `IPTV_SERVER_URL`, `IPTV_USERNAME`, `IPTV_PASSWORD` | required — your IPTV provider |
-| `EPG_SERVER_URL` | optional override if EPG is served from a different host |
-| `USB_RECORDS_PATH`, `USB_MOVIES_PATH`, `USB_MUSIC_PATH`, `USB_PHOTOS_PATH` | mount points shared with Jellyfin/Samba and used for recordings |
-| `NGINX_RTMP_PORT`, `NGINX_HTTP_PORT`, `NGINX_ADMIN_PORT` | restream server ports |
-| `JELLYFIN_PUBLISHED_SERVER_URL`, `JELLYFIN_DOMAIN`, `CADDY_DOMAIN`, `LETSENCRYPT_EMAIL`, `CLOUDFLARE_API_TOKEN` | HTTPS reverse-proxy for Jellyfin via Caddy |
-| `SAMBA_*_PORT`, `TZ` | network share configuration |
+| `IPTV_SERVER_URL`, `IPTV_USERNAME`, `IPTV_PASSWORD` | required: your IPTV provider |
+| `USB_RECORDS_PATH` | where recordings go (falls back to `data/recordings` when it isn't writable) |
+| `TVSHOW_LIBRARY_ROOT` | Jellyfin's TV folder, one sub-folder per show (or `NOOVO_LIBRARY_DIR`, a show folder inside it) |
+| `JELLYFIN_PUBLISHED_SERVER_URL`, `JELLYFIN_API_KEY` | library rescans (or `JELLYFIN_USERNAME` / `JELLYFIN_PASSWORD`) |
+| `DISCORD_WEBHOOK_URL` | recording results and pre-flight warnings |
 
-See `.env.example` for the full list and defaults.
+The Docker stack in the DEV folder reads a few more (ports, domains); see
+`.env.example`.
+
+## Background jobs (`systemd/`)
+
+| Unit | Runs |
+|---|---|
+| `kdcli-rec-<id>.timer` | `kdtv run-schedule <id>`, one per schedule (written by `kdtv schedule add` and JP) |
+| `kdcli-refresh-channels.timer` | `kdtv refresh`, hourly |
+| `kdcli-refresh-guide.timer` | `kdtv refresh --guide`, twice a day |
+| `kdcli-preflight.timer` | `kdtv preflight`, every 10 minutes |
+| `kdcli-refresh-maxime.timer` | `kdtv maxime --refresh`, twice a day (for JP) |
+| `kdcli-agent-runner.service` | `kdtv jp-runner`, JP's bridge to the OMT site |
+
+Install with `ln -s "$PWD"/systemd/kdcli-* ~/.config/systemd/user/`, then
+`systemctl --user daemon-reload` and `systemctl --user enable --now` each timer.
+
+## Data (`data/`, never committed)
+
+`iptv.db` (catalog and guide), `schedules/` (one JSON per schedule), `runs/` (the
+recording diary, one JSON per recording), `logs/`, `downloads/`, `recordings/`
+(fallback), `agent/` (JP's pending actions, history and socket), `maxime/`.
 
 ## Self-hosted stack
 
 ```bash
-# run these from the DEV folder (cd ../..)
-docker compose up -d                 # start everything (Ollama stays off)
-docker compose logs -f <service>     # caddy | kdtv | jellyfin | nginx-rtmp | samba | tv-counter
-docker compose pull && docker compose up -d --build --pull always   # update to latest versions
-docker compose down                  # stop everything
+# from the DEV folder (cd ../..)
+docker compose up -d
+docker compose logs -f <service>     # caddy | jellyfin | nginx-rtmp | tv-counter | omt
 ```
-
-Container status, start/stop, and logs are also available from the TUI's **Settings** screen.
 
 ## Testing
 
 ```bash
-python3 -m unittest iptv_tui.test_domain_smoke iptv_tui.test_integration iptv_tui.test_app_smoke -v
+cd rust && cargo clippy --all-targets -- -D warnings && cargo test
 ```
 
-## Status
-
-`iptv.py` is the Textual TUI (`iptv_tui/`) — this is the application. The previous `simple-term-menu` CLI it replaced has been removed; see git history if you ever need it back.
+More in `rust/README.md`.

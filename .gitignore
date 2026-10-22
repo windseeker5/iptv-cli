@@ -1,5 +1,6 @@
 # Environment variables with sensitive data
 .env*
+!.env.example
 
 # Database files
 *.db
@@ -15,32 +16,10 @@
 # wget's default progress log when output isn't a controlling terminal
 wget-log*
 
-# Python
+# Left over from the Python version
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual environment
 venv/
-env/
-ENV/
+downloads/
 
 jellyfin/
 data/
@@ -62,3 +41,7 @@ jellyfin/config/
 # OS
 .DS_Store
 Thumbs.db
+
+# Rust
+rust/target/
+kdtv.toml
