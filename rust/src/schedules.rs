@@ -333,13 +333,45 @@ pub fn delete(cfg: &Config, id: &str) -> Result<bool> {
     let existed = file.exists();
     let unit = format!("{UNIT_PREFIX}{id}");
     systemctl(&["disable", "--now", &format!("{unit}.timer")])?;
-    for ext in ["timer", "service"] {
-        let _ = std::fs::remove_file(unit_dir().join(format!("{unit}.{ext}")));
+    let _ = std::fs::remove_file(unit_dir().join(format!("{unit}.timer")));
+    // A one-time schedule deletes itself from inside its own run. Removing the
+    // service file of a unit that is still running makes systemd forget it has no
+    // start timeout: it kills the run and marks it failed. Leave the file for
+    // `sweep_leftovers` to remove once the run is over.
+    if !crate::systemd::is_running(&format!("{unit}.service")) {
+        let _ = std::fs::remove_file(unit_dir().join(format!("{unit}.service")));
     }
     systemctl(&["daemon-reload"])?;
     let _ = std::fs::remove_file(&file);
     crate::log::event(cfg, "schedule.delete", json!({ "id": id, "existed": existed }));
     Ok(existed)
+}
+
+/// Remove the service files left by deleted schedules whose run has finished, and
+/// forget their failed state. Returns how many were removed.
+pub fn sweep_leftovers(cfg: &Config) -> usize {
+    let Ok(entries) = std::fs::read_dir(unit_dir()) else {
+        return 0;
+    };
+    let leftovers: Vec<String> = entries
+        .filter_map(Result::ok)
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|name| {
+            name.strip_prefix(UNIT_PREFIX)
+                .and_then(|n| n.strip_suffix(".service"))
+                .is_some_and(|id| load(&cfg.data_dir, id).is_none() && !crate::systemd::is_running(name))
+        })
+        .collect();
+    if leftovers.is_empty() {
+        return 0;
+    }
+    for name in &leftovers {
+        let _ = std::fs::remove_file(unit_dir().join(name));
+        let _ = systemctl(&["reset-failed", name]);
+    }
+    let _ = systemctl(&["daemon-reload"]);
+    crate::log::event(cfg, "schedule.sweep", json!({ "removed": leftovers }));
+    leftovers.len()
 }
 
 fn write(data_dir: &Path, s: &ScheduleFile) -> Result<()> {

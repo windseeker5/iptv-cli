@@ -27,6 +27,9 @@ const RETRY_DELAY_SECONDS: u64 = 30;
 const MIN_USEFUL_SECONDS: i64 = 60;
 /// FFmpeg prints progress twice a second; the log keeps one line a minute.
 const PROGRESS_LOG_SECONDS: u64 = 60;
+/// How far footage may run ahead of the clock (the burst a live stream sends at
+/// the start) before the capture counts as a canned loop rather than live video.
+const PLACEHOLDER_SLACK_SECONDS: f64 = 120.0;
 
 pub struct Job {
     pub stream_id: i64,
@@ -162,6 +165,10 @@ fn record_stream(cfg: &Config, job: &Job, report: &mut Report, log: &Log) -> boo
             wrote: once.wrote,
             error: once.error.as_deref(),
         });
+        // An attempt that got nothing leaves an empty file: don't let them pile up.
+        if !once.wrote {
+            let _ = std::fs::remove_file(&target);
+        }
         // A real dropout always gets a line; repeated empty attempts only the first few.
         if !once.ok && (once.wrote || attempt <= 3) {
             let reason = once.error.as_deref().unwrap_or("no reason given");
@@ -280,7 +287,19 @@ fn record_once(cfg: &Config, url: &str, output: &Path, seconds: i64, channel_nam
     // A live stream sends a burst at the start, so footage can be longer than the
     // wall-clock time it took. Judge by whichever is larger.
     let size = output.metadata().map(|m| m.len()).unwrap_or(0);
-    once.elapsed = started.elapsed().as_secs_f64().max(if size > 0 { pipeline::media_seconds(output).unwrap_or(0.0) } else { 0.0 });
+    let wall = started.elapsed().as_secs_f64();
+    let footage = if size > 0 { pipeline::media_seconds(output).unwrap_or(0.0) } else { 0.0 };
+    // Far more footage than wall-clock time is not live: when the event is off air
+    // the provider dumps a canned loop (minutes of it in seconds). It is not the
+    // show, so drop it and let the next attempt try again.
+    if footage > wall + PLACEHOLDER_SLACK_SECONDS {
+        log.warn(&format!("Got {footage:.0}s of footage in {wall:.0}s: a canned loop, not live video; discarding it"));
+        let _ = std::fs::remove_file(output);
+        once.error = Some("the provider sent a canned loop instead of live video".into());
+        once.elapsed = wall;
+        return once;
+    }
+    once.elapsed = wall.max(footage);
     once.wrote = size > 0;
     match status {
         Ok(s) if s.success() => {
@@ -350,7 +369,30 @@ fn finish_and_notify(cfg: &Config, report: &mut Report, job: &Job, log: &Log) {
             };
             (message, job.show.is_some() || job.notify)
         }
-        WARNING => (format!("⚠️ **{name}** recorded with problems: {} (run {run_id})", report.problems().into_iter().take(3).collect::<Vec<_>>().join("; ")), true),
+        WARNING => {
+            // Say plainly what was saved; the retries are summed up by the dropout
+            // count, so only other problems (drive, library…) get their own line.
+            let mut message = format!("⚠️ **{name}**: recorded {} of {planned}", format_seconds(actual));
+            if dropouts > 0 {
+                message += &format!(", the provider cut out {dropouts} time(s) so a part may be missing");
+            }
+            message += &match &episode {
+                Some(ep) => format!(" → Jellyfin: **{}**", ep.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default()),
+                None => format!(" → {}", job.output.file_name().map(|s| s.to_string_lossy()).unwrap_or_default()),
+            };
+            message += &format!(" (run {run_id})");
+            let others: Vec<String> = report
+                .list("events")
+                .iter()
+                .filter(|e| (e["status"] == WARNING || e["status"] == FAILED) && e["step"] != "recording" && e["step"] != "length")
+                .filter_map(|e| e["message"].as_str().map(str::to_string))
+                .take(2)
+                .collect();
+            for problem in others {
+                message += &format!("\n• {problem}");
+            }
+            (message, true)
+        }
         _ => {
             let failed = report.list("events").iter().find(|e| e["status"] == FAILED).and_then(|e| e["message"].as_str()).unwrap_or("unknown problem").to_string();
             (format!("❌ **{name}** failed: {failed} (run {run_id})"), true)
