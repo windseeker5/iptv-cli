@@ -107,7 +107,8 @@ Rules:
   and that Confirm will replace it.
 - Times are 24h local. "6.29" in the evening = 18:29. Days: Mon Tue Wed Thu Fri Sat Sun.
 - One-time recordings need a date (YYYY-MM-DD); "tonight"/"tomorrow" = compute from today.
-- If he wants it in Jellyfin, ask for the show name if it's not obvious."#;
+- Every recording goes into Jellyfin: always give propose_recording a show_name. Maxime's games: "Maxime Massé".
+  A TV show: its usual name (same spelling as earlier recordings). Ask only when the name is not obvious."#;
 
 pub fn system_prompt(cfg: &Config, user: Option<&str>, owner: bool) -> String {
     let now = chrono::Local::now();
