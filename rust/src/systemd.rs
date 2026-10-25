@@ -27,6 +27,12 @@ pub fn is_active(unit: &str) -> bool {
     systemctl(&["is-active", "--quiet", unit]).is_ok_and(|o| o.status.success())
 }
 
+/// Running, or a oneshot still "activating" (a scheduled recording mid-run).
+pub fn is_running(unit: &str) -> bool {
+    systemctl(&["show", unit, "--property=ActiveState", "--value"])
+        .is_ok_and(|o| matches!(String::from_utf8_lossy(&o.stdout).trim(), "active" | "activating" | "deactivating"))
+}
+
 /// Running units matching the patterns, e.g. `kdcli-rec-*.service`. A oneshot
 /// service (the scheduled recordings) stays "activating" for its whole run, so
 /// that counts as running too.

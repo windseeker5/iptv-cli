@@ -101,6 +101,7 @@ fn writable(dir: &Path) -> bool {
 
 /// Check the schedules that are due (or just `only`, right now). Returns a line per check.
 pub fn run(cfg: &Config, only: Option<&str>) -> Result<Vec<String>> {
+    crate::schedules::sweep_leftovers(cfg);
     let now = Local::now().naive_local();
     let state_file = cfg.data_dir.join("preflight_state.json");
     let mut state: Value = std::fs::read_to_string(&state_file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| json!({}));
