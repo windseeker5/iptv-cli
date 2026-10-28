@@ -1,0 +1,12 @@
+[Unit]
+Description=KDTV: refresh Justin's Océanic schedule morning, afternoon and after the evening games (results and his points)
+
+[Timer]
+OnCalendar=*-*-* 06:20:00
+OnCalendar=*-*-* 15:20:00
+OnCalendar=*-*-* 23:20:00
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

@@ -6,7 +6,7 @@ Repository guidance for KDTV CLI.
 
 `kdtv` (the Rust program in `rust/`) is the whole application: the full-screen
 TUI, scriptable commands (`--json`), the recorder, the timers' jobs (refresh,
-pre-flight, Maxime's schedule) and JP's toolbox and runner for the OMT site. The
+pre-flight, Maxime's and Justin's schedules) and JP's toolbox and runner for the OMT site. The
 Python engine and the Textual TUI it replaced are in git history only.
 
 ## Architecture

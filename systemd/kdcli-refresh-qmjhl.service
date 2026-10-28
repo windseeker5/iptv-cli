@@ -1,0 +1,9 @@
+[Unit]
+Description=KDTV: refresh Justin Gagnon's Océanic schedule and stats from the QMJHL feed (for JP)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Documents/DEV/kdtv/cli
+ExecStart=%h/.local/bin/kdtv qmjhl --refresh
+TimeoutStartSec=2min

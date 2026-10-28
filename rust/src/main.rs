@@ -19,6 +19,7 @@ mod pipeline;
 mod play;
 mod preflight;
 mod provider;
+mod qmjhl;
 mod record;
 mod recorder;
 mod refresh;
@@ -194,6 +195,16 @@ enum Cmd {
         /// Download the official schedule first
         #[arg(long)]
         refresh: bool,
+    },
+    /// Justin Gagnon's next Océanic games (QMJHL) and where to watch them
+    #[command(hide = true)]
+    Qmjhl {
+        /// Download the league's schedule and his stats first
+        #[arg(long)]
+        refresh: bool,
+        /// Which player we follow (default: the first one)
+        #[arg(long, default_value = "")]
+        player: String,
     },
     /// JP's toolbox as an MCP server (Claude Code starts it)
     #[command(hide = true)]
@@ -624,6 +635,18 @@ fn run(cli: Cli) -> Result<()> {
                 return Ok(());
             }
             println!("{}", serde_json::to_string_pretty(&maxime::games(&cfg, 3, 1))?);
+            Ok(())
+        }
+        Cmd::Qmjhl { refresh, player } => {
+            if refresh {
+                let result = qmjhl::refresh(&cfg)?;
+                println!("{result}");
+                if result["ok"] != true {
+                    std::process::exit(1);
+                }
+                return Ok(());
+            }
+            println!("{}", serde_json::to_string_pretty(&qmjhl::games(&cfg, &player, 3, 1))?);
             Ok(())
         }
         Cmd::JpMcp => jp::tools::serve(&cfg),
