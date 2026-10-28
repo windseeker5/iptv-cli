@@ -44,6 +44,13 @@ fn tools() -> Vec<Tool> {
            plus the latest results and the team record. Official schedule, refreshed every morning. Use it for ANY \
            question about Maxime/Max/UMass games, before find_channel.",
           json!({ "upcoming": { "type": "integer" }, "past": { "type": "integer" } }), &[]),
+        t("qmjhl_games",
+          "Justin Gagnon's hockey games (Rimouski Océanic, QMJHL / LHJMQ): the next games with local time, home/away, \
+           opponent, arena, and for games in the next 3 days the channels WE have for it (FloHockey event channels, \
+           TVA Sports guide slots) with stream_id; plus the latest results with his own line (goals, assists, +/-), \
+           his season stats and the team record. League schedule, refreshed three times a day. Use it for ANY question \
+           about Justin / Gagnon / the Océanic / Rimouski games, before find_channel.",
+          json!({ "player": { "type": "string" }, "upcoming": { "type": "integer" }, "past": { "type": "integer" } }), &[]),
         t("list_schedules", "List the recording schedules (once or repeating) with their next run.", json!({}), &[]),
         t("recent_recordings", "List the most recent recordings and their status.", json!({}), &[]),
         t("restream_status", "Is something being restreamed to live.dresdell.com right now?", json!({}), &[]),
@@ -126,6 +133,7 @@ fn call(cfg: &Config, who: &Who, name: &str, args: &Value) -> Value {
         "refresh_channels" => a::refresh_channels(cfg, b("include_guide").unwrap_or(false)),
         "whats_on" => a::whats_on(cfg, n("stream_id", 0)),
         "maxime_games" => crate::maxime::games(cfg, n("upcoming", 3).max(0) as usize, n("past", 1).max(0) as usize),
+        "qmjhl_games" => crate::qmjhl::games(cfg, s("player"), n("upcoming", 3).max(0) as usize, n("past", 1).max(0) as usize),
         "list_schedules" => a::list_schedules(cfg),
         "recent_recordings" => a::recent_recordings(cfg),
         "restream_status" => a::restream_status(cfg),

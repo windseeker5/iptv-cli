@@ -97,7 +97,7 @@ JP restreams through `kdtv` too, so the switch is only configuration:
 | `db.rs` | the channel/movie/series database; game-channel names |
 | `record.rs`, `schedules.rs` | record now, stop, schedules and their `kdcli-rec-*` timers |
 | `recorder.rs`, `pipeline.rs`, `diary.rs`, `notify.rs` | the recorder: FFmpeg with retries, convert/join/place in Jellyfin, the run diary, Discord and Jellyfin calls |
-| `preflight.rs`, `maxime.rs` | the pre-flight check before recordings; Maxime's UMass schedule for JP |
+| `preflight.rs`, `maxime.rs`, `qmjhl.rs` | the pre-flight check before recordings; Maxime's UMass schedule and Justin's Océanic schedule (QMJHL) for JP |
 | `jp/` | JP: `tools.rs` (MCP server), `actions.rs` (proposals and Confirm), `eyes.rs` (owner's read-only checks), `runner.rs` (the OMT socket), `prompt.rs` |
 | `restream.rs` | restream unit `kd-restream` (FFmpeg → NGINX-RTMP) |
 | `downloads.rs` | download queue + worker unit `kd-downloads` (curl, yt-dlp) |
