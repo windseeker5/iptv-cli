@@ -97,8 +97,9 @@ fn tools() -> Vec<Tool> {
           json!({}), &[]),
         t("propose_recording",
           "Propose a recording. Repeating: give `days` (e.g. ['Mon','Tue','Wed','Thu']). One time: give `date` \
-           (YYYY-MM-DD) and no days. `time` is 24h local 'HH:MM'. Give `show_name` to convert to MP4 and put it in \
-           Jellyfin as that TV show (with a Discord ping when done). Refused when it overlaps another recording (one \
+           (YYYY-MM-DD) and no days. `time` is 24h local 'HH:MM'. Always give `show_name`: the recording is converted \
+           to MP4 and put in Jellyfin as that TV show (with a Discord ping when done); without it the file stays \
+           out of Jellyfin, which the owner does not want. Refused when it overlaps another recording (one \
            provider connection). Nothing happens until the user confirms.",
           json!({ "stream_id": { "type": "integer" }, "channel_name": { "type": "string" }, "time": { "type": "string" },
                   "duration_minutes": { "type": "integer" }, "days": days, "date": { "type": "string" },
