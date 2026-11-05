@@ -122,6 +122,11 @@ pub fn list_age_minutes(data_dir: &Path) -> (Option<i64>, Option<i64>) {
     (ages.get("channels").copied(), ages.get("guide").copied())
 }
 
+/// How old the saved movie and series list is (None until the first refresh that saves it).
+pub fn catalog_age_minutes(data_dir: &Path) -> Option<i64> {
+    refresh_ages(data_dir).get("catalog").copied()
+}
+
 /// "KD CLI recording: CA FR: NOOVO V-TELE HD, now, 3 min" → "CA FR: NOOVO V-TELE HD, now, 3 min"
 fn unit_description(unit: &str) -> Option<String> {
     let out = crate::systemd::systemctl(&["show", unit, "--property=Description", "--value"]).ok()?;

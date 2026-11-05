@@ -231,10 +231,16 @@ fn add(cfg: &Config, title: String, source: Source, output: PathBuf) -> Result<J
     Ok(job)
 }
 
-/// Take the done, failed and cancelled downloads off the list (files on disk stay).
+/// Take the done, failed and cancelled downloads off the list. Finished files stay;
+/// the partial file of a failed or cancelled download goes, unless a queued job for
+/// the same file will resume it.
 pub fn clear_finished(cfg: &Config) -> Result<usize> {
-    let finished: Vec<Job> = list(cfg).into_iter().filter(|j| !j.unfinished()).collect();
+    let jobs = list(cfg);
+    let (pending, finished): (Vec<Job>, Vec<Job>) = jobs.into_iter().partition(Job::unfinished);
     for j in &finished {
+        if j.state != State::Done && j.needs_provider() && !pending.iter().any(|p| p.output == j.output) {
+            let _ = std::fs::remove_file(format!("{}.part", j.output));
+        }
         std::fs::remove_file(queue_dir(cfg).join(format!("{}.json", j.id)))?;
     }
     crate::log::event(cfg, "download.clear", json!({ "count": finished.len() }));

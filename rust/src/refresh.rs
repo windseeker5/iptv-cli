@@ -5,7 +5,7 @@
 //! the same time or disagree on how fresh the data is.
 //!
 //! - channels: live categories + channels (the hourly job)
-//! - guide: the full XMLTV guide (twice a day)
+//! - guide: the full XMLTV guide (twice a day), plus movies and series once a day
 //! - everything: also the account, movies and series (a new machine)
 
 use crate::config::Config;
@@ -29,6 +29,9 @@ pub struct What {
     pub everything: bool,
 }
 
+/// A day, minus a little so the 05:30 job doesn't miss it by a minute and wait for 14:30.
+const CATALOG_MAX_AGE_MINUTES: i64 = 23 * 60;
+
 pub fn run(cfg: &Config, what: What) -> Result<String> {
     let p = &cfg.provider;
     if p.server.is_empty() || p.username.is_empty() {
@@ -46,8 +49,12 @@ pub fn run(cfg: &Config, what: What) -> Result<String> {
     ensure_schema(&conn)?;
 
     let mut done = vec![];
-    if what.everything {
+    // The guide jobs (twice a day) also bring the movie and series list once a day,
+    // so JP and the apps see new titles without anyone asking.
+    let catalog_stale = crate::status::catalog_age_minutes(&cfg.data_dir).is_none_or(|m| m >= CATALOG_MAX_AGE_MINUTES);
+    if what.everything || (what.guide && catalog_stale) {
         let n = save_catalog(cfg, &mut conn)?;
+        mark(&cache, "catalog")?;
         done.push(format!("{} movies, {} series", thousands(n.0), thousands(n.1)));
     }
     let channels = save_channels(cfg, &mut conn)?;

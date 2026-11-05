@@ -28,8 +28,8 @@ every key; the bottom-right corner always shows the keys that work right now.
 | 3 | All | the provider's lists: Live, Movies, Series, then its categories; ♥ marks what's saved | f save · movie: ↵ watch · d download · series: [ ] season · d / s / D download episode, season, all |
 | 4 | YouTube | search, watch, download | ↵ watch · d video · a audio |
 | 5 | Recordings | now, schedules, recent | x stop · space pause · d delete · c clear recent (the videos stay) |
-| 6 | Downloads | the queue, one at a time; saved in USB_DOWNLOADS_PATH, a desktop notification when each is done or fails | x cancel · c clear finished |
-| 7 | Library | what kdtv saved: recordings, downloads, YouTube | ↵ play |
+| 6 | Downloads | the queue, one at a time; saved in USB_DOWNLOADS_PATH, a desktop notification when each is done or fails | x cancel · c clear finished (and the partial files of failed ones) |
+| 7 | Library | what kdtv saved: recordings, downloads, YouTube | ↵ play · d delete the file (asks first) |
 | 8 | Account | provider login, subscription, lists | u update list · g update guide · p password · e edit |
 | 9 | Status | services, folders, today's log | |
 
