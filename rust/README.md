@@ -39,7 +39,8 @@ Other commands worth knowing: `kdtv refresh [--guide | --everything]`,
 Your provider allows **one connection**. Playing, recording or restreaming while
 something else holds it asks first; a schedule that overlaps another is refused;
 "record now" ends before the next scheduled recording; provider downloads pause
-by themselves while a recording or restream runs, then resume.
+by themselves while a recording or restream runs, then resume. When the provider
+cuts a download mid-file, it waits a minute and picks up where it stopped (up to 5 times).
 
 No Nerd Font on a terminal (a Pi console)? Set `icons = false` in `kdtv.toml`.
 

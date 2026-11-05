@@ -28,6 +28,15 @@ use std::time::Duration;
 
 const UNIT: &str = "kd-downloads";
 const USER_AGENT: &str = "VLC/3.0.0 LibVLC/3.0.0";
+/// How often a dropped provider download picks up again by itself, and the pause before each try.
+const DROP_RETRIES: u32 = 5;
+const DROP_WAIT_SECONDS: u64 = 60;
+
+/// curl exit codes for a connection that broke mid-file: 18 partial file,
+/// 28 timeout, 52 empty reply, 56 receive error, 92 HTTP/2 stream error.
+fn connection_dropped(code: i32) -> bool {
+    matches!(code, 18 | 28 | 52 | 56 | 92)
+}
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -389,16 +398,20 @@ fn download(cfg: &Config, job: &mut Job) -> Result<()> {
     save(cfg, job)?;
     crate::log::event(cfg, "download.start", json!({ "id": job.id, "title": job.title }));
 
-    let mut child = Command::new("curl")
-        .args(["-sS", "-L", "--fail", "-C", "-", "--retry", "3", "--connect-timeout", "30", "-A", USER_AGENT])
-        .args(["-H", "Accept: */*", "-o"])
-        .arg(&part)
-        .arg(&url)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .context("starting curl")?;
+    let start = || {
+        Command::new("curl")
+            .args(["-sS", "-L", "--fail", "-C", "-", "--retry", "3", "--connect-timeout", "30", "-A", USER_AGENT])
+            .args(["-H", "Accept: */*", "-o"])
+            .arg(&part)
+            .arg(&url)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("starting curl")
+    };
+    let mut child = start()?;
+    let mut retries = 0;
 
     job.speed = None;
     let mut last = (file_size(&part), std::time::Instant::now());
@@ -415,7 +428,29 @@ fn download(cfg: &Config, job: &mut Job) -> Result<()> {
                 if let Some(mut e) = child.stderr.take() {
                     let _ = std::io::Read::read_to_string(&mut e, &mut err);
                 }
-                bail!("curl: {}", err.trim().replace(&url, "<provider-url>"));
+                let err = err.trim().replace(&url, "<provider-url>");
+                if !status.code().is_some_and(connection_dropped) || retries == DROP_RETRIES {
+                    bail!("curl: {err}");
+                }
+                // The provider cut the stream (often right after the previous
+                // download, while it still counts that connection): wait, then resume.
+                retries += 1;
+                job.speed = None;
+                job.error = Some(format!("Connection dropped; trying again in a minute ({retries}/{DROP_RETRIES})"));
+                save(cfg, job)?;
+                crate::log::event(cfg, "download.retry", json!({ "id": job.id, "try": retries, "error": err }));
+                for _ in 0..DROP_WAIT_SECONDS / 3 {
+                    std::thread::sleep(Duration::from_secs(3));
+                    if load(cfg, &job.id).is_some_and(|j| j.state == State::Cancelled) {
+                        let _ = std::fs::remove_file(&part);
+                        return Ok(());
+                    }
+                }
+                job.error = None;
+                save(cfg, job)?;
+                child = start()?;
+                last = (file_size(&part), std::time::Instant::now());
+                continue;
             }
             std::fs::rename(&part, &output)?;
             job.bytes = file_size(&output);
