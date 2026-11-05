@@ -76,6 +76,103 @@ pub fn whats_on(cfg: &Config, stream_id: i64) -> Value {
     json!({ "programs": programs })
 }
 
+/// Movies and series the provider has, in the family's languages unless asked.
+/// Titles are "QC - Dune (2021)", "4K-FR - Dune (2021)", "FR - Breaking Bad".
+pub fn find_title(cfg: &Config, query: &str, language: &str) -> Value {
+    const SHOWN: usize = 8;
+    let db = match db::Db::open(&cfg.data_dir) {
+        Ok(d) => d,
+        Err(e) => return error(e),
+    };
+    let (Ok(movies), Ok(series)) = (db.search_movies(query, 2000), db.search_series(query, 2000)) else {
+        return error("couldn't read the movie and series list");
+    };
+    let languages: Vec<String> = match language.trim().to_uppercase().as_str() {
+        "" => vec!["QC".into(), "FR".into(), "EN".into()],
+        "ALL" => vec![],
+        l => l.split([',', ' ']).filter(|c| !c.is_empty()).map(str::to_string).collect(),
+    };
+    let wanted = |t: &Title| languages.is_empty() || languages.contains(&t.language);
+    // Exact title first, then titles starting with it, then the rest; QC before FR before EN.
+    let q = query.trim().to_lowercase();
+    let rank = |t: &Title| {
+        let title = t.title.to_lowercase();
+        let fit = if title == q { 0 } else if title.starts_with(&q) { 1 } else { 2 };
+        (fit, languages.iter().position(|l| *l == t.language).unwrap_or(99), title)
+    };
+
+    let mut found_movies: Vec<(Title, &db::Movie)> = movies.iter().map(|m| (Title::parse(&m.name), m)).filter(|(t, _)| wanted(t)).collect();
+    found_movies.sort_by_key(|(t, _)| rank(t));
+    let mut found_series: Vec<(Title, &db::Series)> = series.iter().map(|s| (Title::parse(&s.name), s)).filter(|(t, _)| wanted(t)).collect();
+    found_series.sort_by_key(|(t, _)| rank(t));
+
+    let movie_rows: Vec<Value> = found_movies.iter().take(SHOWN).map(|(t, m)| json!({
+        "title": t.title, "language": t.language, "4k": t.uhd,
+        "year": m.year.clone().or_else(|| t.year.clone()), "category": m.category, "genre": m.genre, "rating": m.rating,
+    })).collect();
+    // Seasons and episodes only for the top few: each one not seen before is a provider call.
+    let series_rows: Vec<Value> = found_series.iter().take(SHOWN).enumerate().map(|(i, (t, s))| {
+        let mut row = json!({ "title": t.title, "language": t.language, "category": s.category, "genre": s.genre, "rating": s.rating });
+        if i < 3 {
+            row["plot"] = json!(s.plot.as_ref().map(|p| p.chars().take(200).collect::<String>()));
+            if let Some((seasons, episodes)) = season_count(cfg, &db, s.series_id) {
+                row["seasons"] = json!(seasons);
+                row["episodes"] = json!(episodes);
+            }
+        }
+        row
+    }).collect();
+    json!({
+        "movies": movie_rows, "movies_found": found_movies.len(),
+        "series": series_rows, "series_found": found_series.len(),
+        "languages": if languages.is_empty() { json!("all") } else { json!(languages) },
+        "list_age_days": status::catalog_age_minutes(&cfg.data_dir).map(|m| m / (24 * 60)),
+    })
+}
+
+/// (seasons, episodes) from the saved episode list, fetching it once if needed.
+fn season_count(cfg: &Config, db: &db::Db, series_id: i64) -> Option<(usize, usize)> {
+    let mut episodes = db.episodes(series_id).ok()?;
+    if episodes.is_empty() {
+        crate::provider::fetch_episodes(cfg, series_id).ok()?;
+        episodes = db.episodes(series_id).ok()?;
+    }
+    let mut seasons: Vec<i64> = episodes.iter().map(|e| e.season).collect();
+    seasons.dedup();
+    Some((seasons.len(), episodes.len()))
+}
+
+/// "4K-FR - Dune  (2021)" → title "Dune", language "FR", 4K, year 2021.
+struct Title {
+    title: String,
+    language: String,
+    uhd: bool,
+    year: Option<String>,
+}
+
+impl Title {
+    fn parse(name: &str) -> Title {
+        let (uhd, rest) = match name.strip_prefix("4K-") {
+            Some(r) => (true, r),
+            None => (false, name),
+        };
+        let (language, rest) = match rest.split_once(" - ") {
+            Some((code, r)) if code.len() <= 4 && code.chars().all(|c| c.is_ascii_uppercase()) => (code.to_string(), r),
+            _ => (String::new(), rest),
+        };
+        let mut title = rest.trim().to_string();
+        let mut year = None;
+        if let Some((before, after)) = title.rsplit_once('(') {
+            let y = after.trim_end_matches(')');
+            if y.len() == 4 && y.chars().all(|c| c.is_ascii_digit()) {
+                year = Some(y.to_string());
+                title = before.trim().to_string();
+            }
+        }
+        Title { title, language, uhd, year }
+    }
+}
+
 pub fn list_schedules(cfg: &Config) -> Value {
     json!(schedules::list(&cfg.data_dir))
 }
@@ -458,4 +555,20 @@ pub fn history(cfg: &Config, limit: usize) -> Vec<Value> {
 
 fn file_name(path: &str) -> String {
     Path::new(path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Title;
+
+    #[test]
+    fn titles_lose_their_language_4k_and_year() {
+        let t = Title::parse("4K-FR - Dune  (2021)");
+        assert_eq!((t.title.as_str(), t.language.as_str(), t.uhd, t.year.as_deref()), ("Dune", "FR", true, Some("2021")));
+        let t = Title::parse("FR - Breaking Bad");
+        assert_eq!((t.title.as_str(), t.language.as_str(), t.uhd, t.year), ("Breaking Bad", "FR", false, None));
+        let t = Title::parse("IT - Breaking Bad (2008) (US)");
+        assert_eq!((t.title.as_str(), t.language.as_str()), ("Breaking Bad (2008) (US)", "IT"));
+        assert_eq!(Title::parse("Some Show").language, "");
+    }
 }

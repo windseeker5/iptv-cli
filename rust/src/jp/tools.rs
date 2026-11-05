@@ -38,6 +38,12 @@ fn tools() -> Vec<Tool> {
           json!({ "include_guide": { "type": "boolean" } }), &[]),
         t("whats_on", "What's on a channel now and next (guide), by stream_id.",
           json!({ "stream_id": { "type": "integer" }, "channel_name": { "type": "string" } }), &["stream_id"]),
+        t("find_title",
+          "Search the provider's movies and TV series by title (e.g. 'dune', 'breaking bad', 'les boys'). Returns the \
+           best matches (title, language code, 4k, year, category, genre, rating; for the top series also seasons and \
+           episodes) and how many matched in all. Languages default to QC, FR and EN; pass `language` like 'ES' or \
+           'DE,IT', or 'all'. Use it for ANY question about a movie or a series, never find_channel.",
+          json!({ "query": { "type": "string" }, "language": { "type": "string" } }), &["query"]),
         t("maxime_games",
           "Maxime's hockey games (UMass Minutemen): the next games with local time, home/away, opponent, TV network, and \
            for games in the next 3 days the channels WE have for it (ESPN+ event channels, guide matches) with stream_id; \
@@ -132,6 +138,7 @@ fn call(cfg: &Config, who: &Who, name: &str, args: &Value) -> Value {
         "find_channel" => a::find_channel(cfg, s("query")),
         "refresh_channels" => a::refresh_channels(cfg, b("include_guide").unwrap_or(false)),
         "whats_on" => a::whats_on(cfg, n("stream_id", 0)),
+        "find_title" => a::find_title(cfg, s("query"), s("language")),
         "maxime_games" => crate::maxime::games(cfg, n("upcoming", 3).max(0) as usize, n("past", 1).max(0) as usize),
         "qmjhl_games" => crate::qmjhl::games(cfg, s("player"), n("upcoming", 3).max(0) as usize, n("past", 1).max(0) as usize),
         "list_schedules" => a::list_schedules(cfg),

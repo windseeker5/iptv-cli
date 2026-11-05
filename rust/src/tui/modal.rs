@@ -39,6 +39,8 @@ pub enum Action {
     Refresh { guide: bool, everything: bool },
     /// `c` in Downloads: take the finished ones off the list.
     ClearFinished,
+    /// `d` in Library: delete the file from disk.
+    DeleteFile(Media),
     /// `c` in Recordings: forget the recent recordings (the videos stay).
     ClearRuns,
     /// `f`: add to My list, or take out of it.

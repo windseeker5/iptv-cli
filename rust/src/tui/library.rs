@@ -63,7 +63,7 @@ impl App {
                     label_value("Date", when(m.modified), FG),
                     label_value("Folder", m.path.parent().map(|p| p.display().to_string()).unwrap_or_default(), DIM),
                 ],
-                vec![("↵", "play".to_string())],
+                vec![("↵", "play".to_string()), ("d", "delete".to_string())],
             ),
             None => (vec![], vec![]),
         };
@@ -76,8 +76,10 @@ impl App {
         if move_in(&mut self.library_list, key.code, keys.len()) {
             return None;
         }
+        let media = keys.get(self.library_list.selected().unwrap_or(0)).and_then(|i| self.media.get(*i)).cloned();
         match key.code {
-            KeyCode::Enter => keys.get(self.library_list.selected().unwrap_or(0)).and_then(|i| self.media.get(*i)).cloned().map(Action::PlayFile),
+            KeyCode::Enter => media.map(Action::PlayFile),
+            KeyCode::Char('d') => media.map(Action::DeleteFile),
             _ => None,
         }
     }

@@ -352,6 +352,10 @@ impl App {
             }),
             Action::ClearRuns => self.spawn(|cfg| Ok(Done::Message(format!("Cleared {} past recording(s) from the list; the videos stay", runs::clear(&cfg.data_dir)?)))),
             Action::ClearFinished => self.spawn(|cfg| Ok(Done::Message(format!("Cleared {} finished download(s) from the list", dl::clear_finished(cfg)?)))),
+            Action::DeleteFile(m) => self.spawn(move |cfg| {
+                media::delete(cfg, &m.path)?;
+                Ok(Done::Message(format!("Deleted {}", m.name)))
+            }),
             Action::DownloadYouTube { video, audio } => self.spawn(move |cfg| {
                 dl::add_youtube(cfg, &video, audio)?;
                 Ok(Done::Message(format!("Queued {} (see Downloads)", video.title)))
@@ -405,7 +409,8 @@ impl App {
             Action::DeleteSchedule(_) => Some("Delete this schedule? Its timer is removed too.".into()),
             Action::CancelDownload(_) => Some("Cancel this download? The partial file is removed.".into()),
             Action::ClearRuns => Some("Clear the recent recordings list? Only the list goes: the recorded videos stay where they are.".into()),
-            Action::ClearFinished => Some("Clear the done, failed and cancelled downloads from this list? Files on disk stay.".into()),
+            Action::ClearFinished => Some("Clear the done, failed and cancelled downloads from this list? Finished files stay; partial files of failed downloads are removed.".into()),
+            Action::DeleteFile(m) => Some(format!("Delete {} ({}) from disk? This can't be undone.", m.name, crate::library::human_size(m.size))),
             Action::DownloadEpisodes { episodes, what, .. } if episodes.len() > 1 => {
                 Some(format!("Download {what}: {} episodes, one at a time? Each one is a large file.", episodes.len()))
             }

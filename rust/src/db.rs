@@ -189,6 +189,7 @@ pub struct Movie {
     pub year: Option<String>,
     pub rating: Option<f64>,
     pub genre: Option<String>,
+    pub category: Option<String>,
     #[serde(skip)]
     extension: String,
 }
@@ -222,7 +223,8 @@ pub struct Episode {
     pub duration: Option<String>,
 }
 
-const MOVIE_COLUMNS: &str = "stream_id, name, year, rating, genre, stream_url";
+const MOVIE_COLUMNS: &str = "stream_id, name, year, rating, genre, stream_url,
+    (SELECT category_name FROM vod_categories c WHERE c.category_id = vod_streams.category_id)";
 const SERIES_COLUMNS: &str = "series_id, name, plot, \"cast\", genre, rating, category_name";
 const EPISODE_COLUMNS: &str = "episode_id, series_id, season_number, episode_num, title, container_extension, air_date, duration";
 
@@ -388,6 +390,7 @@ fn movie_from_row(r: &rusqlite::Row) -> rusqlite::Result<Movie> {
         year: r.get::<_, Option<String>>(2)?.filter(|y| !y.is_empty()),
         rating: r.get(3).ok().flatten(),
         genre: r.get::<_, Option<String>>(4)?.filter(|g| !g.is_empty()),
+        category: r.get::<_, Option<String>>(6)?.filter(|c| !c.is_empty()),
         extension,
     })
 }

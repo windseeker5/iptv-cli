@@ -79,6 +79,16 @@ fn walk(dir: &Path, f: &mut dyn FnMut(&Path)) {
     }
 }
 
+/// Delete a file the Library lists; nothing outside it.
+pub fn delete(cfg: &Config, path: &Path) -> anyhow::Result<()> {
+    if !list(cfg).iter().any(|m| m.path == path) {
+        anyhow::bail!("{} is not in the Library", path.display());
+    }
+    std::fs::remove_file(path)?;
+    crate::log::event(cfg, "library.delete", serde_json::json!({ "path": path }));
+    Ok(())
+}
+
 /// 3_500_000_000 → "3.3 GB"
 pub fn human_size(bytes: u64) -> String {
     let units = ["B", "KB", "MB", "GB", "TB"];
