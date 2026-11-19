@@ -60,7 +60,13 @@ pub enum Source {
         #[serde(default)]
         series_id: Option<i64>,
     },
-    YouTube { url: String, audio: bool },
+    /// `best`: the highest quality (4K when there is one), ready for editing.
+    YouTube {
+        url: String,
+        audio: bool,
+        #[serde(default)]
+        best: bool,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -207,8 +213,8 @@ pub fn add_episodes(cfg: &Config, series_name: &str, episodes: &[Episode]) -> Re
     Ok(jobs)
 }
 
-pub fn add_youtube(cfg: &Config, video: &Video, audio: bool) -> Result<Job> {
-    let job = add(cfg, video.title.clone(), Source::YouTube { url: video.url.clone(), audio }, youtube_dir(cfg))?;
+pub fn add_youtube(cfg: &Config, video: &Video, audio: bool, best: bool) -> Result<Job> {
+    let job = add(cfg, video.title.clone(), Source::YouTube { url: video.url.clone(), audio, best }, youtube_dir(cfg))?;
     ensure_worker(cfg)?;
     Ok(job)
 }
@@ -302,9 +308,9 @@ pub fn worker(cfg: &Config) -> Result<()> {
             continue;
         };
         let result = match &job.source {
-            Source::YouTube { url, audio } => {
-                let (url, audio) = (url.clone(), *audio);
-                download_youtube(cfg, &mut job, &url, audio)
+            Source::YouTube { url, audio, best } => {
+                let (url, audio, best) = (url.clone(), *audio, *best);
+                download_youtube(cfg, &mut job, &url, audio, best)
             }
             _ => download(cfg, &mut job),
         };
@@ -476,7 +482,7 @@ fn download(cfg: &Config, job: &mut Job) -> Result<()> {
 }
 
 /// Download one YouTube video (or its audio) with yt-dlp, reading its progress lines.
-fn download_youtube(cfg: &Config, job: &mut Job, url: &str, audio: bool) -> Result<()> {
+fn download_youtube(cfg: &Config, job: &mut Job, url: &str, audio: bool, best: bool) -> Result<()> {
     let dir = youtube_dir(cfg);
     std::fs::create_dir_all(&dir)?;
     job.state = State::Downloading;
@@ -485,13 +491,19 @@ fn download_youtube(cfg: &Config, job: &mut Job, url: &str, audio: bool) -> Resu
     crate::log::event(cfg, "download.start", json!({ "id": job.id, "title": job.title }));
 
     let mut cmd = Command::new("yt-dlp");
-    cmd.args(["--newline", "--no-playlist", "--socket-timeout", "30", "--extractor-args", "youtube:player_client=android,web,tv"])
-        .args(["--print", "after_move:filepath", "-o"])
-        .arg(dir.join("%(title)s.%(ext)s"));
+    // yt-dlp's own choice of YouTube clients: forcing them got only 360p.
+    cmd.args(["--newline", "--no-playlist", "--no-update", "--socket-timeout", "30", "--print", "after_move:filepath", "-o"]);
     if audio {
-        cmd.args(["-x", "--audio-format", "mp3"]);
+        cmd.arg(dir.join("%(title)s.%(ext)s")).args(["-x", "--audio-format", "mp3"]);
+    } else if best {
+        // The biggest picture, SDR, AV1 when there's a choice (Resolve Studio
+        // reads it, the GPU decodes it); `to_resolve` fixes the sound after.
+        cmd.arg(dir.join("%(title)s [%(height)sp].%(ext)s"))
+            .args(["-f", "bv*+ba/b", "-S", "res,fps,hdr:sdr,vcodec:av01", "--merge-output-format", "mkv"]);
     } else {
-        cmd.args(["-f", "bestvideo[height<=1080]+bestaudio/best", "--merge-output-format", "mp4"]);
+        // Up to 1080p in H.264 and AAC, so it plays on every TV and phone.
+        cmd.arg(dir.join("%(title)s.%(ext)s"))
+            .args(["-f", "bv*+ba/b", "-S", "res:1080,vcodec:h264,acodec:aac", "--merge-output-format", "mp4"]);
     }
     let mut child = cmd.arg(url).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().context("starting yt-dlp")?;
 
@@ -526,11 +538,101 @@ fn download_youtube(cfg: &Config, job: &mut Job, url: &str, audio: bool) -> Resu
         }
         bail!("yt-dlp: {}", err.lines().rfind(|l| l.contains("ERROR")).unwrap_or(err.trim()));
     }
-    if let Some(path) = final_path {
+    if let Some(mut path) = final_path {
+        if best {
+            match to_resolve(cfg, job, Path::new(&path))? {
+                Some(ready) => path = ready,
+                None => return Ok(()), // cancelled while converting
+            }
+        }
         job.bytes = file_size(Path::new(&path));
         job.output = path;
     }
     finish(cfg, job)
+}
+
+/// The container for best-quality downloads. AV1 can't go in a .mov.
+const BEST_EXT: &str = "mp4";
+
+/// Get a best-quality download ready for DaVinci Resolve Studio on Linux.
+/// AV1 (most 4K) and H.264 keep their picture untouched; VP9, which Resolve
+/// won't open, becomes H.265 on the processor (the GPU froze the desktop with
+/// Resolve open), at low priority so the PC stays usable. The sound always becomes
+/// plain PCM, which Resolve on Linux reads (YouTube's Opus/AAC it may not).
+/// `None` when the job was cancelled meanwhile.
+fn to_resolve(cfg: &Config, job: &mut Job, src: &Path) -> Result<Option<String>> {
+    let codec = probe(src, "stream=codec_name", "v:0");
+    let video: &[&str] = if resolve_reads(&codec) {
+        &["-c:v", "copy"]
+    } else {
+        &["-c:v", "libx265", "-preset", "fast", "-crf", "18", "-tag:v", "hvc1"]
+    };
+    let seconds: f64 = probe(src, "format=duration", "").parse().unwrap_or(0.0);
+    let out = src.with_extension(format!("resolve.{BEST_EXT}"));
+    let mut child = Command::new("nice")
+        .args(["-n", "15", "ffmpeg", "-v", "error", "-nostats", "-progress", "pipe:1", "-y", "-i"])
+        .arg(src)
+        .args(["-map", "0:v:0", "-map", "0:a:0?"])
+        .args(video)
+        .args(["-c:a", "pcm_s16le", "-movflags", "+faststart"])
+        .arg(&out)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("starting ffmpeg")?;
+    crate::log::event(cfg, "download.convert", json!({ "id": job.id, "codec": codec }));
+    let mut last_save = std::time::Instant::now();
+    if let Some(stdout) = child.stdout.take() {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            // "out_time_us=12345678": how far into the video ffmpeg is.
+            let Some(us) = line.strip_prefix("out_time_us=").and_then(|v| v.parse::<f64>().ok()) else { continue };
+            if seconds > 0.0 && last_save.elapsed() > Duration::from_secs(2) {
+                job.percent = Some((us / 1e6 / seconds * 100.0).clamp(0.0, 100.0));
+                if load(cfg, &job.id).is_some_and(|j| j.state == State::Cancelled) {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = std::fs::remove_file(&out);
+                    return Ok(None);
+                }
+                save(cfg, job)?;
+                last_save = std::time::Instant::now();
+            }
+        }
+    }
+    let status = child.wait()?;
+    if !status.success() {
+        let mut err = String::new();
+        if let Some(mut e) = child.stderr.take() {
+            let _ = std::io::Read::read_to_string(&mut e, &mut err);
+        }
+        let _ = std::fs::remove_file(&out);
+        bail!("ffmpeg couldn't prepare the file for Resolve: {}", err.lines().last().unwrap_or("").trim());
+    }
+    let done = src.with_extension(BEST_EXT);
+    std::fs::rename(&out, &done)?;
+    if done != src {
+        std::fs::remove_file(src)?;
+    }
+    Ok(Some(done.to_string_lossy().into_owned()))
+}
+
+/// Video formats Resolve Studio on Linux opens as they are.
+fn resolve_reads(codec: &str) -> bool {
+    matches!(codec, "av1" | "h264" | "hevc")
+}
+
+/// One value from ffprobe, e.g. `stream=codec_name` of `v:0`; empty when unknown.
+fn probe(file: &Path, entry: &str, stream: &str) -> String {
+    let mut cmd = Command::new("ffprobe");
+    cmd.args(["-v", "error", "-show_entries", entry, "-of", "csv=p=0"]);
+    if !stream.is_empty() {
+        cmd.args(["-select_streams", stream]);
+    }
+    cmd.arg(file)
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).lines().next().unwrap_or("").trim().to_string())
+        .unwrap_or_default()
 }
 
 fn file_size(p: &Path) -> u64 {

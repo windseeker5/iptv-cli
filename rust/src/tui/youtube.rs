@@ -70,8 +70,9 @@ impl YouTube {
         let video = self.list.selected().and_then(|i| self.videos.get(i)).cloned();
         match key.code {
             KeyCode::Enter => video.map(Action::PlayYouTube),
-            KeyCode::Char('d') => video.map(|v| Action::DownloadYouTube { video: v, audio: false }),
-            KeyCode::Char('a') => video.map(|v| Action::DownloadYouTube { video: v, audio: true }),
+            KeyCode::Char('d') => video.map(|v| Action::DownloadYouTube { video: v, audio: false, best: false }),
+            KeyCode::Char('D') => video.map(|v| Action::DownloadYouTube { video: v, audio: false, best: true }),
+            KeyCode::Char('a') => video.map(|v| Action::DownloadYouTube { video: v, audio: true, best: false }),
             code => {
                 move_in(&mut self.list, code, self.videos.len());
                 None
@@ -80,7 +81,7 @@ impl YouTube {
     }
 
     pub fn hints(&self) -> &'static str {
-        if self.typing { "type, then ↵ to search  esc done" } else { "↵ watch  d download  a audio  / new search" }
+        if self.typing { "type, then ↵ to search  esc done" } else { "↵ watch  d download  D best (4K)  a audio  / new search" }
     }
 
     pub fn draw(&mut self, f: &mut Frame, list: Rect, detail: Rect, focused: bool, wide: bool) {
@@ -134,7 +135,7 @@ impl YouTube {
                     Line::raw(""),
                     Line::from(dim(v.url.clone())),
                 ],
-                vec![("↵", "watch".to_string()), ("d", "download video".to_string()), ("a", "audio only (mp3)".to_string())],
+                vec![("↵", "watch".to_string()), ("d", "download video".to_string()), ("D", "best (4K)".to_string()), ("a", "audio only (mp3)".to_string())],
             ),
             _ => (vec![Line::from("YouTube").bold(), Line::raw(""), Line::from(dim("Watch in mpv, or download the video or just its audio. Downloads go to the Library."))], vec![]),
         };

@@ -356,8 +356,8 @@ impl App {
                 media::delete(cfg, &m.path)?;
                 Ok(Done::Message(format!("Deleted {}", m.name)))
             }),
-            Action::DownloadYouTube { video, audio } => self.spawn(move |cfg| {
-                dl::add_youtube(cfg, &video, audio)?;
+            Action::DownloadYouTube { video, audio, best } => self.spawn(move |cfg| {
+                dl::add_youtube(cfg, &video, audio, best)?;
                 Ok(Done::Message(format!("Queued {} (see Downloads)", video.title)))
             }),
             Action::CancelDownload(id) => self.spawn(move |cfg| {

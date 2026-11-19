@@ -34,7 +34,7 @@ pub enum Action {
     DownloadMovie(Movie),
     /// `what` names the batch for the question: "season 3", "all 12 seasons".
     DownloadEpisodes { series: String, episodes: Vec<Episode>, what: String },
-    DownloadYouTube { video: Video, audio: bool },
+    DownloadYouTube { video: Video, audio: bool, best: bool },
     CancelDownload(String),
     Refresh { guide: bool, everything: bool },
     /// `c` in Downloads: take the finished ones off the list.
@@ -125,7 +125,8 @@ impl Modal {
             key("s  D", "download this season · every season"),
             Line::raw(""),
             heading("YOUTUBE"),
-            key("↵  d", "watch · download"),
+            key("↵  d", "watch · download (1080p, plays everywhere)"),
+            key("D", "download the best quality, 4K when there is one (for Resolve)"),
             key("a", "download the audio only (mp3)"),
             Line::raw(""),
             heading("RECORDINGS · DOWNLOADS · ACCOUNT"),
