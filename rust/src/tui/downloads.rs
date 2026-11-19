@@ -95,6 +95,7 @@ impl App {
                     Source::Movie { .. } => "Movie",
                     Source::Episode { .. } => "Episode",
                     Source::YouTube { audio: true, .. } => "YouTube audio",
+                    Source::YouTube { best: true, .. } => "YouTube best (4K)",
                     Source::YouTube { .. } => "YouTube video",
                 };
                 let mut lines = vec![Line::from(Span::styled(label.to_uppercase(), Style::new().fg(color).bold())), Line::from(j.title.clone()).bold(), Line::raw("")];

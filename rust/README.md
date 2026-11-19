@@ -26,7 +26,7 @@ every key; the bottom-right corner always shows the keys that work right now.
 | 1 | Search | live, movies, series and YouTube in one box | type · ↵ open |
 | 2 | My list | what you saved: channels (what's on, time left), movies and series together | f remove · channel: ↵ watch · r record · n next · s restream · x stop restream |
 | 3 | All | the provider's lists: Live, Movies, Series, then its categories; ♥ marks what's saved | f save · movie: ↵ watch · d download · series: [ ] season · d / s / D download episode, season, all |
-| 4 | YouTube | search, watch, download | ↵ watch · d video · a audio |
+| 4 | YouTube | search, watch, download | ↵ watch · d video · D best (4K, for Resolve) · a audio |
 | 5 | Recordings | now, schedules, recent | x stop · space pause · d delete · c clear recent (the videos stay) |
 | 6 | Downloads | the queue, one at a time; saved in USB_DOWNLOADS_PATH, a desktop notification when each is done or fails | x cancel · c clear finished (and the partial files of failed ones) |
 | 7 | Library | what kdtv saved: recordings, downloads, YouTube | ↵ play · d delete the file (asks first) |

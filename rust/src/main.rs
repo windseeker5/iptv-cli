@@ -289,11 +289,13 @@ enum DownloadCmd {
         #[arg(long)]
         season: Option<i64>,
     },
-    /// A YouTube video (add --audio for an mp3)
+    /// A YouTube video (add --audio for an mp3, --best for 4K ready for Resolve)
     Youtube {
         url: String,
-        #[arg(long)]
+        #[arg(long, conflicts_with = "best")]
         audio: bool,
+        #[arg(long)]
+        best: bool,
     },
 }
 
@@ -525,9 +527,9 @@ fn run(cli: Cli) -> Result<()> {
                     let chosen: Vec<_> = all.into_iter().filter(|e| season.is_none_or(|s| e.season == s)).collect();
                     downloads::add_episodes(&cfg, &series.name, &chosen)?
                 }
-                DownloadCmd::Youtube { url, audio } => {
+                DownloadCmd::Youtube { url, audio, best } => {
                     let video = youtube::Video { id: String::new(), title: url.clone(), channel: String::new(), duration: 0, url };
-                    vec![downloads::add_youtube(&cfg, &video, audio)?]
+                    vec![downloads::add_youtube(&cfg, &video, audio, best)?]
                 }
             };
             print(json, &jobs, || {
