@@ -71,7 +71,7 @@ The Docker stack in the DEV folder reads a few more (ports, domains); see
 | `kdcli-refresh-channels.timer` | `kdtv refresh`, hourly |
 | `kdcli-refresh-guide.timer` | `kdtv refresh --guide`, twice a day |
 | `kdcli-preflight.timer` | `kdtv preflight`, every 10 minutes |
-| `kdcli-refresh-maxime.timer` | `kdtv maxime --refresh`, twice a day (for JP) |
+| `kdcli-refresh-maxime.timer` | `kdtv maxim --refresh`, twice a day (for JP) |
 | `kdcli-refresh-qmjhl.timer` | `kdtv qmjhl --refresh`, three times a day: Justin Gagnon's Océanic games (for JP) |
 | `kdcli-agent-runner.service` | `kdtv jp-runner`, JP's bridge to the OMT site |
 

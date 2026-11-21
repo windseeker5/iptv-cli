@@ -15,7 +15,7 @@ mod jobs;
 mod jp;
 mod library;
 mod log;
-mod maxime;
+mod maxim;
 mod notify;
 mod os;
 mod pipeline;
@@ -200,9 +200,9 @@ enum Cmd {
         #[arg(long, value_name = "ID")]
         now: Option<String>,
     },
-    /// Maxime's next UMass games and where to watch them
-    #[command(hide = true)]
-    Maxime {
+    /// Maxim's next UMass games and where to watch them
+    #[command(hide = true, alias = "maxime")]
+    Maxim {
         /// Download the official schedule first
         #[arg(long)]
         refresh: bool,
@@ -658,16 +658,16 @@ fn run(cli: Cli) -> Result<()> {
             }
             Ok(())
         }
-        Cmd::Maxime { refresh } => {
+        Cmd::Maxim { refresh } => {
             if refresh {
-                let result = maxime::refresh(&cfg)?;
+                let result = maxim::refresh(&cfg)?;
                 println!("{result}");
                 if result["ok"] != true {
                     std::process::exit(1);
                 }
                 return Ok(());
             }
-            println!("{}", serde_json::to_string_pretty(&maxime::games(&cfg, 3, 1))?);
+            println!("{}", serde_json::to_string_pretty(&maxim::games(&cfg, 3, 1))?);
             Ok(())
         }
         Cmd::Qmjhl { refresh, player } => {

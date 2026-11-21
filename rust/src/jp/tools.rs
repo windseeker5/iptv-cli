@@ -44,11 +44,11 @@ fn tools() -> Vec<Tool> {
            episodes) and how many matched in all. Languages default to QC, FR and EN; pass `language` like 'ES' or \
            'DE,IT', or 'all'. Use it for ANY question about a movie or a series, never find_channel.",
           json!({ "query": { "type": "string" }, "language": { "type": "string" } }), &["query"]),
-        t("maxime_games",
-          "Maxime's hockey games (UMass Minutemen): the next games with local time, home/away, opponent, TV network, and \
+        t("maxim_games",
+          "Maxim's hockey games (UMass Minutemen): the next games with local time, home/away, opponent, TV network, and \
            for games in the next 3 days the channels WE have for it (ESPN+ event channels, guide matches) with stream_id; \
            plus the latest results and the team record. Official schedule, refreshed every morning. Use it for ANY \
-           question about Maxime/Max/UMass games, before find_channel.",
+           question about Maxim/Max/UMass games, before find_channel.",
           json!({ "upcoming": { "type": "integer" }, "past": { "type": "integer" } }), &[]),
         t("qmjhl_games",
           "Justin Gagnon's hockey games (Rimouski Océanic, QMJHL / LHJMQ): the next games with local time, home/away, \
@@ -139,7 +139,7 @@ fn call(cfg: &Config, who: &Who, name: &str, args: &Value) -> Value {
         "refresh_channels" => a::refresh_channels(cfg, b("include_guide").unwrap_or(false)),
         "whats_on" => a::whats_on(cfg, n("stream_id", 0)),
         "find_title" => a::find_title(cfg, s("query"), s("language")),
-        "maxime_games" => crate::maxime::games(cfg, n("upcoming", 3).max(0) as usize, n("past", 1).max(0) as usize),
+        "maxim_games" => crate::maxim::games(cfg, n("upcoming", 3).max(0) as usize, n("past", 1).max(0) as usize),
         "qmjhl_games" => crate::qmjhl::games(cfg, s("player"), n("upcoming", 3).max(0) as usize, n("past", 1).max(0) as usize),
         "list_schedules" => a::list_schedules(cfg),
         "recent_recordings" => a::recent_recordings(cfg),
