@@ -47,7 +47,9 @@ jobs:
       - name: Test the zip end to end
         run: ./windows/test/smoke.ps1 -Zip kdtv-windows.zip
 
+      # Kept even when the end-to-end test fails, to try it by hand.
       - uses: actions/upload-artifact@v4
+        if: always() && hashFiles('kdtv-windows.zip') != ''
         with:
           name: kdtv-windows
           path: kdtv-windows.zip

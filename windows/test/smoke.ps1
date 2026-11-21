@@ -55,8 +55,10 @@ try {
     Check ($channels.channels.Count -ge 1) "channel list downloaded"
 
     Step "Record now, then stop"
+    $clock = [Diagnostics.Stopwatch]::StartNew()
     $started = KdJson record 101 --minutes 2
     Write-Host "  $($started.unit) -> $($started.output)"
+    Check ($clock.Elapsed.TotalSeconds -lt 15) "kdtv record hands back right away ($([int]$clock.Elapsed.TotalSeconds) s)"
     Start-Sleep 10
     $status = KdJson status
     Check ($status.recording.Count -eq 1) "the recording runs in the background"
