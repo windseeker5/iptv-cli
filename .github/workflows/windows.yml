@@ -1,0 +1,59 @@
+# kdtv for Windows: built, checked and tested on a real Windows machine, then
+# packed into kdtv-windows.zip with FFmpeg, mpv and yt-dlp. A tag like
+# windows-v1 also publishes the zip as a GitHub Release.
+name: Windows
+
+on:
+  push:
+    branches: [main, windows-lite]
+    tags: ["windows-v*"]
+    paths: ["rust/**", "windows/**", ".github/workflows/windows.yml"]
+  pull_request:
+    paths: ["rust/**", "windows/**", ".github/workflows/windows.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Lint
+        working-directory: rust
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Tests
+        working-directory: rust
+        run: cargo test
+      - name: Build
+        working-directory: rust
+        run: cargo build --release
+
+      - name: Pack the zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./windows/package.ps1
+      - name: Test the zip end to end
+        run: ./windows/test/smoke.ps1 -Zip kdtv-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kdtv-windows
+          path: kdtv-windows.zip
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/windows-v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "${{ github.ref_name }}" kdtv-windows.zip --title "kdtv for Windows (${{ github.ref_name }})" --notes-file windows/README.txt

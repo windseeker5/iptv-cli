@@ -17,6 +17,9 @@ Python engine and the Textual TUI it replaced are in git history only.
 - `data/`: runtime database, schedules, recording diary (`runs/`), logs,
   downloads, fallback recordings, JP's state (`agent/`).
 - `nginx/`: the NGINX-RTMP image and the pages it serves for the restream.
+- `windows/`: kdtv lite for Windows (a friend's PC): the zip's packaging script,
+  its README and an end-to-end test against a pretend provider. Built and
+  tested by `.github/workflows/windows.yml`; see "Windows" in `rust/README.md`.
 - Docker: the shared `../../docker-compose.yml` (the DEV folder, two levels up)
   runs Caddy, Jellyfin, NGINX-RTMP, tv-counter, OMT and Ollama; the OMT
   container reaches JP's runner through `data/agent/run/runner.sock`.
@@ -28,6 +31,9 @@ Python engine and the Textual TUI it replaced are in git history only.
 - Every recording, now or scheduled, runs `kdtv` inside a systemd unit
   (`kdcli-rec-*` or `kdcli-now-*`) and writes a diary in `data/runs/`.
 - After installing `kdtv` somewhere new, run `kdtv schedule repair`.
+- Windows (and `profile = "lite"`) has no systemd: jobs are kdtv's own processes
+  and schedules only run while the TUI is open. Keep Linux-only code behind
+  `#[cfg(unix)]` or `os.rs`/`jobs.rs` so the Windows build keeps compiling.
 - User state under `data/`, configured media paths, and Jellyfin directories
   must not be deleted or overwritten without explicit permission.
 - `favorites_seed.json` is a credential-free export; `data/favorites.json` is

@@ -153,6 +153,8 @@ pub struct Watch {
     saved: HashSet<(Kind, i64)>,
     /// Set when the user opened a series whose episodes still need downloading.
     pub wants_episodes: Option<i64>,
+    /// kdtv on its own (Windows): no restream.
+    pub lite: bool,
 }
 
 impl Default for Watch {
@@ -167,6 +169,7 @@ impl Default for Watch {
             episode_state: HashMap::new(),
             saved: HashSet::new(),
             wants_episodes: None,
+            lite: false,
         }
     }
 }
@@ -460,6 +463,7 @@ impl Watch {
                     let episodes: Vec<Episode> = self.season_episodes().into_iter().cloned().collect();
                     (!episodes.is_empty()).then(|| Action::DownloadEpisodes { series: series.name.clone(), episodes, what: format!("season {season}") })
                 }
+                _ if self.lite => None,
                 _ => self.selected_channel().map(|channel| Action::RestreamStart { channel, replace: false }),
             },
             KeyCode::Char('D') => match &self.level.view {
@@ -550,6 +554,7 @@ impl Watch {
         match (&self.level.view, &item) {
             (View::Kinds | View::Categories(..), _) => "↵ open  / search  ← back".into(),
             (View::Episodes { .. }, _) => format!("↵ watch  [ ] season  d s D download{f}  ← back"),
+            (_, Some(Item::Channel(_))) if self.lite => format!("↵ watch  r record  n next{f}  / search"),
             (_, Some(Item::Channel(_))) if restream_live => format!("↵ watch  r record  s restream  x stop restream{f}"),
             (_, Some(Item::Channel(_))) => format!("↵ watch  r record  s restream  n next{f}  / search"),
             (_, Some(Item::Movie(_))) => format!("↵ watch  d download{f}  / search"),
@@ -823,7 +828,9 @@ impl Watch {
             lines.push(Line::from(Span::styled("● Restreaming to the family", Style::new().fg(OK).bold())));
             lines.push(Line::from(format!("  {} · since {since}", watch_url.trim_start_matches("https://").trim_end_matches('/'))));
         }
-        let actions = if restreaming_here {
+        let actions = if self.lite {
+            vec![("↵", "watch".to_string()), ("r", "record".to_string()), ("n", "schedule next".to_string())]
+        } else if restreaming_here {
             vec![("↵", "watch".to_string()), ("r", "record".to_string()), ("x", "stop the restream".to_string()), ("n", "schedule next".to_string())]
         } else {
             vec![("↵", "watch".to_string()), ("r", "record".to_string()), ("s", "restream".to_string()), ("n", "schedule next".to_string())]

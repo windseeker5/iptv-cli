@@ -13,7 +13,7 @@
 
 use crate::config::{Config, RestreamVia};
 use crate::db::{Channel, Db};
-use crate::systemd;
+use crate::jobs;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -50,7 +50,7 @@ fn meta_file(data_dir: &Path) -> PathBuf {
 /// The restream running right now, if its FFmpeg is still alive.
 pub fn active(data_dir: &Path) -> Option<Active> {
     let meta: Active = serde_json::from_str(&std::fs::read_to_string(meta_file(data_dir)).ok()?).ok()?;
-    Path::new(&format!("/proc/{}", meta.pid)).exists().then_some(meta)
+    crate::os::alive(meta.pid).then_some(meta)
 }
 
 pub fn start(cfg: &Config, channel: &Channel, replace: bool) -> Result<Started> {
@@ -64,15 +64,15 @@ pub fn start(cfg: &Config, channel: &Channel, replace: bool) -> Result<Started> 
         ensure_nginx(cfg)?;
     }
     let replaced = current.map(|a| a.channel_name);
-    if replaced.is_some() || systemd::is_active(UNIT) {
+    if replaced.is_some() || jobs::is_active(UNIT) {
         stop(cfg)?;
     }
 
-    let exe = systemd::kdtv_exe()?;
+    let exe = jobs::kdtv_exe()?;
     let mut command = vec![exe.display().to_string()];
     command.extend(cfg.config_args());
     command.extend(["restream-worker".to_string(), channel.stream_id.to_string()]);
-    systemd::run(systemd::Run {
+    jobs::start(jobs::Run {
         unit: UNIT,
         description: &format!("KD restream: {}", channel.name),
         working_dir: &cfg.cli_dir,
@@ -88,7 +88,7 @@ pub fn start(cfg: &Config, channel: &Channel, replace: bool) -> Result<Started> 
         }
     }
     std::thread::sleep(std::time::Duration::from_millis(1500));
-    if !systemd::is_active(UNIT) || active(&cfg.data_dir).is_none() {
+    if !jobs::is_active(UNIT) || active(&cfg.data_dir).is_none() {
         bail!("the restream stopped right away; see the latest data/logs/restream_*.log");
     }
     crate::log::event(cfg, "restream.start", json!({ "stream_id": channel.stream_id, "channel": channel.name, "replaced": replaced }));
@@ -104,13 +104,13 @@ pub fn start(cfg: &Config, channel: &Channel, replace: bool) -> Result<Started> 
 /// Stop the restream, whether kd or the old Python side started it.
 pub fn stop(cfg: &Config) -> Result<Option<String>> {
     let current = active(&cfg.data_dir);
-    if systemd::is_active(UNIT) {
-        systemd::systemctl(&["stop", UNIT])?;
+    if jobs::is_active(UNIT) {
+        jobs::stop(UNIT)?;
     }
     if let Some(a) = &current
-        && Path::new(&format!("/proc/{}", a.pid)).exists()
+        && crate::os::alive(a.pid)
     {
-        let _ = Command::new("kill").arg(a.pid.to_string()).status();
+        crate::os::terminate(a.pid);
     }
     if let Some(a) = &current
         && cfg.restream_via == RestreamVia::Kdtv

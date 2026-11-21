@@ -45,3 +45,4 @@ Thumbs.db
 # Rust
 rust/target/
 kdtv.toml
+windows/test/files/

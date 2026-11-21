@@ -45,6 +45,8 @@ pub enum Action {
     ClearRuns,
     /// `f`: add to My list, or take out of it.
     ToggleSaved(crate::favorites::Saved),
+    /// `q` when kdtv is the one starting the schedules (Windows): asked first.
+    Quit,
 }
 
 pub enum Modal {
@@ -106,20 +108,24 @@ impl Modal {
         Modal::Message { title: title.into(), lines: vec![Line::from(Span::styled(text, Style::new().fg(color))), Line::raw(""), Line::from(dim("any key to close"))], color }
     }
 
-    pub fn help() -> Modal {
+    pub fn help(lite: bool) -> Modal {
         let key = |k: &str, what: &str| Line::from(vec![Span::styled(format!("{k:<12}"), Style::new().fg(ACCENT).bold()), Span::raw(what.to_string())]);
-        let lines = vec![
+        let mut lines = vec![
             heading("EVERYWHERE"),
             key("1 … 9", "jump to a section (Search is 1, Status is 9)"),
             key("/", "search"),
             key("tab", "switch between the menu and the list"),
             key("↑ ↓  → ←", "move · open · go back"),
-            key("q", "quit (recordings, restream and downloads keep going)"),
+            key("q", if lite { "quit (recordings and downloads keep going; schedules need kdtv open)" } else { "quit (recordings, restream and downloads keep going)" }),
             Line::raw(""),
             heading("MY LIST · ALL"),
             key("f", "save to My list · remove from it"),
             key("↵  r  n", "channel: watch · record · schedule the next show"),
-            key("s  x", "channel: restream for the family · stop the restream"),
+        ];
+        if !lite {
+            lines.push(key("s  x", "channel: restream for the family · stop the restream"));
+        }
+        lines.extend([
             key("↵  d", "movie or episode: watch · download"),
             key("[  ]", "previous / next season"),
             key("s  D", "download this season · every season"),
@@ -136,12 +142,12 @@ impl Modal {
             key("u  g", "update the channel list · the TV guide"),
             Line::raw(""),
             Line::from(dim("any key to close")),
-        ];
+        ]);
         Modal::Message { title: "Keys".into(), lines, color: ACCENT }
     }
 
     /// `r` on a live channel: this show, the next ones, or a custom time.
-    pub fn record_menu(channel: &Channel, guide: &[Program], schedules: &[crate::schedules::Schedule]) -> Modal {
+    pub fn record_menu(channel: &Channel, guide: &[Program], schedules: &[crate::schedules::Schedule], lite: bool) -> Modal {
         let now = chrono::Utc::now().timestamp();
         let mut items = vec![];
         for p in guide.iter().take(4) {
@@ -163,37 +169,43 @@ impl Modal {
             }
         }
         items.push(("Record now for… (choose how long)".into(), Action::RecordForm(channel.clone())));
-        items.push(("Schedule… (time, repeat days, Jellyfin show)".into(), Action::ScheduleForm(channel.clone())));
+        items.push((if lite { "Schedule… (time, repeat days)" } else { "Schedule… (time, repeat days, Jellyfin show)" }.into(), Action::ScheduleForm(channel.clone())));
         Modal::Menu { title: format!("Record {}", channel.name), items, state: ListState::default().with_selected(Some(0)) }
     }
 
-    pub fn record_form(channel: Channel, db: &Db) -> Modal {
+    pub fn record_form(channel: Channel, db: &Db, lite: bool) -> Modal {
         let minutes = crate::minutes_until_show_ends(db, channel.stream_id, chrono::Utc::now().timestamp()).unwrap_or(60);
         Modal::Form(Form {
             title: format!("Record {} now", channel.name),
             channel,
             kind: FormKind::RecordNow,
-            fields: vec![
-                Field { label: "Minutes", value: minutes.to_string(), hint: "up to 360" },
-                Field { label: "Jellyfin show", value: String::new(), hint: "optional: file it in Jellyfin under this show" },
-            ],
+            fields: without_jellyfin(
+                vec![
+                    Field { label: "Minutes", value: minutes.to_string(), hint: "up to 360" },
+                    Field { label: "Jellyfin show", value: String::new(), hint: "optional: file it in Jellyfin under this show" },
+                ],
+                lite,
+            ),
             focus: 0,
             error: None,
         })
     }
 
-    pub fn schedule_form(channel: Channel) -> Modal {
+    pub fn schedule_form(channel: Channel, lite: bool) -> Modal {
         Modal::Form(Form {
             title: format!("Schedule {}", channel.name),
             channel,
             kind: FormKind::Schedule,
-            fields: vec![
-                Field { label: "Time", value: String::new(), hint: "like 18:29" },
-                Field { label: "Minutes", value: "60".into(), hint: "up to 360" },
-                Field { label: "Repeat", value: String::new(), hint: "Mon,Wed · weekdays · weekend · daily · empty = once" },
-                Field { label: "Date", value: String::new(), hint: "once only: YYYY-MM-DD, empty = next time it comes" },
-                Field { label: "Jellyfin show", value: String::new(), hint: "optional: file it in Jellyfin under this show" },
-            ],
+            fields: without_jellyfin(
+                vec![
+                    Field { label: "Time", value: String::new(), hint: "like 18:29" },
+                    Field { label: "Minutes", value: "60".into(), hint: "up to 360" },
+                    Field { label: "Repeat", value: String::new(), hint: "Mon,Wed · weekdays · weekend · daily · empty = once" },
+                    Field { label: "Date", value: String::new(), hint: "once only: YYYY-MM-DD, empty = next time it comes" },
+                    Field { label: "Jellyfin show", value: String::new(), hint: "optional: file it in Jellyfin under this show" },
+                ],
+                lite,
+            ),
             focus: 0,
             error: None,
         })
@@ -356,6 +368,11 @@ impl Form {
         }
         Ok(Action::Schedule { channel: self.channel.clone(), time, minutes, days, date, show })
     }
+}
+
+/// No Jellyfin on Windows: the recording just goes to the recordings folder.
+fn without_jellyfin(fields: Vec<Field>, lite: bool) -> Vec<Field> {
+    fields.into_iter().filter(|f| !(lite && f.label == "Jellyfin show")).collect()
 }
 
 /// "mon, wed" → ["Mon", "Wed"]; also "weekdays", "weekend", "daily".

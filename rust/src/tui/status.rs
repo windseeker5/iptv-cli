@@ -13,7 +13,10 @@ use serde_json::Value;
 impl App {
     pub(super) fn draw_status(&self, f: &mut Frame, list: Rect, detail: Rect, wide: bool) {
         let s = &self.status;
-        let mut lines = vec![heading("SERVICES")];
+        let mut lines = vec![];
+        if !s.services.is_empty() {
+            lines.push(heading("SERVICES"));
+        }
         for svc in &s.services {
             let color = match svc.state.as_str() {
                 "up" => OK,
@@ -23,7 +26,9 @@ impl App {
             lines.push(Line::from(vec![Span::styled("● ", Style::new().fg(color)), Span::raw(format!("{:<18}", svc.name)), dim(svc.detail.clone())]));
         }
 
-        lines.push(Line::raw(""));
+        if !lines.is_empty() {
+            lines.push(Line::raw(""));
+        }
         lines.push(heading("CONNECTION"));
         if s.recording.is_empty() {
             lines.push(label_value("Recording", "nothing".into(), DIM));
@@ -35,7 +40,9 @@ impl App {
             Some(name) if s.restream.live => (format!("{name} since {}", s.restream.since.as_deref().and_then(|t| t.get(11..16)).unwrap_or("?")), OK),
             _ => ("off".into(), DIM),
         };
-        lines.push(label_value("Restream", restream.0, restream.1));
+        if !self.cfg.lite {
+            lines.push(label_value("Restream", restream.0, restream.1));
+        }
         let queued = self.jobs.iter().filter(|j| !matches!(j.state, crate::downloads::State::Done | crate::downloads::State::Failed | crate::downloads::State::Cancelled)).count();
         lines.push(label_value("Downloads", if queued == 0 { "none queued".into() } else { format!("{queued} in the queue") }, if queued == 0 { DIM } else { FG }));
 
@@ -45,6 +52,12 @@ impl App {
         lines.push(label_value("Downloads", self.cfg.downloads_dir().display().to_string(), FG));
         if let Some(tv) = self.cfg.tv_library_root() {
             lines.push(label_value("Jellyfin TV", tv.display().to_string(), FG));
+        }
+        if self.cfg.lite {
+            lines.push(label_value("kdtv's files", self.cfg.cli_dir.display().to_string(), DIM));
+            lines.push(Line::raw(""));
+            lines.push(heading("SCHEDULES"));
+            lines.push(Line::raw("They record only while kdtv is open, and kdtv keeps the computer awake for them. Closing kdtv or shutting the computer down skips them."));
         }
 
         let block = panel("Status", self.focus == Focus::List);

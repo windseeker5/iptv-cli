@@ -2,7 +2,8 @@
 //! commands (`--json` for JP and scripts); later, the background API.
 //!
 //! Long-running work (recordings, the restream, the download queue) runs as
-//! systemd user units, so it outlives kdtv.
+//! background jobs (`jobs.rs`: systemd user units at home, kdtv's own hidden
+//! processes on Windows), so it outlives kdtv.
 
 mod check;
 mod config;
@@ -10,11 +11,13 @@ mod db;
 mod diary;
 mod downloads;
 mod favorites;
+mod jobs;
 mod jp;
 mod library;
 mod log;
 mod maxime;
 mod notify;
+mod os;
 mod pipeline;
 mod play;
 mod preflight;
@@ -178,7 +181,15 @@ enum Cmd {
     },
     /// What a schedule's timer runs
     #[command(hide = true)]
-    RunSchedule { id: String },
+    RunSchedule {
+        id: String,
+        /// Record this long instead of the whole slot (kdtv started it late)
+        #[arg(long)]
+        seconds: Option<i64>,
+    },
+    /// Start the schedules whose time has come, once (Windows: kdtv's screen does this every few seconds)
+    #[command(hide = true)]
+    StartDue,
     /// Rebuild a library episode from the pieces a recording left on disk
     #[command(hide = true)]
     RetryRun { run_id: String },
@@ -302,6 +313,7 @@ enum DownloadCmd {
 fn main() {
     // Exit quietly when the reader goes away (`kd movies search x | head`).
     // SAFETY: restoring the default SIGPIPE action before any thread exists.
+    #[cfg(unix)]
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
@@ -314,6 +326,7 @@ fn main() {
 
 fn run(cli: Cli) -> Result<()> {
     let cfg = config::Config::load(cli.config.as_deref())?;
+    jobs::init(&cfg);
     let json = cli.json;
     let open = || db::Db::open(&cfg.data_dir);
     let now = || chrono::Utc::now().timestamp();
@@ -610,16 +623,34 @@ fn run(cli: Cli) -> Result<()> {
         }
         Cmd::Check => check::run(&cfg, json),
         Cmd::RestreamWorker { stream_id } => restream::worker(&cfg, stream_id),
-        Cmd::DownloadWorker => downloads::worker(&cfg),
+        Cmd::DownloadWorker => {
+            os::keep_awake(true);
+            downloads::worker(&cfg)
+        }
         Cmd::RecordWorker { stream_id, seconds, output, channel_name, show, drive_warning } => {
             let show = match show {
                 Some(name) => Some((cfg.tv_library_root().context("TVSHOW_LIBRARY_ROOT is not set in .env")?.join(&name), name)),
                 None => None,
             };
             let job = recorder::Job { stream_id, seconds, output, channel_name, show, notify: true, drive_warning };
+            os::keep_awake(true);
             std::process::exit(recorder::run(&cfg, &job));
         }
-        Cmd::RunSchedule { id } => std::process::exit(recorder::run_schedule(&cfg, &id)?),
+        Cmd::RunSchedule { id, seconds } => {
+            os::keep_awake(true);
+            std::process::exit(recorder::run_schedule(&cfg, &id, seconds)?)
+        }
+        Cmd::StartDue => {
+            let started = schedules::start_due(&cfg);
+            print(json, &json!({ "started": started }), || {
+                for s in &started {
+                    println!("Started {s}");
+                }
+                if started.is_empty() {
+                    println!("Nothing to start now.");
+                }
+            })
+        }
         Cmd::RetryRun { run_id } => std::process::exit(recorder::retry(&cfg, &run_id)?),
         Cmd::Preflight { now } => {
             for line in preflight::run(&cfg, now.as_deref())? {
@@ -652,7 +683,10 @@ fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
         Cmd::JpMcp => jp::tools::serve(&cfg),
+        #[cfg(unix)]
         Cmd::JpRunner => jp::runner::serve(&cfg),
+        #[cfg(not(unix))]
+        Cmd::JpRunner => bail!("JP's runner needs Linux"),
     }
 }
 

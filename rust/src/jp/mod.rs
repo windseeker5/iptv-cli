@@ -7,14 +7,8 @@ pub mod actions;
 mod card;
 pub mod eyes;
 mod prompt;
+#[cfg(unix)]
 pub mod runner;
 pub mod tools;
 
-/// `bytes` random bytes as hex, from /dev/urandom.
-pub fn random_hex(bytes: usize) -> String {
-    let mut buf = vec![0u8; bytes];
-    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
-        let _ = std::io::Read::read_exact(&mut f, &mut buf);
-    }
-    buf.iter().map(|b| format!("{b:02x}")).collect()
-}
+pub use crate::os::random_hex;

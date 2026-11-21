@@ -3,10 +3,14 @@
 //! kdtv reads one small file, `kdtv.toml`, looked up in this order: `--config`,
 //! `$KDTV_CONFIG`, `./kdtv.toml`, `~/.config/kdtv/kdtv.toml` (the older `kd.toml`
 //! names still work). Paths inside it are relative to the file itself. Without a
-//! file, kdtv uses the current folder.
+//! file, kdtv uses the current folder (on Windows: `%LOCALAPPDATA%\kdtv`).
+//!
+//! The "lite" profile (always on Windows) is kdtv on its own: no systemd, no
+//! Docker, no Jellyfin, no restream. Recordings and downloads go to the Videos
+//! folder, and schedules run from inside kdtv while it is open.
 //!
 //! ```toml
-//! profile = "home"            # or "travel"
+//! profile = "home"            # or "travel", or "lite"
 //! cli_dir = "../cli"          # the KDTV folder: data/ and .env
 //! # Optional overrides
 //! records_dir = "~/Videos/kd" # where recordings go (default: USB_RECORDS_PATH from .env)
@@ -16,6 +20,7 @@
 //! web_port = 8080             # where kdtv serves the restream (restream_via = "kdtv")
 //! ```
 
+use crate::os;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -57,6 +62,9 @@ pub struct Config {
     /// The kd.toml in use, handed to the background workers kd starts.
     pub file: Option<PathBuf>,
     pub profile: String,
+    /// kdtv on its own (Windows, or `profile = "lite"`): no systemd, Docker,
+    /// Jellyfin or restream; schedules run while kdtv is open.
+    pub lite: bool,
     /// The KDTV folder, holding `.env` and (by default) `data/`.
     pub cli_dir: PathBuf,
     pub data_dir: PathBuf,
@@ -118,7 +126,14 @@ impl Config {
         };
         let at = |p: PathBuf| normalize(&base.join(expand_home(&p)));
 
-        let cli_dir = file.cli_dir.map(at).unwrap_or_else(|| normalize(&base));
+        let profile = file.profile.unwrap_or_else(|| if cfg!(windows) { "windows".into() } else { "home".into() });
+        let lite = cfg!(windows) || profile == "lite";
+        let cli_dir = match (file.cli_dir.map(at), &path) {
+            (Some(dir), _) => dir,
+            (None, None) if cfg!(windows) => windows_home_dir(),
+            (None, _) => normalize(&base),
+        };
+        let videos = || os::home().unwrap_or_default().join("Videos").join("kdtv");
         let data_dir = file.data_dir.map(at).unwrap_or_else(|| cli_dir.join("data"));
         let env_file = file.env_file.map(at).unwrap_or_else(|| cli_dir.join(".env"));
         let env = read_env(&env_file);
@@ -131,15 +146,17 @@ impl Config {
 
         Ok(Config {
             file: path.map(|p| absolute(&p)),
-            profile: file.profile.unwrap_or_else(|| "home".into()),
+            profile,
+            lite,
             compose_dir: file.compose_dir.map(at).unwrap_or_else(|| normalize(&cli_dir.join("../.."))),
-            records_dir: file.records_dir.map(at),
-            downloads_dir: file.downloads_dir.map(at),
-            watch_url: file.watch_url.unwrap_or_else(|| "https://live.dresdell.com/".into()),
-            containers: file
-                .containers
-                .unwrap_or_else(|| DEFAULT_CONTAINERS.iter().map(|s| s.to_string()).collect()),
-            icons: file.icons.unwrap_or(true),
+            records_dir: file.records_dir.map(at).or_else(|| lite.then(videos)),
+            downloads_dir: file.downloads_dir.map(at).or_else(|| lite.then(|| videos().join("Downloads"))),
+            watch_url: file.watch_url.unwrap_or_else(|| if lite { String::new() } else { "https://live.dresdell.com/".into() }),
+            containers: file.containers.unwrap_or_else(|| {
+                if lite { vec![] } else { DEFAULT_CONTAINERS.iter().map(|s| s.to_string()).collect() }
+            }),
+            // Windows terminals don't come with a Nerd Font.
+            icons: file.icons.unwrap_or(!cfg!(windows)),
             restream_via: if file.restream_via.as_deref() == Some("kdtv") { RestreamVia::Kdtv } else { RestreamVia::Nginx },
             web_port: file.web_port.unwrap_or(8080),
             web_bind: file.web_bind.unwrap_or_else(|| "0.0.0.0".into()),
@@ -215,11 +232,24 @@ fn find_config_file() -> Option<PathBuf> {
         }
     }
     candidates.extend([PathBuf::from("kdtv.toml"), PathBuf::from("kd.toml")]);
-    if let Ok(home) = std::env::var("HOME") {
-        candidates.push(Path::new(&home).join(".config/kdtv/kdtv.toml"));
-        candidates.push(Path::new(&home).join(".config/kd/kd.toml"));
+    if let Some(home) = os::home() {
+        candidates.push(home.join(".config/kdtv/kdtv.toml"));
+        candidates.push(home.join(".config/kd/kd.toml"));
+    }
+    if cfg!(windows) {
+        candidates.push(windows_home_dir().join("kdtv.toml"));
     }
     candidates.into_iter().find(|p| p.is_file())
+}
+
+/// Where kdtv keeps its login, lists and queue on Windows: `%LOCALAPPDATA%\kdtv`,
+/// so a new version unzipped anywhere finds them again.
+fn windows_home_dir() -> PathBuf {
+    std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .or_else(|| os::home().map(|h| h.join("AppData").join("Local")))
+        .unwrap_or_else(std::env::temp_dir)
+        .join("kdtv")
 }
 
 fn absolute(p: &Path) -> PathBuf {
@@ -245,10 +275,48 @@ fn normalize(p: &Path) -> PathBuf {
 }
 
 fn expand_home(p: &Path) -> PathBuf {
-    match (p.strip_prefix("~"), std::env::var("HOME")) {
-        (Ok(rest), Ok(home)) => Path::new(&home).join(rest),
+    match (p.strip_prefix("~"), os::home()) {
+        (Ok(rest), Some(home)) => home.join(rest),
         _ => p.to_path_buf(),
     }
+}
+
+/// Write the provider login into the .env, keeping every other line as it was.
+pub fn save_login(env_file: &Path, server: &str, username: &str, password: &str) -> Result<()> {
+    let old = std::fs::read_to_string(env_file).unwrap_or_default();
+    let new = with_login(&old, server.trim().trim_end_matches('/'), username.trim(), password.trim());
+    if let Some(dir) = env_file.parent() {
+        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    }
+    std::fs::write(env_file, new).with_context(|| format!("writing {}", env_file.display()))
+}
+
+fn with_login(old: &str, server: &str, username: &str, password: &str) -> String {
+    let wanted = [("IPTV_SERVER_URL", server), ("IPTV_USERNAME", username), ("IPTV_PASSWORD", password)];
+    let quote = |v: &str| if v.contains([' ', '#', '"', '\'']) { format!("'{v}'") } else { v.to_string() };
+    let mut seen = [false; 3];
+    let mut lines: Vec<String> = old
+        .lines()
+        .map(|line| {
+            let key = line.trim().trim_start_matches("export ").split('=').next().unwrap_or("").trim();
+            match wanted.iter().position(|(k, _)| *k == key) {
+                Some(i) => {
+                    seen[i] = true;
+                    format!("{}={}", wanted[i].0, quote(wanted[i].1))
+                }
+                None => line.to_string(),
+            }
+        })
+        .collect();
+    if old.is_empty() {
+        lines.push("# kdtv: your IPTV provider login. Keep this file private.".into());
+    }
+    for (i, (key, value)) in wanted.iter().enumerate() {
+        if !seen[i] {
+            lines.push(format!("{key}={}", quote(value)));
+        }
+    }
+    lines.join("\n") + "\n"
 }
 
 /// The .env file as key/value pairs, without touching the process environment.
@@ -279,7 +347,7 @@ fn parse_env(text: &str) -> HashMap<String, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize, parse_env};
+    use super::{normalize, parse_env, with_login};
     use std::path::Path;
 
     #[test]
@@ -296,5 +364,17 @@ mod tests {
         assert_eq!(env["D"], "q");
         assert_eq!(env["E"], "v");
         assert_eq!(env.len(), 5);
+    }
+
+    #[test]
+    fn the_setup_screen_writes_the_login_and_keeps_the_rest() {
+        let fresh = parse_env(&with_login("", "http://tv.example:8080", "son", "p#ss word"));
+        assert_eq!(fresh["IPTV_SERVER_URL"], "http://tv.example:8080");
+        assert_eq!(fresh["IPTV_USERNAME"], "son");
+        assert_eq!(fresh["IPTV_PASSWORD"], "p#ss word");
+        let text = with_login("A=1\nIPTV_USERNAME=old\n# note\n", "http://s", "new", "pw");
+        assert!(text.starts_with("A=1\nIPTV_USERNAME=new\n# note\n"));
+        let env = parse_env(&text);
+        assert_eq!((env["A"].as_str(), env["IPTV_SERVER_URL"].as_str(), env["IPTV_PASSWORD"].as_str()), ("1", "http://s", "pw"));
     }
 }

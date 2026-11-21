@@ -2,10 +2,10 @@
 //!
 //! "Now" runs the same recorder the timers use (`recorder.rs`: FFmpeg with
 //! retries, run diary, Jellyfin post-processing, Discord) as `kdtv record-worker`
-//! in a transient systemd unit `kdcli-now-*`, so it outlives kdtv.
+//! in a background job `kdcli-now-*` (`jobs.rs`), so it outlives kdtv.
 
 use crate::config::Config;
-use crate::systemd;
+use crate::jobs;
 use anyhow::{bail, Result};
 use serde::Serialize;
 use serde_json::json;
@@ -58,7 +58,7 @@ pub fn record_now(cfg: &Config, req: &Request) -> Result<Started> {
     let unit = format!("kdcli-now-{}", now.format("%Y%m%d-%H%M%S"));
     let seconds = minutes * 60;
 
-    let exe = systemd::kdtv_exe()?;
+    let exe = jobs::kdtv_exe()?;
     let mut command = vec![exe.display().to_string()];
     command.extend(cfg.config_args());
     command.extend([
@@ -80,7 +80,7 @@ pub fn record_now(cfg: &Config, req: &Request) -> Result<Started> {
         command.extend(["--drive-warning".into(), w]);
     }
 
-    systemd::run(systemd::Run {
+    jobs::start(jobs::Run {
         unit: &unit,
         description: &format!("KD CLI recording: {}, now, {minutes} min", req.channel_name),
         working_dir: &cfg.cli_dir,
@@ -104,10 +104,7 @@ pub fn stop(cfg: &Config, unit: &str) -> Result<()> {
     if !is_recording {
         bail!("{unit} is not a recording");
     }
-    let out = systemd::systemctl(&["stop", &unit])?;
-    if !out.status.success() {
-        bail!("could not stop {unit}: {}", String::from_utf8_lossy(&out.stderr).trim());
-    }
+    jobs::stop(&unit)?;
     // A one-time schedule removes itself after its run; a stopped run never gets there.
     if let Some(id) = unit.strip_prefix("kdcli-rec-").and_then(|u| u.strip_suffix(".service"))
         && crate::schedules::is_one_time(&cfg.data_dir, id)

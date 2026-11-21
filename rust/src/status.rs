@@ -92,9 +92,9 @@ fn services(names: &[String]) -> Vec<Service> {
         .collect()
 }
 
-/// Recording services systemd is running right now (scheduled and NOOVO jobs).
+/// Recording jobs running right now (scheduled and NOOVO jobs).
 pub fn active_recordings(data_dir: &Path) -> Vec<Recording> {
-    crate::systemd::active_units(crate::record::UNIT_PATTERNS)
+    crate::jobs::active_units(crate::record::UNIT_PATTERNS)
         .into_iter()
         .map(|unit| {
             let id = unit.strip_prefix("kdcli-rec-").and_then(|u| u.strip_suffix(".service"));
@@ -129,8 +129,7 @@ pub fn catalog_age_minutes(data_dir: &Path) -> Option<i64> {
 
 /// "KD CLI recording: CA FR: NOOVO V-TELE HD, now, 3 min" → "CA FR: NOOVO V-TELE HD, now, 3 min"
 fn unit_description(unit: &str) -> Option<String> {
-    let out = crate::systemd::systemctl(&["show", unit, "--property=Description", "--value"]).ok()?;
-    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let text = crate::jobs::description(unit)?;
     let text = ["KD CLI recording: ", "KDTV recording: "].iter().find_map(|p| text.strip_prefix(p)).unwrap_or(&text).to_string();
     (!text.is_empty()).then_some(text)
 }
