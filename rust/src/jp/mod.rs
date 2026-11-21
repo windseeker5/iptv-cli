@@ -3,6 +3,9 @@
 //! (`actions.rs`), its read-only eyes for the owner (`eyes.rs`), and the bridge
 //! the site talks to (`runner.rs`).
 
+// On Windows JP's runner (the OMT bridge) isn't built, so parts only it uses sit idle.
+#![cfg_attr(not(unix), allow(dead_code))]
+
 pub mod actions;
 mod card;
 pub mod eyes;
