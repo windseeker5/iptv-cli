@@ -1,11 +1,11 @@
-//! Maxime's hockey games: the UMass Minutemen schedule, and where we can watch each game.
+//! Maxim's hockey games: the UMass Minutemen schedule, and where we can watch each game.
 //!
 //! Maxim Massé (#7, Rimouski) plays for the University of Massachusetts Amherst
 //! (NCAA Division I, Hockey East). His father Luc sent the team facts and the
 //! 2026-27 schedule (PDF); the schedule is refreshed twice a day from Hockey East's
-//! site (`kdtv maxime --refresh`) so times, TV networks and results stay current.
-//! JP's maxime_games tool reads that file plus our own channel list and guide, so
-//! "when is Maxime's next game, and do we have it?" is one fast look-up.
+//! site (`kdtv maxim --refresh`) so times, TV networks and results stay current.
+//! JP's maxim_games tool reads that file plus our own channel list and guide, so
+//! "when is Maxim's next game, and do we have it?" is one fast look-up.
 
 use crate::config::Config;
 use anyhow::{bail, Context, Result};
@@ -114,10 +114,11 @@ fn game(date: &str, place: &str, opponent: &str, time: &str, note: &str, tv: &st
 }
 
 fn schedule_file(cfg: &Config) -> PathBuf {
+    // The data folder keeps its first name, "maxime" (saved state).
     cfg.data_dir.join("maxime").join("schedule.json")
 }
 
-// ── the refresh (`kdtv maxime --refresh`, twice a day) ────────────────────
+// ── the refresh (`kdtv maxim --refresh`, twice a day) ────────────────────
 
 /// Text of an HTML cell: tags dropped, entities decoded, spaces collapsed.
 fn cell(text: &str) -> String {
