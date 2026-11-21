@@ -48,8 +48,8 @@ impl App {
 
         lines.push(Line::raw(""));
         lines.push(heading("FOLDERS"));
-        lines.push(label_value("Recordings", self.cfg.records_dir().display().to_string(), FG));
-        lines.push(label_value("Downloads", self.cfg.downloads_dir().display().to_string(), FG));
+        lines.push(label_value("Recordings", super::folder(&self.cfg, &self.cfg.records_dir()), FG));
+        lines.push(label_value("Downloads", super::folder(&self.cfg, &self.cfg.downloads_dir()), FG));
         if let Some(tv) = self.cfg.tv_library_root() {
             lines.push(label_value("Jellyfin TV", tv.display().to_string(), FG));
         }

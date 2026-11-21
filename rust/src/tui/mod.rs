@@ -775,6 +775,15 @@ fn downloading_text(cfg: &Config, what: &str) -> String {
     format!("{what}\n\nSaved in {}\n\n{follow}", cfg.downloads_dir().display())
 }
 
+/// A folder as people know it: on Windows (lite), relative to their home
+/// ("Videos\\kdtv"); elsewhere the full path.
+fn folder(cfg: &Config, path: &std::path::Path) -> String {
+    match crate::os::home().filter(|_| cfg.lite).and_then(|h| path.strip_prefix(h).ok().map(std::path::Path::to_path_buf)) {
+        Some(rel) if !rel.as_os_str().is_empty() => rel.display().to_string(),
+        _ => path.display().to_string(),
+    }
+}
+
 /// A list with headings; only rows with a key can be selected.
 struct Rows<K> {
     items: Vec<(Option<K>, Text<'static>)>,
