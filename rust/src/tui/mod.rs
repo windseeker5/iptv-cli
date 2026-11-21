@@ -19,6 +19,7 @@ mod library;
 mod modal;
 mod recordings;
 mod search;
+mod setup;
 mod sidebar;
 mod status;
 mod theme;
@@ -43,6 +44,10 @@ use std::time::{Duration, Instant};
 use theme::*;
 
 const REFRESH_EVERY: Duration = Duration::from_secs(30);
+/// How often kdtv looks for a schedule to start, where it is the timer (Windows).
+const SCHEDULE_CHECK_EVERY: Duration = Duration::from_secs(5);
+/// Without timers (Windows), kdtv updates the guide itself when it is older than this.
+const GUIDE_MAX_AGE_MINUTES: i64 = 12 * 60;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Section {
@@ -113,15 +118,34 @@ struct App {
     /// Set by `e` in Account: leave the screen, open the .env in an editor, come back.
     edit_env: bool,
     quit: bool,
+    /// Windows: when kdtv last looked for a schedule to start.
+    schedules_checked: Instant,
+    /// Windows: when kdtv last updated the guide by itself.
+    auto_refreshed: Option<Instant>,
 }
 
 pub fn run(cfg: &Config) -> Result<()> {
-    let mut app = App::new(cfg.clone(), Db::open(&cfg.data_dir)?);
-    crate::log::event(cfg, "tui.start", json!({ "profile": cfg.profile }));
     let mut terminal = ratatui::init();
-    let result = app.event_loop(&mut terminal);
+    let result = start(&mut terminal, cfg.clone());
     ratatui::restore();
+    if cfg.lite {
+        crate::os::keep_awake(false);
+    }
     result
+}
+
+fn start(terminal: &mut DefaultTerminal, mut cfg: Config) -> Result<()> {
+    // A new computer: ask for the login and download the lists first.
+    if cfg.lite && setup::needed(&cfg) {
+        match setup::run(terminal, &cfg, false)? {
+            Some(new) => cfg = new,
+            None => return Ok(()),
+        }
+    }
+    let mut app = App::new(cfg.clone(), Db::open(&cfg.data_dir)?);
+    crate::log::event(&cfg, "tui.start", json!({ "profile": cfg.profile }));
+    app.lite_upkeep();
+    app.event_loop(terminal)
 }
 
 impl App {
@@ -151,7 +175,10 @@ impl App {
             running: 0,
             edit_env: false,
             quit: false,
+            schedules_checked: Instant::now(),
+            auto_refreshed: None,
         };
+        app.watch.lite = app.cfg.lite;
         app.watch.reset(&app.db, &app.cfg);
         app
     }
@@ -175,6 +202,20 @@ impl App {
                 self.announce_failures();
             }
             self.collect_tasks();
+            if self.cfg.lite && self.schedules_checked.elapsed() >= SCHEDULE_CHECK_EVERY {
+                self.start_due_schedules();
+            }
+            if self.edit_env && self.cfg.lite {
+                // Windows: the same screen as the first launch, not a text editor.
+                self.edit_env = false;
+                if let Some(cfg) = setup::run(terminal, &self.cfg, true)? {
+                    self.cfg = cfg;
+                    self.db = Db::open(&self.cfg.data_dir)?;
+                    self.watch.reset(&self.db, &self.cfg);
+                    self.refresh();
+                    self.say("Login saved; lists downloaded again", OK);
+                }
+            }
             if self.edit_env {
                 self.edit_env = false;
                 ratatui::restore();
@@ -199,6 +240,36 @@ impl App {
         self.media = media::list(&self.cfg);
         self.refreshed = Instant::now();
         self.watch.refresh_now(&self.db);
+        self.lite_upkeep();
+    }
+
+    /// Where kdtv works on its own (Windows): keep the computer awake while a
+    /// recording runs or one is scheduled, and update the guide when it gets old
+    /// (the timers do both on Linux).
+    fn lite_upkeep(&mut self) {
+        if !self.cfg.lite {
+            return;
+        }
+        crate::os::keep_awake(!self.status.recording.is_empty() || schedules::any_upcoming(&self.cfg.data_dir));
+        let stale = self.status.guide_age_minutes.is_none_or(|m| m >= GUIDE_MAX_AGE_MINUTES);
+        let tried_lately = self.auto_refreshed.is_some_and(|t| t.elapsed() < Duration::from_secs(3600));
+        if stale && !tried_lately && self.running == 0 {
+            self.auto_refreshed = Some(Instant::now());
+            self.perform(Action::Refresh { guide: true, everything: false }, true);
+        }
+    }
+
+    /// Windows: start the scheduled recordings whose time has come.
+    fn start_due_schedules(&mut self) {
+        self.schedules_checked = Instant::now();
+        let started = schedules::start_due(&self.cfg);
+        if started.is_empty() {
+            return;
+        }
+        // Give the recorder a moment to appear, then show it.
+        std::thread::sleep(Duration::from_millis(300));
+        self.refresh();
+        self.say(format!("Recording started: {}", started.iter().map(|s| short(s)).collect::<Vec<_>>().join(", ")), OK);
     }
 
     /// A download that failed since the last look: say so in the bar (the worker
@@ -291,9 +362,10 @@ impl App {
             },
             Action::PlayFile(m) => self.play(&m.name, play::Target::File(&m.path)),
             Action::PlayYouTube(v) => self.play(&v.title, play::Target::Url(&v.url)),
-            Action::RecordMenu(c) => self.modal = Some(Modal::record_menu(&c, &self.watch.guide, &self.schedules)),
-            Action::RecordForm(c) => self.modal = Some(Modal::record_form(c, &self.db)),
-            Action::ScheduleForm(c) => self.modal = Some(Modal::schedule_form(c)),
+            Action::RecordMenu(c) => self.modal = Some(Modal::record_menu(&c, &self.watch.guide, &self.schedules, self.cfg.lite)),
+            Action::RecordForm(c) => self.modal = Some(Modal::record_form(c, &self.db, self.cfg.lite)),
+            Action::ScheduleForm(c) => self.modal = Some(Modal::schedule_form(c, self.cfg.lite)),
+            Action::Quit => self.quit = true,
             Action::RecordNow { channel, minutes, show } => {
                 self.say(format!("Starting the recording of {}…", short(&channel.name)), DIM);
                 self.spawn(move |cfg| {
@@ -406,6 +478,7 @@ impl App {
             }
             Action::StopRecording(_) => Some("Stop this recording? What is recorded so far is kept.".into()),
             Action::RestreamStop => Some("Stop the restream? Anyone watching it loses the picture.".into()),
+            Action::DeleteSchedule(_) if self.cfg.lite => Some("Delete this schedule?".into()),
             Action::DeleteSchedule(_) => Some("Delete this schedule? Its timer is removed too.".into()),
             Action::CancelDownload(_) => Some("Cancel this download? The partial file is removed.".into()),
             Action::ClearRuns => Some("Clear the recent recordings list? Only the list goes: the recorded videos stay where they are.".into()),
@@ -454,8 +527,14 @@ impl App {
             }
         }
         match key.code {
+            KeyCode::Char('q') if self.cfg.lite && schedules::any_upcoming(&self.cfg.data_dir) => {
+                self.modal = Some(Modal::confirm(
+                    "A recording is scheduled. kdtv starts it only while it's open, so quitting skips it. Quit anyway?".into(),
+                    Action::Quit,
+                ));
+            }
             KeyCode::Char('q') => self.quit = true,
-            KeyCode::Char('?') => self.modal = Some(Modal::help()),
+            KeyCode::Char('?') => self.modal = Some(Modal::help(self.cfg.lite)),
             KeyCode::Char('r') if ctrl => {
                 self.refresh();
                 self.say("Refreshed", DIM);
@@ -611,10 +690,14 @@ impl App {
             spans.push(dim("  x on a channel stops it"));
         }
         if spans.is_empty() {
-            spans.push(dim(match self.next_recording() {
-                Some(next) => format!(" next recording {next}"),
-                None => " nothing recording".into(),
-            }));
+            match self.next_recording() {
+                Some(next) if self.cfg.lite => {
+                    spans.push(dim(format!(" next recording {next} · ")));
+                    spans.push(Span::styled("keep kdtv open", Style::new().fg(WARN)));
+                }
+                Some(next) => spans.push(dim(format!(" next recording {next}"))),
+                None => spans.push(dim(" nothing recording")),
+            }
         }
         let active: Vec<&dl::Job> = self.jobs.iter().filter(|j| j.unfinished()).collect();
         if let Some(job) = active.iter().find(|j| j.state == dl::State::Downloading) {
@@ -672,6 +755,7 @@ impl App {
             Section::Recordings => "x stop  space pause  d delete  c clear recent  ← menu",
             Section::Downloads => "x cancel  c clear finished  ← menu",
             Section::Library => "↵ play  ← menu",
+            Section::Account if self.cfg.lite => "u list  g guide  m everything  p password  e change login  ← menu",
             Section::Account => "u list  g guide  m everything  p password  e edit  ← menu",
             Section::Status => "ctrl+r refresh  ← menu",
         };
@@ -683,10 +767,21 @@ impl App {
 
 /// The popup after queuing a download: what, where, and how you'll hear back.
 fn downloading_text(cfg: &Config, what: &str) -> String {
-    format!(
-        "{what}\n\nSaved in {}\n\nFollow it in Downloads (6). A desktop notification says when each one is done or fails.",
-        cfg.downloads_dir().display()
-    )
+    let follow = if cfg!(windows) {
+        "Follow it in Downloads (6) or in the bar at the bottom."
+    } else {
+        "Follow it in Downloads (6). A desktop notification says when each one is done or fails."
+    };
+    format!("{what}\n\nSaved in {}\n\n{follow}", cfg.downloads_dir().display())
+}
+
+/// A folder as people know it: on Windows (lite), relative to their home
+/// ("Videos\\kdtv"); elsewhere the full path.
+fn folder(cfg: &Config, path: &std::path::Path) -> String {
+    match crate::os::home().filter(|_| cfg.lite).and_then(|h| path.strip_prefix(h).ok().map(std::path::Path::to_path_buf)) {
+        Some(rel) if !rel.as_os_str().is_empty() => rel.display().to_string(),
+        _ => path.display().to_string(),
+    }
 }
 
 /// A list with headings; only rows with a key can be selected.

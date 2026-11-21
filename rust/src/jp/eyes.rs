@@ -405,6 +405,12 @@ pub fn jellyfin_status(cfg: &Config) -> Value {
     out
 }
 
+#[cfg(not(unix))]
+pub fn disk(path: &Path) -> Value {
+    json!({ "path": path, "error": "only measured on Linux" })
+}
+
+#[cfg(unix)]
 pub fn disk(path: &Path) -> Value {
     let Ok(c) = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()) else {
         return json!({ "path": path, "error": "bad path" });

@@ -7,7 +7,6 @@
 use crate::config::Config;
 use anyhow::{bail, Context, Result};
 use serde_json::json;
-use std::path::Path;
 use std::process::{Command, Stdio};
 
 pub enum Target<'a> {
@@ -64,7 +63,7 @@ pub fn playing(cfg: &Config) -> bool {
     let Ok(entries) = std::fs::read_dir(playing_dir(cfg)) else { return false };
     let mut any = false;
     for entry in entries.flatten() {
-        let alive = entry.file_name().to_str().is_some_and(|pid| Path::new("/proc").join(pid).exists());
+        let alive = entry.file_name().to_str().and_then(|pid| pid.parse().ok()).is_some_and(crate::os::alive);
         if alive {
             any = true;
         } else {

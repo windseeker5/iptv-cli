@@ -74,6 +74,31 @@ kdtv
 you're logged out: `sudo loginctl enable-linger $USER`. No Nerd Font on a Pi
 console: `icons = false` in `kdtv.toml`.
 
+## Windows: kdtv lite
+
+For a friend or family member on Windows: watch, record now, schedule and
+download, with their own provider account. No JP, restream, Jellyfin, Discord
+or Docker.
+
+- **Get it**: the zip from GitHub Releases (`kdtv-windows.zip`): `kdtv.exe`
+  with FFmpeg, mpv and yt-dlp inside. Unzip, double-click `kdtv.exe`.
+- **First launch**: a screen asks for the provider's server, username and
+  password, checks them and downloads the lists. `e` in Account changes them.
+- **Files**: login and lists in `%LOCALAPPDATA%\kdtv`; recordings in
+  `Videos\kdtv`, downloads in `Videos\kdtv\Downloads`.
+- **Background work**: recordings and downloads are kdtv's own hidden
+  processes (`jobs.rs`), so they keep going when kdtv closes.
+- **Schedules**: no timers. kdtv starts them itself while it is open (and keeps
+  the PC awake for them); the status bar says "keep kdtv open", and `q` asks
+  first when one is coming. kdtv also updates the guide when it's older than 12 h.
+- **Build and test**: `.github/workflows/windows.yml` builds on a Windows
+  machine, runs the tests, packs the zip (`windows/package.ps1`) and tests it
+  end to end against a pretend provider (`windows/test/`). A tag `windows-vN`
+  publishes the release.
+
+The same mode runs on Linux with `profile = "lite"` in `kdtv.toml`, which is
+how to try the Windows behaviour here.
+
 ## Retiring the NGINX container
 
 `kdtv web` does everything NGINX does for the restream: it serves `/hls`, the
@@ -106,8 +131,10 @@ JP restreams through `kdtv` too, so the switch is only configuration:
 | `web.rs`, `player.html` | the restream web server (replaces NGINX) and its player page |
 | `check.rs` | `kdtv check`: is this machine ready? |
 | `library.rs`, `runs.rs`, `status.rs`, `favorites.rs` | reading what's on disk |
-| `systemd.rs`, `play.rs`, `log.rs` | helpers: units, mpv, the JSON event log |
-| `tui/` | the screen: one file per section, `modal.rs` for pop-ups, `theme.rs` for the look |
+| `jobs.rs`, `systemd.rs` | background jobs: systemd units at home, kdtv's own processes on Windows (lite) |
+| `os.rs` | what Linux and Windows do differently: processes, keeping the PC awake, home folder |
+| `play.rs`, `log.rs` | helpers: mpv, the JSON event log |
+| `tui/` | the screen: one file per section, `modal.rs` for pop-ups, `theme.rs` for the look, `setup.rs` for the first-launch login |
 
 Everything is logged as one JSON line in `data/logs/kd/kd-YYYY-MM-DD.jsonl`, with
 the provider login removed.

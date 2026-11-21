@@ -1,7 +1,10 @@
-//! Recording schedules: `data/schedules/<id>.json` plus a systemd user timer
-//! `kdcli-rec-<id>.timer` that runs `kdtv run-schedule <id>`.
+//! Recording schedules: `data/schedules/<id>.json`. At home on Linux, a systemd
+//! user timer `kdcli-rec-<id>.timer` runs `kdtv run-schedule <id>`. On Windows (the
+//! lite profile) there are no timers: kdtv starts the recording itself while it is
+//! open (`start_due`, called by the screen every few seconds).
 
 use crate::config::Config;
+use crate::jobs;
 use crate::systemd::systemctl;
 use anyhow::{bail, Context, Result};
 use chrono::{Local, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
@@ -171,9 +174,14 @@ impl Window {
 }
 
 fn to_schedule(s: ScheduleFile) -> Schedule {
+    let next = if jobs::uses_systemd() {
+        next_run(&s.id)
+    } else {
+        s.enabled.then(|| next_start(&s, Local::now().naive_local())).flatten().map(|t| t.format("%a %Y-%m-%d %H:%M:00").to_string())
+    };
     Schedule {
         what: s.describe(),
-        next_run: next_run(&s.id),
+        next_run: next,
         id: s.id,
         enabled: s.enabled,
         stream_id: s.stream_id,
@@ -205,6 +213,9 @@ pub fn is_one_time(data_dir: &Path, id: &str) -> bool {
 }
 
 pub fn next_run(id: &str) -> Option<String> {
+    if !jobs::uses_systemd() {
+        return None;
+    }
     let out = systemctl(&["show", &format!("{UNIT_PREFIX}{id}.timer"), "--property=NextElapseUSecRealtime", "--value"]).ok()?;
     let value = String::from_utf8_lossy(&out.stdout).trim().to_string();
     (!value.is_empty()).then_some(value)
@@ -308,12 +319,14 @@ pub fn create(cfg: &Config, new: New) -> Result<Schedule> {
         created_by: Some(new.created_by.to_string()),
     };
     write(&cfg.data_dir, &s)?;
-    write_units(cfg, &s)?;
-    systemctl(&["daemon-reload"])?;
-    let out = systemctl(&["enable", "--now", &format!("{UNIT_PREFIX}{}.timer", s.id)])?;
-    if !out.status.success() {
-        delete(cfg, &s.id)?;
-        bail!("systemd refused the timer: {}", String::from_utf8_lossy(&out.stderr).trim());
+    if jobs::uses_systemd() {
+        write_units(cfg, &s)?;
+        systemctl(&["daemon-reload"])?;
+        let out = systemctl(&["enable", "--now", &format!("{UNIT_PREFIX}{}.timer", s.id)])?;
+        if !out.status.success() {
+            delete(cfg, &s.id)?;
+            bail!("systemd refused the timer: {}", String::from_utf8_lossy(&out.stderr).trim());
+        }
     }
     crate::log::event(cfg, "schedule.create", json!({ "id": s.id, "what": s.describe(), "by": new.created_by }));
     Ok(to_schedule(s))
@@ -321,7 +334,9 @@ pub fn create(cfg: &Config, new: New) -> Result<Schedule> {
 
 pub fn set_enabled(cfg: &Config, id: &str, enabled: bool) -> Result<Schedule> {
     let mut s = load(&cfg.data_dir, id).with_context(|| format!("no schedule {id}"))?;
-    systemctl(&[if enabled { "enable" } else { "disable" }, "--now", &format!("{UNIT_PREFIX}{id}.timer")])?;
+    if jobs::uses_systemd() {
+        systemctl(&[if enabled { "enable" } else { "disable" }, "--now", &format!("{UNIT_PREFIX}{id}.timer")])?;
+    }
     s.enabled = enabled;
     write(&cfg.data_dir, &s)?;
     crate::log::event(cfg, if enabled { "schedule.resume" } else { "schedule.pause" }, json!({ "id": id }));
@@ -332,17 +347,20 @@ pub fn delete(cfg: &Config, id: &str) -> Result<bool> {
     let file = path(&cfg.data_dir, id)?;
     let existed = file.exists();
     let unit = format!("{UNIT_PREFIX}{id}");
-    systemctl(&["disable", "--now", &format!("{unit}.timer")])?;
-    let _ = std::fs::remove_file(unit_dir().join(format!("{unit}.timer")));
-    // A one-time schedule deletes itself from inside its own run. Removing the
-    // service file of a unit that is still running makes systemd forget it has no
-    // start timeout: it kills the run and marks it failed. Leave the file for
-    // `sweep_leftovers` to remove once the run is over.
-    if !crate::systemd::is_running(&format!("{unit}.service")) {
-        let _ = std::fs::remove_file(unit_dir().join(format!("{unit}.service")));
+    if jobs::uses_systemd() {
+        systemctl(&["disable", "--now", &format!("{unit}.timer")])?;
+        let _ = std::fs::remove_file(unit_dir().join(format!("{unit}.timer")));
+        // A one-time schedule deletes itself from inside its own run. Removing the
+        // service file of a unit that is still running makes systemd forget it has no
+        // start timeout: it kills the run and marks it failed. Leave the file for
+        // `sweep_leftovers` to remove once the run is over.
+        if !crate::systemd::is_running(&format!("{unit}.service")) {
+            let _ = std::fs::remove_file(unit_dir().join(format!("{unit}.service")));
+        }
+        systemctl(&["daemon-reload"])?;
     }
-    systemctl(&["daemon-reload"])?;
     let _ = std::fs::remove_file(&file);
+    let _ = std::fs::remove_file(fired_file(&cfg.data_dir, id));
     crate::log::event(cfg, "schedule.delete", json!({ "id": id, "existed": existed }));
     Ok(existed)
 }
@@ -350,6 +368,9 @@ pub fn delete(cfg: &Config, id: &str) -> Result<bool> {
 /// Remove the service files left by deleted schedules whose run has finished, and
 /// forget their failed state. Returns how many were removed.
 pub fn sweep_leftovers(cfg: &Config) -> usize {
+    if !jobs::uses_systemd() {
+        return 0;
+    }
     let Ok(entries) = std::fs::read_dir(unit_dir()) else {
         return 0;
     };
@@ -374,6 +395,79 @@ pub fn sweep_leftovers(cfg: &Config) -> usize {
     leftovers.len()
 }
 
+// ── kdtv as the timer (Windows, lite) ────────────────────────────────────
+
+/// The next time a schedule starts after `from`.
+fn next_start(s: &ScheduleFile, from: NaiveDateTime) -> Option<NaiveDateTime> {
+    let time = NaiveTime::parse_from_str(&s.time, "%H:%M").ok()?;
+    (0..8).map(|d| from.date() + chrono::Duration::days(d)).map(|day| day.and_time(time)).find(|t| *t > from && s.fires_on(t.date()))
+}
+
+/// The slot a schedule is in the middle of at `now` (its start), while enough of it
+/// is left to be worth recording. Yesterday counts: a show running past midnight.
+fn slot_now(s: &ScheduleFile, now: NaiveDateTime) -> Option<NaiveDateTime> {
+    let time = NaiveTime::parse_from_str(&s.time, "%H:%M").ok()?;
+    [now.date(), now.date() - chrono::Duration::days(1)]
+        .into_iter()
+        .filter(|day| s.fires_on(*day))
+        .map(|day| day.and_time(time))
+        .find(|start| *start <= now && now < *start + chrono::Duration::minutes(s.duration_min - crate::record::MIN_MINUTES))
+}
+
+/// Whether an enabled schedule is still to come: kdtv keeps the computer awake for it.
+pub fn any_upcoming(data_dir: &Path) -> bool {
+    let now = Local::now().naive_local();
+    files(data_dir).iter().any(|s| s.enabled && (next_start(s, now).is_some() || slot_now(s, now).is_some()))
+}
+
+fn fired_file(data_dir: &Path, id: &str) -> PathBuf {
+    data_dir.join("schedules").join("fired").join(id)
+}
+
+/// Start the recordings whose time has come (Windows and the lite profile, where
+/// kdtv is the timer). Each slot starts once; when kdtv opens partway through a
+/// show, it records what's left of it. Returns what was started.
+pub fn start_due(cfg: &Config) -> Vec<String> {
+    if jobs::uses_systemd() {
+        return vec![];
+    }
+    let now = Local::now().naive_local();
+    let mut started = vec![];
+    for s in files(&cfg.data_dir).into_iter().filter(|s| s.enabled) {
+        let Some(start) = slot_now(&s, now) else { continue };
+        let slot = start.format("%Y-%m-%dT%H:%M").to_string();
+        let marker = fired_file(&cfg.data_dir, &s.id);
+        let unit = format!("{UNIT_PREFIX}{}", s.id);
+        if std::fs::read_to_string(&marker).is_ok_and(|t| t.trim() == slot) || jobs::is_running(&unit) {
+            continue;
+        }
+        let seconds = (start + chrono::Duration::minutes(s.duration_min) - now).num_seconds();
+        let result = jobs::kdtv_exe().and_then(|exe| {
+            let mut command = vec![exe.display().to_string()];
+            command.extend(cfg.config_args());
+            command.extend(["run-schedule".to_string(), s.id.clone(), "--seconds".into(), seconds.to_string()]);
+            jobs::start(jobs::Run {
+                unit: &unit,
+                description: &format!("KDTV recording: {}", s.describe()),
+                working_dir: &cfg.cli_dir,
+                max_seconds: None,
+                command,
+            })
+        });
+        // Marked either way: a slot that failed to start isn't retried every few seconds.
+        let _ = std::fs::create_dir_all(marker.parent().unwrap_or(&cfg.data_dir));
+        let _ = std::fs::write(&marker, &slot);
+        match result {
+            Ok(()) => {
+                crate::log::event(cfg, "schedule.start", json!({ "id": s.id, "slot": slot, "seconds": seconds }));
+                started.push(s.describe());
+            }
+            Err(e) => crate::log::event(cfg, "schedule.start_failed", json!({ "id": s.id, "slot": slot, "error": format!("{e:#}") })),
+        }
+    }
+    started
+}
+
 fn write(data_dir: &Path, s: &ScheduleFile) -> Result<()> {
     let file = path(data_dir, &s.id)?;
     std::fs::create_dir_all(file.parent().unwrap_or(data_dir))?;
@@ -383,14 +477,14 @@ fn write(data_dir: &Path, s: &ScheduleFile) -> Result<()> {
 fn unit_dir() -> PathBuf {
     std::env::var("KDCLI_SYSTEMD_USER_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".config/systemd/user"))
+        .unwrap_or_else(|_| crate::os::home().unwrap_or_default().join(".config/systemd/user"))
 }
 
 fn write_units(cfg: &Config, s: &ScheduleFile) -> Result<()> {
     let dir = unit_dir();
     std::fs::create_dir_all(&dir)?;
     let unit = format!("{UNIT_PREFIX}{}", s.id);
-    let exe = crate::systemd::kdtv_exe()?;
+    let exe = jobs::kdtv_exe()?;
     let mut command = vec![exe.display().to_string()];
     command.extend(cfg.config_args());
     command.extend(["run-schedule".to_string(), s.id.clone()]);
@@ -419,6 +513,10 @@ fn write_units(cfg: &Config, s: &ScheduleFile) -> Result<()> {
 /// moving it), keeping each timer on or off as it was. Returns how many.
 pub fn repair(cfg: &Config) -> Result<usize> {
     let all = files(&cfg.data_dir);
+    if !jobs::uses_systemd() {
+        // No timers to rewrite: kdtv starts the recordings itself.
+        return Ok(all.len());
+    }
     for s in &all {
         write_units(cfg, s)?;
     }
@@ -441,11 +539,7 @@ fn systemd_quote(arg: &str) -> String {
 }
 
 fn random_hex() -> String {
-    let mut bytes = [0u8; 4];
-    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
-        let _ = std::io::Read::read_exact(&mut f, &mut bytes);
-    }
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    crate::os::random_hex(4)
 }
 
 /// "CA FR: NOOVO V-TELE HD" → "ca-fr-noovo-v-tele-h" (20 characters at most).
@@ -498,6 +592,56 @@ mod tests {
         assert!(!w(&[], Some("2026-10-19"), "18:29", 30).overlaps(&sunday_od));
         assert!(w(&["Mon", "Sun"], None, "17:00", 90).overlaps(&sunday_od));
         assert!(!w(&["Mon"], None, "18:29", 35).overlaps(&sunday_od));
+    }
+
+    fn at(text: &str) -> NaiveDateTime {
+        NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M").unwrap()
+    }
+
+    fn sched(days: &[&str], date: Option<&str>, time: &str, minutes: i64) -> ScheduleFile {
+        ScheduleFile {
+            id: "test-1".into(),
+            stream_id: 1,
+            channel_name: "X".into(),
+            time: time.into(),
+            duration_min: minutes,
+            days: days.iter().map(|d| d.to_string()).collect(),
+            date: date.map(str::to_string),
+            show_name: None,
+            notify: true,
+            enabled: true,
+            created_at: String::new(),
+            created_by: None,
+        }
+    }
+
+    #[test]
+    fn kdtv_knows_when_a_slot_is_on() {
+        // 2026-11-22 is a Sunday.
+        let hockey = sched(&["Sun"], None, "19:00", 180);
+        assert_eq!(slot_now(&hockey, at("2026-11-22 18:59")), None);
+        assert_eq!(slot_now(&hockey, at("2026-11-22 19:00")), Some(at("2026-11-22 19:00")));
+        // Opened late: still in the slot, the rest gets recorded.
+        assert_eq!(slot_now(&hockey, at("2026-11-22 21:30")), Some(at("2026-11-22 19:00")));
+        // Less than two minutes left: not worth starting.
+        assert_eq!(slot_now(&hockey, at("2026-11-22 21:59")), None);
+        assert_eq!(slot_now(&hockey, at("2026-11-23 19:30")), None);
+        // A late show runs past midnight into Monday.
+        let late = sched(&["Sun"], None, "23:30", 90);
+        assert_eq!(slot_now(&late, at("2026-11-23 00:15")), Some(at("2026-11-22 23:30")));
+        let once = sched(&[], Some("2026-11-25"), "20:00", 60);
+        assert_eq!(slot_now(&once, at("2026-11-25 20:10")), Some(at("2026-11-25 20:00")));
+        assert_eq!(slot_now(&once, at("2026-11-24 20:10")), None);
+    }
+
+    #[test]
+    fn kdtv_knows_the_next_start() {
+        let hockey = sched(&["Sun", "Wed"], None, "19:00", 180);
+        assert_eq!(next_start(&hockey, at("2026-11-21 12:00")), Some(at("2026-11-22 19:00")));
+        assert_eq!(next_start(&hockey, at("2026-11-22 19:00")), Some(at("2026-11-25 19:00")));
+        let once = sched(&[], Some("2026-11-25"), "20:00", 60);
+        assert_eq!(next_start(&once, at("2026-11-21 12:00")), Some(at("2026-11-25 20:00")));
+        assert_eq!(next_start(&once, at("2026-11-26 12:00")), None);
     }
 
     #[test]

@@ -3,18 +3,15 @@
 //! (`actions.rs`), its read-only eyes for the owner (`eyes.rs`), and the bridge
 //! the site talks to (`runner.rs`).
 
+// On Windows JP's runner (the OMT bridge) isn't built, so parts only it uses sit idle.
+#![cfg_attr(not(unix), allow(dead_code))]
+
 pub mod actions;
 mod card;
 pub mod eyes;
 mod prompt;
+#[cfg(unix)]
 pub mod runner;
 pub mod tools;
 
-/// `bytes` random bytes as hex, from /dev/urandom.
-pub fn random_hex(bytes: usize) -> String {
-    let mut buf = vec![0u8; bytes];
-    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
-        let _ = std::io::Read::read_exact(&mut f, &mut buf);
-    }
-    buf.iter().map(|b| format!("{b:02x}")).collect()
-}
+pub use crate::os::random_hex;

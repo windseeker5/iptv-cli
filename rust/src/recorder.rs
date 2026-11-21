@@ -228,7 +228,7 @@ fn record_once(cfg: &Config, url: &str, output: &Path, seconds: i64, channel_nam
 
     // A stalled stream can hang FFmpeg past its -t: stop it five minutes after.
     let done = Arc::new(AtomicBool::new(false));
-    let pid = child.id() as i32;
+    let pid = child.id();
     {
         let done = done.clone();
         let limit = Duration::from_secs(seconds as u64 + 300);
@@ -241,8 +241,7 @@ fn record_once(cfg: &Config, url: &str, output: &Path, seconds: i64, channel_nam
                 std::thread::sleep(Duration::from_secs(5));
             }
             if !done.load(Ordering::Relaxed) {
-                // SAFETY: plain kill(2) on our own child's pid.
-                unsafe { libc::kill(pid, libc::SIGTERM) };
+                crate::os::terminate(pid);
             }
         });
     }
@@ -451,7 +450,7 @@ impl Log {
 
 /// `kdtv run-schedule <id>`: what a schedule's timer starts. A fresh date-stamped
 /// file, then the recorder; a one-time schedule removes itself once it has run.
-pub fn run_schedule(cfg: &Config, id: &str) -> Result<i32> {
+pub fn run_schedule(cfg: &Config, id: &str, seconds: Option<i64>) -> Result<i32> {
     let s = crate::schedules::load(&cfg.data_dir, id).with_context(|| format!("no such schedule: {id}"))?;
     if !s.enabled {
         return Ok(0);
@@ -463,7 +462,7 @@ pub fn run_schedule(cfg: &Config, id: &str) -> Result<i32> {
         (Some(_), None) => anyhow::bail!("schedule {id} names a show but TVSHOW_LIBRARY_ROOT is not set in .env"),
         (None, _) => None,
     };
-    let job = Job { stream_id: s.stream_id, seconds: s.duration_min * 60, output, channel_name: s.channel_name.clone(), show, notify: s.notify, drive_warning };
+    let job = Job { stream_id: s.stream_id, seconds: seconds.unwrap_or(s.duration_min * 60), output, channel_name: s.channel_name.clone(), show, notify: s.notify, drive_warning };
     let code = run(cfg, &job);
     if s.days.is_empty() {
         crate::schedules::delete(cfg, id)?;

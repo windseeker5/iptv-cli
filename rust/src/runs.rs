@@ -57,7 +57,7 @@ pub fn recent(data_dir: &Path, limit: usize) -> Vec<Run> {
         .collect();
     files.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
     // A run still marked running with no recording unit alive was stopped or crashed.
-    let recording_now = !crate::systemd::active_units(crate::record::UNIT_PATTERNS).is_empty();
+    let recording_now = !crate::jobs::active_units(crate::record::UNIT_PATTERNS).is_empty();
     files
         .iter()
         .take(limit)
@@ -99,7 +99,7 @@ pub fn episode_paths(data_dir: &Path) -> Vec<std::path::PathBuf> {
 /// A recording still running keeps its diary.
 pub fn clear(data_dir: &Path) -> std::io::Result<usize> {
     let Ok(entries) = std::fs::read_dir(data_dir.join("runs")) else { return Ok(0) };
-    let recording_now = !crate::systemd::active_units(crate::record::UNIT_PATTERNS).is_empty();
+    let recording_now = !crate::jobs::active_units(crate::record::UNIT_PATTERNS).is_empty();
     let mut cleared = 0;
     for path in entries.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "json")) {
         let running = std::fs::read_to_string(&path)

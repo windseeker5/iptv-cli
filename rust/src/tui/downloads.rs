@@ -121,7 +121,7 @@ impl App {
                 lines.push(label_value("Saves to", j.output.clone(), DIM));
                 if j.state == State::Waiting {
                     lines.push(Line::raw(""));
-                    lines.push(Line::from(dim("Paused while a recording, the restream or something you watch uses the connection. It picks up where it stopped.")));
+                    lines.push(Line::from(dim(if self.cfg.lite { "Paused while a recording or something you watch uses the connection. It picks up where it stopped." } else { "Paused while a recording, the restream or something you watch uses the connection. It picks up where it stopped." })));
                 }
                 if let Some(e) = &j.error {
                     lines.push(Line::raw(""));
@@ -133,7 +133,7 @@ impl App {
                 vec![
                     Line::from("One at a time").bold(),
                     Line::raw(""),
-                    Line::from(dim("Your provider allows one connection: downloads pause by themselves while a recording, the restream or something you watch runs, then resume.")),
+                    Line::from(dim(if self.cfg.lite { "Your provider allows one connection: downloads pause by themselves while a recording or something you watch runs, then resume." } else { "Your provider allows one connection: downloads pause by themselves while a recording, the restream or something you watch runs, then resume." })),
                     Line::raw(""),
                     Line::from(dim("YouTube downloads don't use that connection and carry on.")),
                 ],

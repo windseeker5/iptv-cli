@@ -18,8 +18,12 @@ pub fn discord(cfg: &Config, message: &str) -> Result<(), String> {
         .map_err(|_| "Discord did not accept the message".to_string())
 }
 
-/// A desktop pop-up (notify-send); nothing happens where there is no desktop (a Pi).
+/// A desktop pop-up (notify-send); nothing happens where there is no desktop (a Pi)
+/// or no notify-send (Windows: the screen's status bar says it instead).
 pub fn desktop(title: &str, body: &str, urgent: bool) {
+    if cfg!(windows) {
+        return;
+    }
     let _ = Command::new("notify-send")
         .args(["--app-name=KDTV", "--urgency", if urgent { "critical" } else { "normal" }, title, body])
         .stdin(Stdio::null())

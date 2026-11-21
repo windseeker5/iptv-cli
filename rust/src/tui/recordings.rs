@@ -30,7 +30,7 @@ impl App {
             rows.row(Key::Restream, Line::from(vec![Span::styled(" LIVE ", Style::new().fg(BG).bg(OK).bold()), Span::raw(format!("  {}", fit(&name, w.saturating_sub(8))))]));
         }
         if self.status.recording.is_empty() && !self.status.restream.live {
-            rows.note("Nothing is recording or restreaming.");
+            rows.note(if self.cfg.lite { "Nothing is recording." } else { "Nothing is recording or restreaming." });
         }
 
         rows.header("SCHEDULED");
@@ -116,7 +116,7 @@ impl App {
                         label_value("When", if s.days.is_empty() { format!("once, {} {}", s.date.clone().unwrap_or_default(), s.time) } else { format!("every {} at {}", s.days.join("/"), s.time) }, FG),
                         label_value("Length", format!("{} min", s.duration_min), FG),
                         label_value("Next", if s.enabled { s.next_run.clone().unwrap_or_else(|| "not planned".into()) } else { "paused".into() }, FG),
-                        label_value("Goes to", s.show_name.as_ref().map(|n| format!("Jellyfin “{n}”")).unwrap_or_else(|| "recordings folder".into()), FG),
+                        label_value("Goes to", s.show_name.as_ref().map(|n| format!("Jellyfin “{n}”")).unwrap_or_else(|| super::folder(&self.cfg, &self.cfg.records_dir())), FG),
                         label_value("Made by", s.created_by.clone().unwrap_or_default(), DIM),
                     ],
                     vec![("space", (if s.enabled { "pause" } else { "resume" }).to_string()), ("d", "delete".to_string())],

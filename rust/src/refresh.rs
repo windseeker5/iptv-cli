@@ -88,6 +88,17 @@ pub fn api(cfg: &Config, action: Option<&str>) -> Result<Value> {
     serde_json::from_slice(&out.stdout).with_context(|| format!("the provider sent something that isn't JSON for {}", action.unwrap_or("account")))
 }
 
+/// Whether the provider accepts this login (`user_info.auth` is 1).
+pub fn check_login(cfg: &Config) -> Result<()> {
+    let account = api(cfg, None).context("the provider didn't answer: check the server address")?;
+    let auth = &account["user_info"]["auth"];
+    if auth.as_i64() == Some(1) || auth.as_str() == Some("1") {
+        Ok(())
+    } else {
+        bail!("the provider refused this username and password")
+    }
+}
+
 fn list(v: &Value) -> &[Value] {
     v.as_array().map(Vec::as_slice).unwrap_or(&[])
 }
@@ -374,17 +385,13 @@ fn thousands(n: usize) -> String {
     out
 }
 
-/// An exclusive lock file (`flock`), held for as long as the file stays open.
+/// An exclusive lock file, held for as long as the file stays open.
 struct Lock(#[allow(dead_code)] std::fs::File);
 
 impl Lock {
     fn take(path: &Path) -> Result<Lock> {
-        use std::os::fd::AsRawFd;
         let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(path)?;
-        // SAFETY: flock on a file descriptor we own; it is released when the file closes.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
-            bail!("could not lock {}", path.display());
-        }
+        file.lock().with_context(|| format!("could not lock {}", path.display()))?;
         Ok(Lock(file))
     }
 }

@@ -1,8 +1,8 @@
 //! The download queue: movies, series episodes and YouTube videos.
 //!
 //! Each job is a small file in `data/kd/downloads/<id>.json` (no provider URL in
-//! it: the worker looks the stream up when it starts). One worker, the systemd user
-//! unit `kd-downloads` (`kdtv download-worker`), takes the jobs one at a time and
+//! it: the worker looks the stream up when it starts). One worker, the background
+//! job `kd-downloads` (`kdtv download-worker`), takes the jobs one at a time and
 //! exits when the queue is empty.
 //!
 //! The provider allows a single connection, so provider downloads step aside
@@ -16,7 +16,7 @@
 
 use crate::config::Config;
 use crate::db::{Db, Episode, Movie};
-use crate::systemd;
+use crate::jobs;
 use crate::youtube::Video;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -275,14 +275,14 @@ pub fn cancel(cfg: &Config, id: &str) -> Result<Job> {
 
 /// Start the worker unless it is already running.
 fn ensure_worker(cfg: &Config) -> Result<()> {
-    if systemd::is_active(UNIT) {
+    if jobs::is_active(UNIT) {
         return Ok(());
     }
-    let exe = systemd::kdtv_exe()?;
+    let exe = jobs::kdtv_exe()?;
     let mut command = vec![exe.display().to_string()];
     command.extend(cfg.config_args());
     command.push("download-worker".into());
-    systemd::run(systemd::Run { unit: UNIT, description: "KDTV download queue", working_dir: &cfg.cli_dir, max_seconds: None, command })
+    jobs::start(jobs::Run { unit: UNIT, description: "KDTV download queue", working_dir: &cfg.cli_dir, max_seconds: None, command })
 }
 
 // ── the worker ───────────────────────────────────────────────────────────
@@ -332,7 +332,7 @@ fn stamp() -> String {
 }
 
 fn connection_busy(cfg: &Config) -> bool {
-    !systemd::active_units(crate::record::UNIT_PATTERNS).is_empty() || crate::restream::active(&cfg.data_dir).is_some() || crate::play::playing(cfg)
+    !jobs::active_units(crate::record::UNIT_PATTERNS).is_empty() || crate::restream::active(&cfg.data_dir).is_some() || crate::play::playing(cfg)
 }
 
 fn finish(cfg: &Config, job: &mut Job) -> Result<()> {
@@ -350,7 +350,7 @@ fn finish(cfg: &Config, job: &mut Job) -> Result<()> {
 /// 16 bytes), so ask for the first byte and read the total in Content-Range.
 fn remote_size(url: &str) -> Option<u64> {
     let out = Command::new("curl")
-        .args(["-sS", "-L", "-r", "0-0", "--max-time", "20", "-A", USER_AGENT, "-H", "Accept: */*", "-D", "-", "-o", "/dev/null"])
+        .args(["-sS", "-L", "-r", "0-0", "--max-time", "20", "-A", USER_AGENT, "-H", "Accept: */*", "-D", "-", "-o", crate::os::null_device()])
         .arg(url)
         .output()
         .ok()?;
@@ -569,8 +569,16 @@ fn to_resolve(cfg: &Config, job: &mut Job, src: &Path) -> Result<Option<String>>
     };
     let seconds: f64 = probe(src, "format=duration", "").parse().unwrap_or(0.0);
     let out = src.with_extension(format!("resolve.{BEST_EXT}"));
-    let mut child = Command::new("nice")
-        .args(["-n", "15", "ffmpeg", "-v", "error", "-nostats", "-progress", "pipe:1", "-y", "-i"])
+    // Low priority on Linux (`nice`); Windows has no such command.
+    let mut cmd = if cfg!(windows) {
+        Command::new("ffmpeg")
+    } else {
+        let mut c = Command::new("nice");
+        c.args(["-n", "15", "ffmpeg"]);
+        c
+    };
+    let mut child = cmd
+        .args(["-v", "error", "-nostats", "-progress", "pipe:1", "-y", "-i"])
         .arg(src)
         .args(["-map", "0:v:0", "-map", "0:a:0?"])
         .args(video)

@@ -758,6 +758,7 @@ dependencies = [
  "serde_json",
  "toml",
  "unicode-width",
+ "windows-sys",
 ]
 
 [[package]]

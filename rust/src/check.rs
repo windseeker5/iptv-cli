@@ -25,14 +25,21 @@ pub fn run(cfg: &Config, json: bool) -> Result<()> {
     let mut items = vec![];
     let mut add = |what: &str, ok, required, detail: String| items.push(Item { what: what.to_string(), ok, required, detail });
 
-    add("Config file", cfg.file.is_some(), false, match &cfg.file {
+    add("Config file", cfg.file.is_some() || cfg.lite, false, match &cfg.file {
         Some(f) => f.display().to_string(),
+        None if cfg.lite => format!("none needed: kdtv keeps its files in {}", cfg.cli_dir.display()),
         None => "none found: using the current folder (see rust/kdtv.example.toml)".into(),
     });
     add("Data folder", cfg.data_dir.is_dir(), true, cfg.data_dir.display().to_string());
     let p = &cfg.provider;
     let login = !p.server.is_empty() && !p.username.is_empty() && !p.password.is_empty();
-    add("Provider login", login, true, if login { format!("in {}", cfg.env_file.display()) } else { format!("set IPTV_SERVER_URL, IPTV_USERNAME, IPTV_PASSWORD in {}", cfg.env_file.display()) });
+    add("Provider login", login, true, if login {
+        format!("in {}", cfg.env_file.display())
+    } else if cfg.lite {
+        "not set yet: open kdtv and it asks for it".into()
+    } else {
+        format!("set IPTV_SERVER_URL, IPTV_USERNAME, IPTV_PASSWORD in {}", cfg.env_file.display())
+    });
 
     let db = crate::db::Db::open(&cfg.data_dir).ok().and_then(|d| d.counts().ok());
     add("Channel list", db.as_ref().is_some_and(|c| c.live > 0), true, match &db {
@@ -52,14 +59,17 @@ pub fn run(cfg: &Config, json: bool) -> Result<()> {
         Err(e) => e.to_string(),
     });
 
-    for (name, arg, required, why) in [
+    let mut tools = vec![
         ("ffmpeg", "-version", true, "records and restreams"),
         ("curl", "--version", true, "talks to the provider and downloads"),
         ("mpv", "--version", false, "plays channels, movies and files"),
         ("yt-dlp", "--version", false, "YouTube search and downloads"),
-        ("systemctl", "--version", true, "runs recordings, the restream and downloads in the background"),
-        ("docker", "--version", false, "only for the NGINX restream and other containers"),
-    ] {
+    ];
+    if !cfg.lite {
+        tools.push(("systemctl", "--version", true, "runs recordings, the restream and downloads in the background"));
+        tools.push(("docker", "--version", false, "only for the NGINX restream and other containers"));
+    }
+    for (name, arg, required, why) in tools {
         let found = tool(name, arg);
         add(name, found.is_some(), required, match found {
             Some(v) => v,
@@ -67,6 +77,11 @@ pub fn run(cfg: &Config, json: bool) -> Result<()> {
         });
     }
 
+    if cfg.lite {
+        let n = crate::schedules::list(&cfg.data_dir).iter().filter(|s| s.enabled).count();
+        add("Schedules", true, false, format!("{n} on; they record while kdtv is open (keep the computer on)"));
+        return print(&items, json);
+    }
     let linger = Command::new("loginctl").args(["show-user", &std::env::var("USER").unwrap_or_default(), "-p", "Linger", "--value"]).output();
     let linger = linger.is_ok_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "yes");
     add("Runs when logged out", linger, false, if linger { "yes (user lingering on)".into() } else { "no: sudo loginctl enable-linger $USER, so timers record while you're logged out".into() });
@@ -76,13 +91,16 @@ pub fn run(cfg: &Config, json: bool) -> Result<()> {
         RestreamVia::Kdtv => format!("through kdtv on port {} ({})", cfg.web_port, if crate::web::port_in_use(cfg) { "port in use: kdtv web or another server answers" } else { "free" }),
     };
     add("Restream", true, false, restream);
+    print(&items, json)
+}
 
+fn print(items: &[Item], json: bool) -> Result<()> {
     if json {
         println!("{}", serde_json::to_string_pretty(&items)?);
         return Ok(());
     }
     let mut missing_required = false;
-    for i in &items {
+    for i in items {
         let mark = if i.ok { "\x1b[32m✓\x1b[0m" } else if i.required { "\x1b[31m✗\x1b[0m" } else { "\x1b[33m!\x1b[0m" };
         missing_required |= !i.ok && i.required;
         println!("{mark} {:<22} {}", i.what, i.detail);
